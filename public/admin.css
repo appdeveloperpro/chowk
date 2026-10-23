@@ -68,7 +68,6 @@
 
 .admin-eyebrow {
   color: #ae7657;
-  font-family: Arial, sans-serif;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -77,7 +76,6 @@
 .admin-login-intro h1 {
   margin: 8px 0 6px;
   color: #242c3a;
-  font-family: Arial, sans-serif;
   font-size: 28px;
   letter-spacing: -0.04em;
 }
@@ -179,7 +177,7 @@
   margin: 0;
   background: #f5f7fb;
   color: #17233b;
-  font-family: Arial, sans-serif;
+  font-family: var(--sans);
   font-size: 14px;
 }
 
@@ -205,18 +203,54 @@
   margin: 0 8px 30px;
 }
 
-.admin-nav-heading {
-  padding: 0 12px 10px;
-  color: #a0a9b8;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-
 .admin-nav {
   display: grid;
-  gap: 3px;
+  min-height: 0;
+  flex: 1;
+  align-content: start;
+  gap: 13px;
   overflow-y: auto;
+  scrollbar-color: #c5b4a2 #f8f4ee;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.admin-nav::-webkit-scrollbar {
+  width: 9px;
+}
+
+.admin-nav::-webkit-scrollbar-track {
+  margin-block: 4px;
+  border-radius: 99px;
+  background: #f8f4ee;
+}
+
+.admin-nav::-webkit-scrollbar-thumb {
+  min-height: 42px;
+  border: 2px solid #f8f4ee;
+  border-radius: 99px;
+  background: #c5b4a2;
+}
+
+.admin-nav::-webkit-scrollbar-thumb:hover {
+  background: #a9947f;
+}
+
+.admin-nav::-webkit-scrollbar-button {
+  display: none;
+}
+
+.admin-nav-group {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-nav-heading {
+  padding: 4px 12px 6px;
+  color: #a0a9b8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
 }
 
 .admin-nav-item {
@@ -230,7 +264,7 @@
   background: transparent;
   color: #68758a;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   text-align: left;
 }
@@ -292,7 +326,7 @@
 
 .admin-breadcrumb {
   color: #929bad;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .admin-breadcrumb > span {
@@ -329,7 +363,7 @@
 
 .admin-account-copy strong {
   color: #27334a;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .admin-account-copy small {
@@ -347,7 +381,7 @@
   background: #fff;
   color: #6d788b;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -358,14 +392,29 @@
 }
 
 .admin-content {
-  max-width: 1320px;
+  max-width: 1520px;
   margin: 0 auto;
-  padding: 30px 28px 52px;
+  padding: 34px 36px 56px;
 }
 
 .admin-section {
   display: grid;
-  gap: 22px;
+  gap: 24px;
+}
+
+.admin-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 2px;
 }
 
 .admin-page-heading h1 {
@@ -378,12 +427,12 @@
 .admin-page-heading p {
   margin: 0;
   color: #8993a4;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .admin-metric-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 13px;
 }
 
@@ -421,7 +470,7 @@
 .metric-label {
   align-self: end;
   color: #8993a4;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .metric-value {
@@ -452,7 +501,7 @@
 .admin-module-notice h2 {
   margin: 0;
   color: #27334a;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .admin-panel-heading > span {
@@ -467,13 +516,13 @@
 .admin-table-wrap table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
 }
 
 .admin-table-wrap th,
 .admin-table-wrap td {
-  padding: 12px 18px;
+  padding: 13px 18px;
   border-bottom: 1px solid #edf0f4;
   white-space: nowrap;
 }
@@ -481,7 +530,7 @@
 .admin-table-wrap th {
   background: #fafbfc;
   color: #8993a4;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -519,7 +568,7 @@
   color: #68758a;
   cursor: pointer;
   font: inherit;
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -545,10 +594,6 @@
 .admin-create-button {
   justify-self: start;
   padding-inline: 13px;
-}
-
-.admin-nav-heading-settings {
-  margin-top: 22px;
 }
 
 .admin-settings-button {
@@ -978,6 +1023,163 @@
   font-size: 12px;
 }
 
+.reporter-setup-overview {
+  display: grid;
+  gap: 18px;
+}
+
+.reporter-setup-overview-heading > div {
+  color: #8b96a8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.reporter-setup-overview-heading p {
+  margin: 7px 0 0;
+  color: #778397;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.reporter-setup-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.reporter-setup-card {
+  display: grid;
+  min-height: 168px;
+  align-content: start;
+  justify-items: start;
+  gap: 11px;
+  padding: 19px;
+  border: 1px solid #e5e9f0;
+  border-radius: 12px;
+  background: white;
+  color: #27334a;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.reporter-setup-card:hover,
+.reporter-setup-card[aria-pressed="true"] {
+  transform: translateY(-2px);
+  border-color: #f0a27c;
+  box-shadow: 0 9px 24px rgb(24 36 59 / 7%);
+}
+
+.reporter-setup-card:focus-visible {
+  outline: 3px solid rgb(242 107 48 / 30%);
+  outline-offset: 2px;
+}
+
+.reporter-setup-card.needs-attention {
+  border-color: #f0d0b8;
+  background: #fffaf6;
+}
+
+.reporter-setup-card-label {
+  color: #69758a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reporter-setup-card-count {
+  color: #202d45;
+  font-size: 27px;
+  letter-spacing: -0.04em;
+}
+
+.reporter-setup-card-detail {
+  min-height: 34px;
+  color: #8993a4;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.reporter-setup-card-action {
+  margin-top: auto;
+  color: #df642e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reporter-setup-readiness {
+  display: grid;
+  gap: 5px;
+  padding: 15px 17px;
+  border: 1px solid #f0d8c7;
+  border-radius: 10px;
+  background: #fffaf6;
+}
+
+.reporter-setup-readiness.is-ready {
+  border-color: #cfe8d9;
+  background: #f6fcf8;
+}
+
+.reporter-setup-readiness strong {
+  color: #37445b;
+  font-size: 12px;
+}
+
+.reporter-setup-readiness span {
+  color: #778397;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.reporter-setup-detail {
+  display: grid;
+}
+
+.reporter-setup-detail-heading {
+  align-items: center;
+}
+
+.reporter-setup-detail-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.reporter-setup-detail-copy h2 {
+  margin: 0;
+  color: #27334a;
+  font-size: 15px;
+}
+
+.reporter-setup-detail-copy span {
+  color: #8993a4;
+  font-size: 11px;
+}
+
+.reporter-setup-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reporter-setup-add {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.reporter-setup-table-heading {
+  padding-block: 12px;
+  background: #fcfcfd;
+}
+
+.reporter-setup-table-heading strong {
+  color: #556176;
+  font-size: 11px;
+}
+
 .admin-error-panel p {
   color: #786d6d;
 }
@@ -988,7 +1190,7 @@
   }
 
   .admin-content {
-    padding-inline: 18px;
+    padding-inline: 22px;
   }
 
   .admin-topbar {
@@ -1005,6 +1207,14 @@
 
   .admin-audit-apply {
     grid-column: span 2;
+  }
+
+  .admin-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reporter-setup-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1035,7 +1245,25 @@
     display: flex;
     gap: 6px;
     overflow-x: auto;
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: #c9ced8 transparent;
+  }
+
+  .admin-nav::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .admin-nav::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: #c9ced8;
+  }
+
+  .admin-nav-group {
+    display: contents;
+  }
+
+  .admin-nav-group .admin-nav-heading {
+    display: none;
   }
 
   .admin-nav-item {
@@ -1061,6 +1289,10 @@
 
   .admin-content {
     padding: 22px 14px 36px;
+  }
+
+  .admin-page-heading {
+    align-items: flex-start;
   }
 
   .admin-metric-grid {
@@ -1092,5 +1324,25 @@
 
   .admin-audit-value-grid {
     grid-template-columns: 1fr;
+  }
+
+  .reporter-setup-cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .reporter-setup-card {
+    min-height: 140px;
+    padding: 16px;
+  }
+
+  .reporter-setup-detail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .reporter-setup-detail-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }

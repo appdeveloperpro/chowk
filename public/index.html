@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="/styles.css">
     <script src="/app.js" defer></script>
   </head>
-  <body>
+  <body id="top">
     <div class="development-notice" role="note" aria-label="Development phase notice">
       <div class="notice-inner">
         <span class="notice-dot" aria-hidden="true"></span>
@@ -23,19 +23,18 @@
     <header class="site-header">
       <div class="masthead page-width">
         <a class="brand" href="/" aria-label="CHOWK NEWS होम">
-          <span class="brand-name">CHOWK<span>.</span></span>
-          <span class="brand-tagline">बात सीधी, चोट तीखी</span>
+          <img class="brand-logo" src="/chowk-logo.png" alt="CHOWK NEWS — बात सीधी, चोट तीखी">
         </a>
 
         <p class="location-note">खबर आपके शहर की <span aria-hidden="true">·</span> ज़मीनी नज़र, साफ़ बात</p>
 
         <div class="header-actions">
-          <button class="icon-button" type="button" aria-label="खोजें" id="search-toggle">
+          <button class="icon-button" type="button" aria-label="खोजें" id="search-toggle" aria-expanded="false" aria-controls="search-form">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"></circle><path d="m16 16 4.2 4.2"></path></svg>
           </button>
-          <a class="login-button" href="/reporter">Reporter</a>
-          <a class="login-button" href="/auth?mode=login"><span aria-hidden="true">↪</span> लॉगिन</a>
-          <a class="join-button" href="/auth?mode=register"><span aria-hidden="true">✣</span> जुड़ें</a>
+          <a class="login-button reporter-entry" href="/reporter">रिपोर्टर</a>
+          <a class="login-button" href="/auth?mode=login">लॉगिन</a>
+          <a class="join-button" href="/auth?mode=register">जुड़ें <span aria-hidden="true">↗</span></a>
         </div>
       </div>
 
@@ -45,37 +44,46 @@
         <button type="submit">खोजें</button>
       </form>
 
-      <nav class="category-nav" aria-label="खबरों की श्रेणियां">
+      <nav class="category-nav" aria-label="मुख्य नेविगेशन">
         <div class="page-width nav-items">
-          <button class="nav-link active" type="button" data-category="सभी">होम</button>
-          <button class="nav-link" type="button" data-category="राजनीति">ताज़ा खबरें</button>
-          <button class="nav-link" type="button" data-category="खेल">चौक लाइव</button>
-          <button class="nav-link" type="button" data-category="संस्कृति">संपादकीय नीति</button>
-          <button class="nav-link" type="button" data-category="व्यापार">हमारे बारे में</button>
-          <button class="nav-link" type="button" data-category="शिक्षा">नीतियां</button>
+          <a class="nav-link active" href="/" aria-current="page">होम</a>
+          <a class="nav-link" href="#latest">ताज़ा खबरें</a>
+          <a class="nav-link" href="#live">चौक लाइव</a>
+          <a class="nav-link" href="/legal/corrections-takedown-grievance">संपादकीय नीति</a>
+          <a class="nav-link" href="#about">हमारे बारे में</a>
+          <a class="nav-link" href="/legal">नीतियां</a>
         </div>
       </nav>
     </header>
 
-    <div class="live-strip">
+    <div class="live-strip" role="note">
       <div class="page-width live-strip-inner">
-        <span class="live-label">आज की खबर</span>
+        <span class="live-label">साइट अपडेट</span>
         <span class="ticker-copy">चौक न्यूज़ का नया डिजिटल अनुभव तैयार हो रहा है</span>
         <span class="ticker-location">CHOWK NEWS <span aria-hidden="true">·</span> INDIA</span>
       </div>
     </div>
 
     <main class="page-width main-content">
-      <section class="intro">
-        <div>
-          <p class="eyebrow">सीधी बात · साफ़ खबर</p>
-          <h1>आपके शहर से,<br><span>आपकी नज़र से।</span></h1>
+      <section class="home-hero" aria-labelledby="home-title">
+        <div class="hero-copy">
+          <p class="eyebrow">सीधी बात <span aria-hidden="true">·</span> साफ़ खबर</p>
+          <h1 id="home-title">खबरें,<br><span>आपके नज़रिए से।</span></h1>
+          <p class="intro-copy">आपके शहर, आपके समुदाय और रोज़मर्रा की ज़िंदगी से जुड़ी कहानियों के लिए एक नया स्थानीय न्यूज़ पोर्टल तैयार हो रहा है।</p>
+          <a class="hero-cta" href="#latest">खबरों की ओर <span aria-hidden="true">↓</span></a>
+          <div class="hero-signoff"><span class="status-dot orange" aria-hidden="true"></span> स्थानीय आवाज़ों के लिए एक नया मंच</div>
         </div>
-        <p class="intro-copy">स्थानीय खबरें, ज़मीनी रिपोर्ट और उन मुद्दों की आवाज़ जो आपकी रोज़मर्रा की ज़िंदगी से जुड़े हैं।</p>
+        <div class="hero-art" aria-hidden="true">
+          <div class="hero-sun"></div>
+          <div class="hero-orbit hero-orbit-outer"></div>
+          <div class="hero-orbit hero-orbit-inner"></div>
+          <div class="hero-stamp"><span>CHOWK</span><strong>चौक</strong><small>आपकी नज़र · आपकी आवाज़</small></div>
+          <span class="hero-coordinate">स्थानीय · ज़मीनी · ज़रूरी</span>
+        </div>
       </section>
 
       <section class="category-chips" aria-label="खबरों की श्रेणियां">
-        <button class="chip active" type="button" data-category="सभी">सभी</button>
+        <button class="chip active" type="button" data-category="">सभी खबरें</button>
         <button class="chip" type="button" data-category="राजनीति">राजनीति</button>
         <button class="chip" type="button" data-category="खेल">खेल</button>
         <button class="chip" type="button" data-category="व्यापार">बिज़नेस</button>
@@ -90,52 +98,87 @@
       </section>
 
       <div class="news-layout">
-        <section class="top-news" aria-labelledby="top-news-title">
+        <section class="top-news" id="latest" aria-labelledby="top-news-title">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">मुख्य खबरें</p>
-              <h2 id="top-news-title">आज की बड़ी खबर</h2>
+              <p class="eyebrow">चौक न्यूज़रूम</p>
+              <h2 id="top-news-title">ताज़ा खबरें</h2>
             </div>
             <span class="heading-rule" aria-hidden="true"></span>
+            <span class="section-kicker">सबसे नया पहले</span>
           </div>
-          <div id="news-feed" class="news-feed" aria-live="polite">
+          <div id="news-feed" class="news-feed" aria-live="polite" aria-busy="true">
             <div class="empty-state">
               <span class="empty-mark" aria-hidden="true">चौ</span>
-              <h3>न्यूज़ फ़ीड उपलब्ध नहीं है</h3>
-              <p>समाचार स्रोत से कनेक्ट होने पर खबरें यहां दिखाई देंगी।</p>
+              <h3>न्यूज़ फ़ीड लोड हो रही है</h3>
+              <p>प्रकाशित खबरें यहां दिखाई देंगी।</p>
               <button class="retry-button" id="retry-button" type="button">फिर से कोशिश करें</button>
             </div>
           </div>
         </section>
 
-        <aside class="sidebar" aria-labelledby="sidebar-title">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">अपडेट रहें</p>
-              <h2 id="sidebar-title">और पढ़ें</h2>
-            </div>
-            <span class="heading-rule" aria-hidden="true"></span>
-          </div>
-          <section class="side-card">
-            <h3><span class="status-dot orange" aria-hidden="true"></span> अपडेट के लिए तैयार</h3>
-            <p>जैसे ही खबरें प्रकाशित होंगी, यहां अपडेट और विषय दिखेंगे।</p>
-          </section>
-          <section class="side-card live-card">
+        <aside class="sidebar" aria-label="चौक न्यूज़ की जानकारी">
+          <section class="side-card status-card">
             <div class="side-card-title">
-              <h3><span class="status-dot green" aria-hidden="true"></span> चौक लाइव</h3>
+              <h2><span class="status-dot orange" aria-hidden="true"></span> विकास के चरण में</h2>
+              <span class="live-status">डेमो</span>
+            </div>
+            <p>इस वेबसाइट की खबरें और जानकारी अभी वास्तविक समाचार नहीं हैं। सामग्री विकास और परीक्षण के लिए है।</p>
+          </section>
+          <section class="side-card live-card" id="live">
+            <div class="side-card-title">
+              <h2><span class="status-dot green" aria-hidden="true"></span> चौक लाइव</h2>
               <span class="live-status">जल्द आ रहा है</span>
             </div>
-            <p>ज़मीनी रिपोर्ट और शहर की हलचल — सीधे आपके लिए।</p>
+            <p>ज़मीनी रिपोर्ट और शहर की हलचल के लिए हमारा लाइव मंच तैयार हो रहा है।</p>
+          </section>
+          <section class="side-card community-card">
+            <span class="community-mark" aria-hidden="true">✳</span>
+            <h2>आपकी आवाज़ मायने रखती है</h2>
+            <p>चौक न्यूज़ के साथ जुड़कर अपने समुदाय की कहानियों को सामने लाएं।</p>
+            <a href="/auth?mode=register">हमसे जुड़ें <span aria-hidden="true">↗</span></a>
           </section>
         </aside>
       </div>
     </main>
 
     <footer class="site-footer">
-      <div class="page-width footer-inner">
-        <a class="footer-brand" href="/">CHOWK<span>.</span></a>
-        <p>बात सीधी, चोट तीखी</p>
-        <span>CHOWK NEWS · INDIA</span>
+      <div class="page-width footer-main">
+        <section class="footer-about" id="about" aria-labelledby="footer-about-title">
+          <a class="footer-brand" href="/" aria-label="CHOWK NEWS होम">
+            <img class="brand-logo footer-brand-logo" src="/chowk-logo.png" alt="CHOWK NEWS — बात सीधी, चोट तीखी">
+          </a>
+          <h2 id="footer-about-title">आपके शहर की आवाज़।</h2>
+          <p>स्थानीय खबरों के लिए एक नया डिजिटल मंच — अभी विकास के चरण में।</p>
+        </section>
+        <nav class="footer-links" aria-labelledby="footer-news-title">
+          <h2 id="footer-news-title">चौक न्यूज़</h2>
+          <a href="#latest">ताज़ा खबरें</a>
+          <a href="#live">चौक लाइव</a>
+          <a href="/reporter">रिपोर्टर पोर्टल</a>
+          <a href="/chowk-patrika">चौक पत्रिका</a>
+          <a href="/chowk-charcha">चौक चर्चा</a>
+          <a href="/podcasts">पॉडकास्ट</a>
+        </nav>
+        <section class="footer-links" id="editorial" aria-labelledby="footer-editorial-title">
+          <h2 id="footer-editorial-title">संपादकीय जानकारी</h2>
+          <p>सुधार और शिकायत नीति की अंतिम प्रति समीक्षा के बाद प्रकाशित होगी।</p>
+          <a href="/legal/corrections-takedown-grievance">सुधार नीति की स्थिति</a>
+        </section>
+        <section class="footer-links" id="policies" aria-labelledby="footer-policies-title">
+          <h2 id="footer-policies-title">नीतियां</h2>
+          <a href="/legal">सभी कानूनी नीतियां</a>
+          <a href="/legal/terms-of-use">उपयोग की शर्तें</a>
+          <a href="/legal/privacy-policy">गोपनीयता नीति</a>
+          <a href="/auth?mode=login">स्टाफ लॉगिन</a>
+        </section>
+      </div>
+      <div class="footer-bottom">
+        <div class="page-width footer-bottom-inner">
+          <span>© CHOWK NEWS · INDIA</span>
+          <span>विकास चरण · खबरें वास्तविक समाचार नहीं हैं</span>
+          <a href="#top">वापस ऊपर ↑</a>
+        </div>
       </div>
     </footer>
   </body>

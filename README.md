@@ -133,8 +133,13 @@ key and authenticated user tokens.
   Supabase Storage bucket, private staff inbox notifications, a printable
   daily submission report, hierarchical location selection/validation, and
   printable staff credentials with a locally generated QR verification code.
-- RLS policies restrict public reads to published news and active categories.
+- RLS policies restrict public reads to published news and media and active
+  categories.
   Profile roles are assigned as `subscriber` on signup; users cannot self-promote.
+- Public web pages expose published Patrika, Charcha, and podcast catalogue
+  entries at `/chowk-patrika`, `/chowk-charcha`, and `/podcasts`. The `/legal`
+  pages list the legacy policy titles, but do not publish their draft text until
+  the legal placeholders are completed and the documents are approved.
 
 Before accepting reporter applications, review the seeded states, legacy
 Uttar Pradesh RTOs, and Tehsil Reporter type; add RTO/reporting areas for other

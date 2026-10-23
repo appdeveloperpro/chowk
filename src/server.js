@@ -19,7 +19,8 @@ const requestContext = new AsyncLocalStorage();
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8"
+  ".js": "text/javascript; charset=utf-8",
+  ".png": "image/png"
 };
 
 function sendJson(response, statusCode, data) {
@@ -545,6 +546,34 @@ async function publicArticles(response, requestUrl) {
   } catch (error) {
     console.error("Supabase news request failed:", error.message);
     sendJson(response, 503, { error: "News service is unavailable. Check Supabase configuration and schema." });
+  }
+}
+
+async function publicMedia(response, requestUrl) {
+  const mediaType = requestUrl.searchParams.get("type");
+  if (!["podcast", "charcha", "patrika"].includes(mediaType)) {
+    sendJson(response, 400, { error: "Choose a valid media type." });
+    return;
+  }
+
+  try {
+    const query = new URLSearchParams({
+      select: "id,media_type,title,description,media_url,cover_url,episode_label,duration_seconds,issue_date,published_at,created_at",
+      media_type: `eq.${mediaType}`,
+      status: "eq.published",
+      or: `(published_at.is.null,published_at.lte.${new Date().toISOString()})`,
+      order: "published_at.desc.nullslast,created_at.desc",
+      limit: "50"
+    });
+    const result = await supabaseRequest(`/rest/v1/media_catalog?${query}`);
+    if (!result.response.ok) {
+      sendJson(response, result.response.status, { error: apiErrorMessage(result.payload, "Media could not be loaded.") });
+      return;
+    }
+    sendJson(response, 200, { success: true, data: Array.isArray(result.payload) ? result.payload : [] });
+  } catch (error) {
+    console.error("Supabase public media request failed:", error.message);
+    sendJson(response, 503, { error: "Media service is unavailable. Check Supabase configuration and schema." });
   }
 }
 
@@ -2146,6 +2175,11 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/media" && request.method === "GET") {
+    void publicMedia(response, requestUrl);
+    return;
+  }
+
   if (requestUrl.pathname === "/healthz" && request.method === "GET") {
     sendJson(response, 200, { status: "ok" });
     return;
@@ -2455,7 +2489,14 @@ const server = http.createServer((request, response) => {
   const staticPath = {
     "/auth": "/auth.html",
     "/reporter": "/reporter.html",
-    "/credential": "/credential.html"
+    "/credential": "/credential.html",
+    "/chowk-patrika": "/media.html",
+    "/chowk-charcha": "/media.html",
+    "/podcasts": "/media.html",
+    "/legal": "/legal.html",
+    "/legal/terms-of-use": "/legal.html",
+    "/legal/privacy-policy": "/legal.html",
+    "/legal/corrections-takedown-grievance": "/legal.html"
   }[pathname] || pathname;
   serveStatic(response, staticPath);
 });

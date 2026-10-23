@@ -3,12 +3,17 @@ const searchToggle = document.querySelector("#search-toggle");
 const searchForm = document.querySelector("#search-form");
 const searchInput = document.querySelector("#search-input");
 const chips = document.querySelector(".category-chips");
-const retryButton = document.querySelector("#retry-button");
 
 let selectedCategory = "";
+let articleRequestId = 0;
+
+feed.addEventListener("click", (event) => {
+  if (event.target.closest("#retry-button")) void loadArticles();
+});
 
 searchToggle.addEventListener("click", () => {
   searchForm.hidden = !searchForm.hidden;
+  searchToggle.setAttribute("aria-expanded", String(!searchForm.hidden));
   if (!searchForm.hidden) searchInput.focus();
 });
 
@@ -27,9 +32,8 @@ chips.addEventListener("click", (event) => {
   void loadArticles();
 });
 
-retryButton.addEventListener("click", () => void loadArticles());
-
 function showFeedMessage(title, description, retryLabel) {
+  feed.classList.remove("has-articles");
   const empty = document.createElement("div");
   empty.className = "empty-state";
   const mark = document.createElement("span");
@@ -44,29 +48,72 @@ function showFeedMessage(title, description, retryLabel) {
   button.className = "retry-button";
   button.type = "button";
   button.textContent = retryLabel;
-  button.addEventListener("click", () => void loadArticles());
   empty.append(mark, heading, detail, button);
   feed.replaceChildren(empty);
 }
 
-function renderArticle(article) {
+function renderArticle(article, index) {
   const item = document.createElement("article");
-  item.className = "article-item";
+  item.className = `article-item${index === 0 ? " is-featured" : ""}`;
+  const visual = document.createElement("div");
+  visual.className = "article-visual";
   if (article.image_url) {
     const image = document.createElement("img");
     image.className = "article-image";
-    image.src = article.image_url;
-    image.alt = "";
     image.loading = "lazy";
-    item.append(image);
+    image.alt = article.image_alt || "";
+    image.src = article.image_url;
+    image.addEventListener("error", () => {
+      visual.classList.add("is-placeholder");
+      image.remove();
+      const mark = document.createElement("span");
+      mark.className = "article-placeholder-mark";
+      mark.textContent = "चौक";
+      visual.append(mark);
+    }, { once: true });
+    visual.append(image);
+  } else {
+    visual.classList.add("is-placeholder");
+    const mark = document.createElement("span");
+    mark.className = "article-placeholder-mark";
+    mark.textContent = "चौक";
+    visual.append(mark);
   }
+  const copy = document.createElement("div");
+  copy.className = "article-copy";
+  const meta = document.createElement("div");
+  meta.className = "article-meta";
+  const category = document.createElement("span");
+  category.className = "eyebrow";
+  category.textContent = article.category || article.category_name || "खबर";
+  meta.append(category);
+  const dateValue = article.published_at || article.created_at;
+  if (dateValue) {
+    const date = new Date(dateValue);
+    if (!Number.isNaN(date.getTime())) {
+      const time = document.createElement("time");
+      time.dateTime = date.toISOString();
+      time.textContent = new Intl.DateTimeFormat("hi-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+      }).format(date);
+      meta.append(time);
+    }
+  }
+  const title = document.createElement("h3");
+  title.textContent = article.title || "शीर्षक उपलब्ध नहीं";
+  const summary = document.createElement("p");
+  summary.className = "article-summary";
+  summary.textContent = article.description || article.excerpt || "";
+  copy.append(meta, title, summary);
   if (article.video_url) {
     const video = document.createElement("video");
     video.className = "article-media-player";
     video.src = article.video_url;
     video.controls = true;
     video.preload = "metadata";
-    item.append(video);
+    copy.append(video);
   }
   if (article.audio_url) {
     const audio = document.createElement("audio");
@@ -74,22 +121,20 @@ function renderArticle(article) {
     audio.src = article.audio_url;
     audio.controls = true;
     audio.preload = "metadata";
-    item.append(audio);
+    copy.append(audio);
   }
-  const category = document.createElement("span");
-  category.className = "eyebrow";
-  category.textContent = article.category || article.category_name || "खबर";
-  const title = document.createElement("h3");
-  title.textContent = article.title || "शीर्षक उपलब्ध नहीं";
-  const summary = document.createElement("p");
-  summary.textContent = article.description || article.excerpt || "";
-  item.append(category, title, summary);
+  item.append(visual, copy);
   return item;
 }
 
 async function loadArticles() {
-  retryButton.disabled = true;
-  retryButton.textContent = "खबरें जांच रहे हैं…";
+  const requestId = ++articleRequestId;
+  const retryButton = feed.querySelector("#retry-button");
+  if (retryButton) {
+    retryButton.disabled = true;
+    retryButton.textContent = "खबरें जांच रहे हैं…";
+  }
+  feed.setAttribute("aria-busy", "true");
   const params = new URLSearchParams({ page: "1", limit: "50" });
   if (selectedCategory) params.set("category", selectedCategory);
   if (searchInput.value.trim()) params.set("search", searchInput.value.trim());
@@ -98,6 +143,7 @@ async function loadArticles() {
     const response = await fetch(`/api/articles?${params}`, { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `News API returned ${response.status}`);
+    if (requestId !== articleRequestId) return;
     const articles = Array.isArray(result?.data)
       ? result.data
       : Array.isArray(result)
@@ -106,6 +152,7 @@ async function loadArticles() {
     if (!articles) throw new Error("News API returned an invalid response");
 
     if (articles.length === 0) {
+      feed.classList.remove("has-articles");
       showFeedMessage(
         "अभी कोई प्रकाशित खबर उपलब्ध नहीं है",
         "नई खबरें Chowk API से प्रकाशित होने पर यहां दिखाई देंगी।",
@@ -113,17 +160,26 @@ async function loadArticles() {
       );
       return;
     }
+    feed.classList.add("has-articles");
     feed.replaceChildren(...articles.map(renderArticle));
   } catch (error) {
+    if (requestId !== articleRequestId) return;
     console.error("Unable to load news:", error);
+    feed.classList.remove("has-articles");
     showFeedMessage(
       "न्यूज़ फ़ीड लोड नहीं हुई",
       error instanceof Error ? error.message : "समाचार सेवा उपलब्ध नहीं है।",
       "फिर से कोशिश करें"
     );
   } finally {
-    retryButton.disabled = false;
-    retryButton.textContent = "फिर से कोशिश करें";
+    if (requestId === articleRequestId) {
+      feed.setAttribute("aria-busy", "false");
+      const currentRetryButton = feed.querySelector("#retry-button");
+      if (currentRetryButton) {
+        currentRetryButton.disabled = false;
+        currentRetryButton.textContent = "फिर से कोशिश करें";
+      }
+    }
   }
 }
 

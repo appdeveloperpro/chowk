@@ -140,7 +140,7 @@ function renderLocationModule(root, results) {
       openZoneDistrictDialog(locationRecords);
     }
   });
-  root.append(addLocation, mapDistrict);
+  pageActions(root).append(addLocation, mapDistrict);
 
   const byId = new Map(locationRecords.map((item) => [String(item.id), item]));
   const locationRows = locationRecords.map((location) => ({
@@ -183,6 +183,7 @@ let activeSection = "overview";
 let sessionIdentity = null;
 let overviewData = null;
 let locationRecords = [];
+let reporterSetupView = "overview";
 const auditFilters = { q: "", table: "", action: "", from: "", to: "", page: 1, page_size: 25 };
 
 function makeElement(tag, className, text) {
@@ -308,15 +309,6 @@ async function loadSection(section) {
     return;
   }
 
-  if (section === "zone-district-mappings" && row._active) {
-    rowButton(container, "End mapping", () => {
-      if (window.confirm("End this zone/district mapping now? Its history will be retained.")) {
-        void runAction(() => apiRequest(`admin/zone-district-mappings/${id}/end`, "POST", {}), refresh);
-      }
-    }, "admin-row-button danger");
-    return;
-  }
-
   if (section === "settings") {
     renderSettings();
     return;
@@ -406,23 +398,25 @@ function renderModule(section, results) {
     return;
   }
 
+  const actions = makeElement("div", "admin-page-actions");
   if (section === "users") {
     const button = makeElement("button", "admin-primary-button admin-create-button", "Add user");
     button.type = "button";
     button.addEventListener("click", () => openUserDialog());
-    root.append(button);
+    actions.append(button);
   } else if (config.createPath) {
     const button = makeElement("button", "admin-primary-button admin-create-button", `Add ${singular(label)}`);
     button.type = "button";
     button.addEventListener("click", () => openConfiguredRecordDialog(section, null));
-    root.append(button);
+    actions.append(button);
   }
   if (section === "articles") {
     const reportButton = makeElement("button", "admin-secondary-button admin-create-button", "Daily submission report");
     reportButton.type = "button";
     reportButton.addEventListener("click", () => void openDailySubmissionReport(reportButton));
-    root.append(reportButton);
+    actions.append(reportButton);
   }
+  if (actions.childElementCount) root.append(actions);
 
   results.forEach((result) => {
     const panel = makeElement("section", "admin-panel");
@@ -547,7 +541,16 @@ function reporterActionButton(root, label, handler) {
   const button = makeElement("button", "admin-primary-button admin-create-button", label);
   button.type = "button";
   button.addEventListener("click", handler);
-  root.append(button);
+  pageActions(root).append(button);
+}
+
+function pageActions(root) {
+  let actions = root.querySelector(".admin-page-actions");
+  if (!actions) {
+    actions = makeElement("div", "admin-page-actions");
+    root.append(actions);
+  }
+  return actions;
 }
 
 function renderReporterAdminSection(section, root, data) {
@@ -650,30 +653,149 @@ function renderReporterAdminSection(section, root, data) {
   }
 
   if (section === "reporter-options") {
-    reporterActionButton(root, "Add state", () => openStateDialog());
-    reporterActionButton(root, "Add RTO / reporting area", () => openRtoDialog(data.states || []));
-    reporterActionButton(root, "Add reporter type", () => openConfiguredRecordDialog("reporter-types", null));
-    reporterPanel(root, "States", (data.states || []).map((state) => ({
+    renderReporterSetup(root, data);
+  }
+}
+
+function renderReporterSetup(root, data) {
+  root.querySelectorAll(".reporter-setup-overview, .reporter-setup-detail")
+    .forEach((view) => view.remove());
+  const states = data.states || [];
+  const rtos = data.rtos || [];
+  const types = data.reporter_types || [];
+  const agreements = data.agreements || [];
+  const publishedAgreement = agreements.find((agreement) => agreement.status === "published");
+  const setupSections = [
+    {
+      key: "states",
+      title: "States & UTs",
+      count: states.length,
+      detail: `${states.filter((state) => state.is_active).length} active · Territories served by Chowk.`
+    },
+    {
+      key: "rtos",
+      title: "RTO / reporting areas",
+      count: rtos.length,
+      detail: `${rtos.filter((rto) => rto.is_active).length} active · Offices connected to a state.`
+    },
+    {
+      key: "types",
+      title: "Reporter types",
+      count: types.length,
+      detail: `${types.filter((type) => type.is_active).length} active · Roles available to applicants.`
+    },
+    {
+      key: "agreement",
+      title: "Application agreement",
+      count: publishedAgreement ? "Ready" : "Required",
+      detail: publishedAgreement?.version || "Publish an agreement to accept applications."
+    }
+  ];
+  const overview = makeElement("section", "reporter-setup-overview");
+  const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
+  overviewHeading.append(
+    makeElement("div", "", "REGISTRATION CONFIGURATION"),
+    makeElement("p", "", "Choose one setup area to manage. Reporter applicants can only select active options.")
+  );
+  overview.append(overviewHeading);
+
+  const cards = makeElement("div", "reporter-setup-cards");
+  setupSections.forEach((item) => {
+    const needsAttention = item.key === "agreement" && !publishedAgreement;
+    const card = makeElement("button", `reporter-setup-card${needsAttention ? " needs-attention" : ""}`);
+    card.type = "button";
+    card.setAttribute("aria-pressed", String(reporterSetupView === item.key));
+    card.append(
+      makeElement("span", "reporter-setup-card-label", item.title),
+      makeElement("strong", "reporter-setup-card-count", String(item.count)),
+      makeElement("span", "reporter-setup-card-detail", item.detail),
+      makeElement("span", "reporter-setup-card-action", item.key === "agreement"
+        ? "Open agreements →"
+        : reporterSetupView === item.key ? "Currently open" : "Manage →")
+    );
+    card.addEventListener("click", () => {
+      if (item.key === "agreement") {
+        void loadSection("reporter-agreements");
+        return;
+      }
+      reporterSetupView = item.key;
+      renderReporterAdminSection("reporter-options", root, data);
+    });
+    cards.append(card);
+  });
+  overview.append(cards);
+
+  if (reporterSetupView === "overview") {
+    const setupNote = makeElement("div", `reporter-setup-readiness${publishedAgreement ? " is-ready" : " is-incomplete"}`);
+    setupNote.append(
+      makeElement("strong", "", publishedAgreement ? "Agreement published" : "Applications are not ready"),
+      makeElement("span", "", publishedAgreement
+        ? "New reporter applications can accept the current agreement."
+        : "Publish a reporter agreement before accepting reporter applications.")
+    );
+    overview.append(setupNote);
+    root.append(overview);
+    return;
+  }
+
+  const selected = setupSections.find((item) => item.key === reporterSetupView);
+  const section = makeElement("section", "admin-panel reporter-setup-detail");
+  const header = makeElement("div", "admin-panel-heading reporter-setup-detail-heading");
+  const headingCopy = makeElement("div", "reporter-setup-detail-copy");
+  headingCopy.append(makeElement("h2", "", selected?.title || "Reporter setup"));
+  headingCopy.append(makeElement("span", "", selected?.detail || ""));
+  header.append(headingCopy);
+  const actions = makeElement("div", "reporter-setup-detail-actions");
+  const back = makeElement("button", "admin-secondary-button", "← Setup overview");
+  back.type = "button";
+  back.addEventListener("click", () => {
+    reporterSetupView = "overview";
+    renderReporterAdminSection("reporter-options", root, data);
+  });
+  actions.append(back);
+  if (reporterSetupView === "states") {
+    rowButton(actions, "Add state", openStateDialog, "admin-primary-button reporter-setup-add");
+  } else if (reporterSetupView === "rtos") {
+    rowButton(actions, "Add RTO / area", () => openRtoDialog(states), "admin-primary-button reporter-setup-add");
+  } else if (reporterSetupView === "types") {
+    rowButton(actions, "Add reporter type", () => openConfiguredRecordDialog("reporter-types", null), "admin-primary-button reporter-setup-add");
+  }
+  header.append(actions);
+
+  let rows = [];
+  let tableSection = "reporter-options";
+  if (reporterSetupView === "states") {
+    rows = states.map((state) => ({
       state_name: state.state_name,
       state_code: state.state_code,
       is_active: state.is_active,
       id: state.id
-    })), section);
-    reporterPanel(root, "RTO / reporting areas", (data.rtos || []).map((rto) => ({
+    }));
+  } else if (reporterSetupView === "rtos") {
+    rows = rtos.map((rto) => ({
       rto_code: rto.rto_code,
       city_name: rto.city_name || "—",
-      state: data.states?.find((state) => state.id === rto.state_id)?.state_name || "—",
+      state: states.find((state) => String(state.id) === String(rto.state_id))?.state_name || "—",
       is_active: rto.is_active,
       id: rto.id
-    })), section);
-    reporterPanel(root, "Reporter type codes", (data.reporter_types || []).map((type) => ({
+    }));
+  } else {
+    tableSection = "reporter-types";
+    rows = types.map((type) => ({
       name: type.name,
       type_code: type.type_code,
       description: type.description || "—",
       is_active: type.is_active,
       id: type.id
-    })), "reporter-types");
+    }));
   }
+  const tableHeader = makeElement("div", "admin-panel-heading reporter-setup-table-heading");
+  tableHeader.append(
+    makeElement("strong", "", selected?.title || "Reporter setup"),
+    makeElement("span", "", `${rows.length} ${rows.length === 1 ? "record" : "records"}`)
+  );
+  section.append(header, tableHeader, buildTable(rows, tableSection));
+  root.append(overview, section);
 }
 
 async function openReporterAssignmentDialog(reporter, refresh) {
@@ -1339,6 +1461,7 @@ function buildTable(rows, section) {
   if (!rows.length) return makeElement("p", "admin-empty", "No records are available.");
 
   const excluded = new Set(["content", "body", "password", "token", "credentials"]);
+  const internalColumns = new Set(["id", "user_id", "application_id", "credential_id"]);
   const preferredColumns = section === "locations"
     ? ["hierarchy", "location_type", "parent_location", "is_active"]
     : section === "users"
@@ -1354,8 +1477,7 @@ function buildTable(rows, section) {
     ...preferredColumns.filter((key) => rows.some((row) => Object.hasOwn(row, key))),
     ...rows.flatMap((row) => Object.keys(row))
   ])]
-    .filter((key) => !key.startsWith("_") && !excluded.has(key)
-      && !(section === "zone-district-mappings" && key === "id"))
+    .filter((key) => !key.startsWith("_") && !excluded.has(key) && !internalColumns.has(key))
     .slice(0, section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" ? 6 : 5);
   const wrapper = makeElement("div", "admin-table-wrap");
   const table = document.createElement("table");
@@ -1514,6 +1636,15 @@ function addRowActions(container, row, section) {
         "admin-row-button danger"
       );
     }
+    return;
+  }
+
+  if (section === "zone-district-mappings" && row._active) {
+    rowButton(container, "End mapping", () => {
+      if (window.confirm("End this zone/district mapping now? Its history will be retained.")) {
+        void runAction(() => apiRequest(`admin/zone-district-mappings/${id}/end`, "POST", {}), refresh);
+      }
+    }, "admin-row-button danger");
     return;
   }
 

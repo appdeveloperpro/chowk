@@ -102,15 +102,6 @@ async function main() {
     throw new Error("The Postgres connection URI must belong to the same Supabase project shown above.");
   }
 
-  const email = (await ask("New super-admin email: ")).trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid email address.");
-  const name = (await ask("Full name: ")).trim();
-  if (name.length < 2) throw new Error("Full name must contain at least two characters.");
-  const phone = (await ask("Phone number (international format, e.g. +919876543210): ")).trim();
-  if (!/^\+?[1-9][0-9]{6,14}$/.test(phone)) throw new Error("Enter a valid phone number.");
-  const password = await ask("New account password (minimum 8 characters; input is masked): ", { secret: true });
-  if (password.length < 8 || password.length > 72) throw new Error("Password must be between 8 and 72 characters.");
-
   const caPath = process.env.SUPABASE_DB_SSL_CA?.trim();
   let ca;
   if (caPath) {
@@ -127,8 +118,21 @@ async function main() {
     connectionTimeoutMillis: 15_000
   });
 
+  let connected = false;
   try {
     await client.connect();
+    connected = true;
+    console.log("Supabase database connection verified.");
+
+    const email = (await ask("New super-admin email: ")).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid email address.");
+    const name = (await ask("Full name: ")).trim();
+    if (name.length < 2) throw new Error("Full name must contain at least two characters.");
+    const phone = (await ask("Phone number (international format, e.g. +919876543210): ")).trim();
+    if (!/^\+?[1-9][0-9]{6,14}$/.test(phone)) throw new Error("Enter a valid phone number.");
+    const password = await ask("New account password (minimum 8 characters; input is masked): ", { secret: true });
+    if (password.length < 8 || password.length > 72) throw new Error("Password must be between 8 and 72 characters.");
+
     const migrationPath = path.resolve(__dirname, "..", "supabase", "migrations", "0001_chowk_portal.sql");
     await client.query(fs.readFileSync(migrationPath, "utf8"));
     console.log("Chowk database schema is installed.");
@@ -189,7 +193,7 @@ async function main() {
     }
     throw error;
   } finally {
-    await client.end();
+    if (connected) await client.end();
   }
 }
 

@@ -249,7 +249,11 @@ function isSameOrigin(request) {
   const origin = request.headers.origin;
   if (!origin) return true;
   try {
-    return origin === new URL(request.url, `http://${request.headers.host || host}`).origin;
+    const forwardedHost = request.headers["x-forwarded-host"]?.split(",")[0].trim();
+    const forwardedProtocol = request.headers["x-forwarded-proto"]?.split(",")[0].trim();
+    const requestHost = forwardedHost || request.headers.host || host;
+    const requestProtocol = forwardedProtocol || (request.socket.encrypted ? "https" : "http");
+    return origin === new URL(`${requestProtocol}://${requestHost}`).origin;
   } catch {
     return false;
   }

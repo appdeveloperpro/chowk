@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf0">
+    <title>Admin sign in | CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/admin.css">
+    <script src="/admin-login.js" defer></script>
+  </head>
+  <body class="admin-login-body">
+    <div class="development-notice" role="note" aria-label="Development phase notice">
+      <div class="notice-inner">
+        <span class="notice-dot" aria-hidden="true"></span>
+        <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
+      </div>
+    </div>
+    <main class="admin-login-page">
+      <section class="admin-login-card" aria-labelledby="admin-title">
+        <a class="admin-brand" href="/" aria-label="CHOWK NEWS home">
+          <span class="admin-brand-mark">C</span>
+          <span class="admin-brand-name">CHOWK<span>.</span><small>ADMIN CONSOLE</small></span>
+        </a>
+        <div class="admin-login-intro">
+          <span class="admin-eyebrow">RESTRICTED STAFF ACCESS</span>
+          <h1 id="admin-title">Admin sign in</h1>
+          <p>Sign in with an active Chowk admin or super admin account.</p>
+        </div>
+        <form id="admin-login-form" class="admin-login-form">
+          <label>
+            Work email
+            <input name="email" type="email" autocomplete="username" maxlength="254" required>
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autocomplete="current-password" maxlength="72" required>
+          </label>
+          <p id="admin-login-error" class="admin-error" role="alert" hidden></p>
+          <button id="admin-login-submit" class="admin-primary-button" type="submit">Sign in to dashboard</button>
+        </form>
+        <p class="admin-login-foot">Access is checked against the Chowk API. No public account can enter the admin console.</p>
+        <a class="admin-home-link" href="/">← Back to Chowk News</a>
+      </section>
+    </main>
+  </body>
+</html>

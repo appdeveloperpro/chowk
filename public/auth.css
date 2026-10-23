@@ -1,0 +1,263 @@
+.auth-header {
+  display: flex;
+  width: min(840px, calc(100% - 40px));
+  min-height: 76px;
+  align-items: center;
+  margin-inline: auto;
+}
+
+.auth-page {
+  display: grid;
+  min-height: 540px;
+  align-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 32px 16px;
+  background:
+    radial-gradient(ellipse at top, #fff1df 0, transparent 48%),
+    var(--paper);
+}
+
+.auth-card {
+  width: min(100%, 460px);
+  padding: clamp(24px, 6vw, 42px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--white);
+  box-shadow: 0 18px 50px rgb(48 32 16 / 7%);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin-bottom: 25px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #f5f1eb;
+}
+
+.auth-tab {
+  display: inline-flex;
+  min-height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #706961;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-tab.is-active {
+  background: var(--white);
+  box-shadow: 0 1px 5px rgb(48 32 16 / 8%);
+  color: var(--orange-dark);
+}
+
+.auth-eyebrow {
+  margin: 0 0 7px;
+  color: var(--orange-dark);
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: clamp(23px, 5vw, 29px);
+  font-weight: 800;
+  letter-spacing: -0.7px;
+  line-height: 1.4;
+}
+
+.auth-description {
+  margin: 8px 0 24px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-field {
+  display: grid;
+  gap: 7px;
+  color: #514b45;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auth-field[hidden],
+.registration-field[hidden],
+.account-types[hidden],
+.reporter-note[hidden],
+.auth-message[hidden] {
+  display: none;
+}
+
+.auth-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #ded7ce;
+  border-radius: 7px;
+  background: #fffdfa;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.auth-field input:focus {
+  border-color: var(--orange);
+  outline: 2px solid rgb(255 105 11 / 16%);
+}
+
+.account-types {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.account-type {
+  display: grid;
+  min-height: 64px;
+  align-content: center;
+  gap: 4px;
+  padding: 9px 11px;
+  border: 1px solid #ded7ce;
+  border-radius: 8px;
+  background: #fffdfa;
+  color: #5d5750;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.account-type small {
+  color: #817970;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.account-type.is-selected {
+  border-color: var(--orange);
+  background: #fff5eb;
+  color: var(--orange-dark);
+}
+
+.policy-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #625b53;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.policy-label input {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--orange);
+}
+
+.policy-label a,
+.auth-switch button {
+  color: var(--orange-dark);
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-submit {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--orange);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.auth-submit:hover {
+  background: var(--orange-dark);
+}
+
+.auth-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f2cccc;
+  border-radius: 6px;
+  background: #fff0f0;
+  color: #9a2424;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.auth-message.is-success {
+  border-color: #c4e4cd;
+  background: #effaf2;
+  color: #236b36;
+}
+
+.auth-switch {
+  margin: 20px 0 0;
+  color: #6f6962;
+  font-size: 12px;
+  text-align: center;
+}
+
+.auth-switch button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.reporter-note {
+  margin: 13px 0 0;
+  color: #6f6962;
+  font-size: 11px;
+  text-align: center;
+}
+
+.auth-home-link {
+  color: #6f6962;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.auth-home-link:hover {
+  color: var(--orange-dark);
+}
+
+@media (max-width: 420px) {
+  .auth-header {
+    width: calc(100% - 30px);
+  }
+
+  .auth-page {
+    padding-inline: 12px;
+  }
+
+  .account-types {
+    grid-template-columns: 1fr;
+  }
+}

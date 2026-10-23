@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="hi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Chowk News — आपके शहर और समुदाय की खबरों के लिए एक स्थानीय न्यूज़ पोर्टल।"
+    >
+    <meta name="theme-color" content="#fffaf0">
+    <title>CHOWK NEWS — बात सीधी, चोट तीखी</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="development-notice" role="note" aria-label="Development phase notice">
+      <div class="notice-inner">
+        <span class="notice-dot" aria-hidden="true"></span>
+        <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="masthead page-width">
+        <a class="brand" href="/" aria-label="CHOWK NEWS होम">
+          <span class="brand-name">CHOWK<span>.</span></span>
+          <span class="brand-tagline">बात सीधी, चोट तीखी</span>
+        </a>
+
+        <p class="location-note">खबर आपके शहर की <span aria-hidden="true">·</span> ज़मीनी नज़र, साफ़ बात</p>
+
+        <div class="header-actions">
+          <button class="icon-button" type="button" aria-label="खोजें" id="search-toggle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"></circle><path d="m16 16 4.2 4.2"></path></svg>
+          </button>
+          <a class="login-button" href="/auth?mode=login"><span aria-hidden="true">↪</span> लॉगिन</a>
+          <a class="join-button" href="/auth?mode=register"><span aria-hidden="true">✣</span> जुड़ें</a>
+        </div>
+      </div>
+
+      <form class="search-panel page-width" id="search-form" hidden>
+        <label class="visually-hidden" for="search-input">खबर खोजें</label>
+        <input id="search-input" type="search" placeholder="खबर खोजें…">
+        <button type="submit">खोजें</button>
+      </form>
+
+      <nav class="category-nav" aria-label="खबरों की श्रेणियां">
+        <div class="page-width nav-items">
+          <button class="nav-link active" type="button" data-category="सभी">होम</button>
+          <button class="nav-link" type="button" data-category="राजनीति">ताज़ा खबरें</button>
+          <button class="nav-link" type="button" data-category="खेल">चौक लाइव</button>
+          <button class="nav-link" type="button" data-category="संस्कृति">संपादकीय नीति</button>
+          <button class="nav-link" type="button" data-category="व्यापार">हमारे बारे में</button>
+          <button class="nav-link" type="button" data-category="शिक्षा">नीतियां</button>
+        </div>
+      </nav>
+    </header>
+
+    <div class="live-strip">
+      <div class="page-width live-strip-inner">
+        <span class="live-label">आज की खबर</span>
+        <span class="ticker-copy">चौक न्यूज़ का नया डिजिटल अनुभव तैयार हो रहा है</span>
+        <span class="ticker-location">CHOWK NEWS <span aria-hidden="true">·</span> INDIA</span>
+      </div>
+    </div>
+
+    <main class="page-width main-content">
+      <section class="intro">
+        <div>
+          <p class="eyebrow">सीधी बात · साफ़ खबर</p>
+          <h1>आपके शहर से,<br><span>आपकी नज़र से।</span></h1>
+        </div>
+        <p class="intro-copy">स्थानीय खबरें, ज़मीनी रिपोर्ट और उन मुद्दों की आवाज़ जो आपकी रोज़मर्रा की ज़िंदगी से जुड़े हैं।</p>
+      </section>
+
+      <section class="category-chips" aria-label="खबरों की श्रेणियां">
+        <button class="chip active" type="button" data-category="सभी">सभी</button>
+        <button class="chip" type="button" data-category="राजनीति">राजनीति</button>
+        <button class="chip" type="button" data-category="खेल">खेल</button>
+        <button class="chip" type="button" data-category="व्यापार">बिज़नेस</button>
+        <button class="chip" type="button" data-category="तकनीक">तकनीक</button>
+        <button class="chip" type="button" data-category="मनोरंजन">मनोरंजन</button>
+        <button class="chip" type="button" data-category="स्वास्थ्य">स्वास्थ्य</button>
+        <button class="chip" type="button" data-category="शिक्षा">शिक्षा</button>
+        <button class="chip" type="button" data-category="विदेश">विदेश</button>
+        <button class="chip" type="button" data-category="अपराध">अपराध</button>
+        <button class="chip" type="button" data-category="कृषि">कृषि</button>
+        <button class="chip" type="button" data-category="पर्यावरण">पर्यावरण</button>
+      </section>
+
+      <div class="news-layout">
+        <section class="top-news" aria-labelledby="top-news-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">मुख्य खबरें</p>
+              <h2 id="top-news-title">आज की बड़ी खबर</h2>
+            </div>
+            <span class="heading-rule" aria-hidden="true"></span>
+          </div>
+          <div id="news-feed" class="news-feed" aria-live="polite">
+            <div class="empty-state">
+              <span class="empty-mark" aria-hidden="true">चौ</span>
+              <h3>न्यूज़ फ़ीड उपलब्ध नहीं है</h3>
+              <p>समाचार स्रोत से कनेक्ट होने पर खबरें यहां दिखाई देंगी।</p>
+              <button class="retry-button" id="retry-button" type="button">फिर से कोशिश करें</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="sidebar" aria-labelledby="sidebar-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">अपडेट रहें</p>
+              <h2 id="sidebar-title">और पढ़ें</h2>
+            </div>
+            <span class="heading-rule" aria-hidden="true"></span>
+          </div>
+          <section class="side-card">
+            <h3><span class="status-dot orange" aria-hidden="true"></span> अपडेट के लिए तैयार</h3>
+            <p>जैसे ही खबरें प्रकाशित होंगी, यहां अपडेट और विषय दिखेंगे।</p>
+          </section>
+          <section class="side-card live-card">
+            <div class="side-card-title">
+              <h3><span class="status-dot green" aria-hidden="true"></span> चौक लाइव</h3>
+              <span class="live-status">जल्द आ रहा है</span>
+            </div>
+            <p>ज़मीनी रिपोर्ट और शहर की हलचल — सीधे आपके लिए।</p>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="page-width footer-inner">
+        <a class="footer-brand" href="/">CHOWK<span>.</span></a>
+        <p>बात सीधी, चोट तीखी</p>
+        <span>CHOWK NEWS · INDIA</span>
+      </div>
+    </footer>
+  </body>
+</html>

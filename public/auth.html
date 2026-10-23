@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="hi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf0">
+    <title>लॉगिन या रजिस्टर | CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/auth.css">
+    <script src="/auth.js" defer></script>
+  </head>
+  <body>
+    <div class="development-notice" role="note" aria-label="Development phase notice">
+      <div class="notice-inner">
+        <span class="notice-dot" aria-hidden="true"></span>
+        <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
+      </div>
+    </div>
+
+    <header class="auth-header">
+      <a class="brand" href="/" aria-label="CHOWK NEWS होम">
+        <span class="brand-name">CHOWK<span>.</span></span>
+        <span class="brand-tagline">बात सीधी, चोट तीखी</span>
+      </a>
+    </header>
+
+    <main class="auth-page">
+      <section class="auth-card" aria-labelledby="auth-title">
+        <div class="auth-tabs" role="tablist" aria-label="लॉगिन या रजिस्टर">
+          <button id="login-tab" class="auth-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="auth-form" data-mode="login">
+            <span aria-hidden="true">↪</span> लॉगिन
+          </button>
+          <button id="register-tab" class="auth-tab" type="button" role="tab" aria-selected="false" aria-controls="auth-form" data-mode="register" tabindex="-1">
+            <span aria-hidden="true">✣</span> रजिस्टर
+          </button>
+        </div>
+
+        <p class="auth-eyebrow">CHOWK NEWS ACCOUNT</p>
+        <h1 id="auth-title">अपने अकाउंट में लॉगिन करें</h1>
+        <p id="auth-description" class="auth-description">जारी रखने के लिए अपना ईमेल और पासवर्ड दर्ज करें।</p>
+
+        <form id="auth-form" class="auth-form" novalidate>
+          <div id="account-types" class="account-types" hidden>
+            <button class="account-type is-selected" type="button" data-account-type="subscriber" aria-pressed="true">
+              Subscriber
+              <small>खबरें पढ़ें और सहेजें</small>
+            </button>
+            <button class="account-type" type="button" data-account-type="reporter" aria-pressed="false">
+              Reporter आवेदन
+              <small>क्षेत्र के लिए आवेदन करें</small>
+            </button>
+          </div>
+
+          <label class="auth-field registration-field" hidden>
+            पूरा नाम
+            <input name="name" type="text" autocomplete="name" maxlength="120">
+          </label>
+          <label class="auth-field registration-field" hidden>
+            मोबाइल नंबर
+            <input name="phone" type="tel" autocomplete="tel" inputmode="tel" pattern="\+?[1-9][0-9]{6,14}" title="देश कोड सहित सही मोबाइल नंबर दर्ज करें" maxlength="16">
+          </label>
+          <label class="auth-field">
+            ईमेल
+            <input name="email" type="email" autocomplete="email" maxlength="254" required>
+          </label>
+          <label class="auth-field">
+            पासवर्ड
+            <input name="password" type="password" autocomplete="current-password" minlength="1" maxlength="72" required>
+          </label>
+          <label class="auth-field registration-field" hidden>
+            पासवर्ड की पुष्टि करें
+            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72">
+          </label>
+
+          <div class="registration-field policy-field" hidden>
+            <label class="policy-label">
+              <input name="acceptedPolicies" type="checkbox">
+              <span>मैंने Chowk की <a href="/#policies">नीतियां</a> पढ़ी हैं और उनसे सहमत हूं।</span>
+            </label>
+          </div>
+
+          <p id="auth-message" class="auth-message" role="alert" hidden></p>
+          <button id="auth-submit" class="auth-submit" type="submit">लॉगिन करें</button>
+        </form>
+
+        <p class="auth-switch">
+          <span id="switch-prompt">नया अकाउंट बनाना है?</span>
+          <button id="switch-mode" type="button">रजिस्टर करें</button>
+        </p>
+        <p id="reporter-note" class="reporter-note" hidden>Reporter आवेदन इस वेबसाइट से अभी उपलब्ध नहीं है; इस विकल्प से कोई reporter अकाउंट या आवेदन नहीं बनेगा।</p>
+      </section>
+      <a class="auth-home-link" href="/">← मुख्य पेज पर वापस जाएं</a>
+    </main>
+
+    <footer class="site-footer">
+      <div class="page-width footer-inner">
+        <a class="footer-brand" href="/">CHOWK<span>.</span></a>
+        <p>बात सीधी, चोट तीखी</p>
+        <span>CHOWK NEWS · INDIA</span>
+      </div>
+    </footer>
+  </body>
+</html>

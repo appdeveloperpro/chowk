@@ -1,0 +1,16 @@
+{
+  "name": "chowk-news",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Node.js starter for the Chowk News portal",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9"
+  }
+}

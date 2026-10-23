@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf0">
+    <title>Admin dashboard | CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/admin.css">
+    <script src="/admin-dashboard.js" defer></script>
+  </head>
+  <body class="admin-dashboard-body">
+    <div class="development-notice" role="note" aria-label="Development phase notice">
+      <div class="notice-inner">
+        <span class="notice-dot" aria-hidden="true"></span>
+        <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
+      </div>
+    </div>
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <a class="admin-brand sidebar-brand" href="/admin/dashboard" aria-label="Chowk admin overview">
+          <span class="admin-brand-mark">C</span>
+          <span class="admin-brand-name">CHOWK<span>.</span><small>ADMIN CONSOLE</small></span>
+        </a>
+        <div class="admin-nav-heading">NEWSROOM</div>
+        <nav class="admin-nav" aria-label="Admin dashboard">
+          <button class="admin-nav-item is-active" type="button" data-section="overview"><span>◫</span> Overview</button>
+          <button class="admin-nav-item" type="button" data-section="articles"><span>▤</span> Articles</button>
+          <button class="admin-nav-item" type="button" data-section="users"><span>♙</span> Users</button>
+          <button class="admin-nav-item" type="button" data-section="categories"><span>◈</span> Categories</button>
+        </nav>
+        <div class="admin-sidebar-bottom">
+          <span class="admin-connection-dot"></span>
+          <span>Secure staff session</span>
+        </div>
+      </aside>
+
+      <main class="admin-workspace">
+        <header class="admin-topbar">
+          <div class="admin-breadcrumb">Workspace <span>/</span> <strong id="breadcrumb-section">Overview</strong></div>
+          <div class="admin-account">
+            <span id="admin-avatar" class="admin-avatar">C</span>
+            <span class="admin-account-copy"><strong id="admin-name">Admin</strong><small id="admin-role">Staff</small></span>
+            <button id="admin-sign-out" class="admin-sign-out" type="button">Sign out</button>
+          </div>
+        </header>
+        <section id="admin-content" class="admin-content" aria-live="polite">
+          <div class="admin-loading"><span class="admin-spinner"></span> Verifying staff session…</div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,143 @@
+const tabs = [...document.querySelectorAll(".auth-tab")];
+const accountTypeButtons = [...document.querySelectorAll("[data-account-type]")];
+const form = document.querySelector("#auth-form");
+const title = document.querySelector("#auth-title");
+const description = document.querySelector("#auth-description");
+const accountTypes = document.querySelector("#account-types");
+const submitButton = document.querySelector("#auth-submit");
+const message = document.querySelector("#auth-message");
+const switchPrompt = document.querySelector("#switch-prompt");
+const switchButton = document.querySelector("#switch-mode");
+const reporterNote = document.querySelector("#reporter-note");
+
+let mode = new URLSearchParams(window.location.search).get("mode") === "register"
+  ? "register"
+  : "login";
+let accountType = "subscriber";
+
+function setMode(nextMode) {
+  mode = nextMode;
+  const isRegister = mode === "register";
+
+  tabs.forEach((tab) => {
+    const selected = tab.dataset.mode === mode;
+    tab.classList.toggle("is-active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+
+  document.querySelectorAll(".registration-field").forEach((field) => {
+    field.hidden = !isRegister;
+  });
+  form.elements.name.required = isRegister;
+  form.elements.phone.required = isRegister;
+  form.elements.confirmPassword.required = isRegister;
+  form.elements.acceptedPolicies.required = isRegister;
+  form.elements.password.autocomplete = isRegister ? "new-password" : "current-password";
+  form.elements.password.minLength = isRegister ? 8 : 1;
+
+  accountTypes.hidden = !isRegister;
+  reporterNote.hidden = !isRegister || accountType !== "reporter";
+  title.textContent = isRegister ? "अपना अकाउंट बनाएं" : "अपने अकाउंट में लॉगिन करें";
+  description.textContent = isRegister
+    ? "Subscriber अकाउंट बनाएं। Reporter आवेदन अभी इस वेबसाइट पर उपलब्ध नहीं है।"
+    : "जारी रखने के लिए अपना ईमेल और पासवर्ड दर्ज करें।";
+  submitButton.textContent = isRegister ? "रजिस्टर करें" : "लॉगिन करें";
+  switchPrompt.textContent = isRegister ? "पहले से अकाउंट है?" : "नया अकाउंट बनाना है?";
+  switchButton.textContent = isRegister ? "लॉगिन करें" : "रजिस्टर करें";
+  message.hidden = true;
+  message.textContent = "";
+  message.classList.remove("is-success");
+  const params = new URLSearchParams(window.location.search);
+  params.set("mode", mode);
+  window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+}
+
+tabs.forEach((tab) => {
+  tab.addEventListener("click", () => setMode(tab.dataset.mode));
+});
+
+switchButton.addEventListener("click", () => {
+  setMode(mode === "login" ? "register" : "login");
+});
+
+accountTypeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    accountType = button.dataset.accountType;
+    accountTypeButtons.forEach((option) => {
+      const selected = option === button;
+      option.classList.toggle("is-selected", selected);
+      option.setAttribute("aria-pressed", String(selected));
+    });
+    reporterNote.hidden = mode !== "register" || accountType !== "reporter";
+  });
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  message.hidden = true;
+  message.textContent = "";
+  message.classList.remove("is-success");
+
+  if (!form.reportValidity()) return;
+  if (mode === "register" && form.elements.password.value !== form.elements.confirmPassword.value) {
+    message.textContent = "दोनों पासवर्ड एक जैसे होने चाहिए।";
+    message.hidden = false;
+    form.elements.confirmPassword.focus();
+    return;
+  }
+
+  if (mode === "register" && accountType === "reporter") {
+    message.textContent = "Reporter आवेदन इस वेबसाइट से अभी उपलब्ध नहीं है। इस फॉर्म से reporter अकाउंट नहीं बनाया गया।";
+    message.hidden = false;
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = mode === "register" ? "अकाउंट बना रहे हैं…" : "लॉगिन हो रहा है…";
+  try {
+    const response = await fetch(`/api/auth/${mode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: form.elements.email.value.trim(),
+        password: form.elements.password.value,
+        ...(mode === "register"
+          ? {
+              name: form.elements.name.value.trim(),
+              phone: form.elements.phone.value.trim()
+            }
+          : {})
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      const error = Array.isArray(result.message) ? result.message[0] : result.error || result.message;
+      throw new Error(error || "खाता सेवा से संपर्क नहीं हो सका।");
+    }
+
+    if (result.confirmation_required) {
+      message.textContent = "आपका अकाउंट बन गया है। कृपया ईमेल में आए लिंक से पुष्टि करें, फिर लॉगिन करें।";
+      message.classList.add("is-success");
+      message.hidden = false;
+      return;
+    }
+
+    message.textContent = mode === "register"
+      ? "आपका अकाउंट बन गया है और आप लॉगिन हैं।"
+      : `लॉगिन सफल${result.identity?.name ? `, ${result.identity.name}` : ""}।`;
+    message.classList.add("is-success");
+    message.hidden = false;
+    window.location.assign("/");
+  } catch (error) {
+    message.textContent = error instanceof Error
+      ? error.message
+      : "खाता सेवा से संपर्क नहीं हो सका।";
+    message.hidden = false;
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = mode === "register" ? "रजिस्टर करें" : "लॉगिन करें";
+  }
+});
+
+setMode(mode);

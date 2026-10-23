@@ -45,21 +45,31 @@ created.
 
 ## First admin account
 
-1. Register a normal subscriber at <http://127.0.0.1:3000/auth?mode=register>.
-2. Confirm the address if Supabase email confirmation is enabled.
-3. In Supabase SQL Editor, promote that one account by replacing the email:
+Use the local bootstrap command to create or promote the account without
+copying privileged credentials into the website. In Supabase, get the database
+connection URI from **Connect → Session pooler** (recommended if direct
+connections are not available). The database password is distinct from the
+publishable key; enter the URI only at the script's masked local prompt. It is
+not saved in `.env` or in the deployed app.
 
-   ```sql
-   update public.profiles
-   set role = 'super_admin'
-   where id = (
-     select id from auth.users
-     where email = 'YOUR_ADMIN_EMAIL'
-   );
-   ```
+Run this in a local terminal from the project folder:
 
-4. Sign in at <http://127.0.0.1:3000/admin>. Admin-only routes recheck the
-   current profile role in the database; the browser cannot grant itself a role.
+```powershell
+npm run admin:bootstrap
+```
+
+The script asks you to confirm the configured project, enter the email/name/
+phone for the admin, and enter a password using masked terminal input. It
+applies the Chowk schema, creates the Supabase Auth account if needed, verifies
+the password locally against Supabase if that email already exists, and
+promotes only that account to `super_admin`. If email confirmation is enabled,
+confirm the message before signing in. Then use
+<http://127.0.0.1:3000/admin>. Admin routes continue to verify the role from
+the database; the browser cannot grant itself access.
+
+The command uses the database connection URI only in this local, one-time
+provisioning tool. The deployed web app continues to use only the publishable
+key and authenticated user tokens.
 
 ## Current Supabase-backed features
 

@@ -40,7 +40,7 @@ function setMode(nextMode) {
   reporterNote.hidden = !isRegister || accountType !== "reporter";
   title.textContent = isRegister ? "अपना अकाउंट बनाएं" : "अपने अकाउंट में लॉगिन करें";
   description.textContent = isRegister
-    ? "Subscriber अकाउंट बनाएं। Reporter आवेदन अभी इस वेबसाइट पर उपलब्ध नहीं है।"
+    ? "Subscriber अकाउंट बनाएं या Reporter आवेदन के लिए अपना क्षेत्र चुनें।"
     : "जारी रखने के लिए अपना ईमेल और पासवर्ड दर्ज करें।";
   submitButton.textContent = isRegister ? "रजिस्टर करें" : "लॉगिन करें";
   switchPrompt.textContent = isRegister ? "पहले से अकाउंट है?" : "नया अकाउंट बनाना है?";
@@ -87,12 +87,6 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (mode === "register" && accountType === "reporter") {
-    message.textContent = "Reporter आवेदन इस वेबसाइट से अभी उपलब्ध नहीं है। इस फॉर्म से reporter अकाउंट नहीं बनाया गया।";
-    message.hidden = false;
-    return;
-  }
-
   submitButton.disabled = true;
   submitButton.textContent = mode === "register" ? "अकाउंट बना रहे हैं…" : "लॉगिन हो रहा है…";
   try {
@@ -117,7 +111,9 @@ form.addEventListener("submit", async (event) => {
     }
 
     if (result.confirmation_required) {
-      message.textContent = "आपका अकाउंट बन गया है। कृपया ईमेल में आए लिंक से पुष्टि करें, फिर लॉगिन करें।";
+      message.textContent = accountType === "reporter"
+        ? "आपका अकाउंट बन गया है। ईमेल की पुष्टि करें, फिर लॉगिन करके Reporter Desk पर आवेदन पूरा करें।"
+        : "आपका अकाउंट बन गया है। कृपया ईमेल में आए लिंक से पुष्टि करें, फिर लॉगिन करें।";
       message.classList.add("is-success");
       message.hidden = false;
       return;
@@ -128,7 +124,17 @@ form.addEventListener("submit", async (event) => {
       : `लॉगिन सफल${result.identity?.name ? `, ${result.identity.name}` : ""}।`;
     message.classList.add("is-success");
     message.hidden = false;
-    window.location.assign("/");
+    const role = result.identity?.role;
+    const staffRoles = ["reporter", "moderator", "editor", "publisher"];
+    window.location.assign(
+      mode === "register" && accountType === "reporter"
+        ? "/reporter"
+        : staffRoles.includes(role)
+          ? "/workspace"
+          : role === "admin" || role === "super_admin"
+            ? "/admin/dashboard"
+            : "/"
+    );
   } catch (error) {
     message.textContent = error instanceof Error
       ? error.message

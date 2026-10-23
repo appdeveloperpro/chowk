@@ -60,6 +60,22 @@ function renderArticle(article) {
     image.loading = "lazy";
     item.append(image);
   }
+  if (article.video_url) {
+    const video = document.createElement("video");
+    video.className = "article-media-player";
+    video.src = article.video_url;
+    video.controls = true;
+    video.preload = "metadata";
+    item.append(video);
+  }
+  if (article.audio_url) {
+    const audio = document.createElement("audio");
+    audio.className = "article-media-player";
+    audio.src = article.audio_url;
+    audio.controls = true;
+    audio.preload = "metadata";
+    item.append(audio);
+  }
   const category = document.createElement("span");
   category.className = "eyebrow";
   category.textContent = article.category || article.category_name || "खबर";
@@ -150,7 +166,9 @@ async function loadAccountActions() {
     actions.querySelector(".join-button")?.remove();
     const account = document.createElement("a");
     account.className = "login-button";
-    account.href = "/auth";
+    account.href = ["reporter", "moderator", "editor", "publisher"].includes(result.identity?.role)
+      ? "/workspace"
+      : "/reporter";
     account.textContent = result.identity?.name || "मेरा अकाउंट";
     const signOut = document.createElement("button");
     signOut.className = "join-button";

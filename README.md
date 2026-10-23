@@ -27,6 +27,18 @@ Requires Node.js 18 or newer.
    run it. This creates the profiles, categories, and articles tables, signup
    profile trigger, role helper, and RLS policies. The app does not run SQL
    migrations automatically.
+   Then run the additive migrations in order:
+   `supabase/migrations/0002_admin_foundation.sql` and
+   `supabase/migrations/0003_newsroom_modules.sql`, followed by
+   `supabase/migrations/0004_audit_history.sql` and
+   `supabase/migrations/0005_reporter_lifecycle.sql` and
+   `supabase/migrations/0006_editorial_workflow.sql` and
+   `supabase/migrations/0007_newsroom_operations.sql`. These add account email
+   and role support, admin account settings, newsroom management tables, RLS
+   policies, detailed audit history, the reporter lifecycle, editorial
+   workflow, staff notifications, secured media storage, location hierarchy
+   validation, and scheduled publication processing. Existing installations
+   must run all additive migrations in order before deploying these features.
 4. Start the portal:
 
    ```powershell
@@ -38,8 +50,7 @@ Requires Node.js 18 or newer.
    the Node.js process is responding, not that Supabase credentials or the schema
    are configured.
 
-The screenshot showed a blank production project with no migrations. The SQL
-file is additive, but inspect it before running; it installs a trigger on
+The SQL migrations are additive, but inspect them before running; they install a trigger on
 `auth.users` to create a subscriber profile when a Supabase Auth account is
 created.
 
@@ -88,14 +99,51 @@ key and authenticated user tokens.
 - Supabase email/password subscriber registration and login.
 - Short-lived HTTP-only, SameSite session cookies with Supabase refresh-token
   rotation kept server-side.
-- Protected admin login, overview, article/category management, and role
-  changes through a restricted database function.
+- Protected admin login, newsroom overview, article/category CRUD, user
+  provisioning and role changes through a restricted database function,
+  profile editing, and password updates.
+- Admin management screens for reporter application review, moderation of
+  article reports and comments, media catalog entries, YouTube stream listings,
+  locations, reporter types, and searchable, paginated, read-only audit history
+  with actor snapshots, request context, reasons, before/after field diffs, and
+  CSV export of up to 10,000 filtered events per export.
+- Reporter desk for signed-in applicants to submit and track applications,
+  accept updated agreement versions, view stable reporter IDs and assignment
+  history, and acknowledge authority letters. Public credential verification
+  exposes only the credential record, status, and limited identity/scope details.
+- Reporter administration for application review, state/RTO/type-code setup,
+  stable reporter ID allocation, assignment and coverage history, versioned
+  agreement publication, staff ID/authority-letter issuance, revocation, and
+  expanded audit filtering.
+- Role-specific reporter, moderator, editor, and publisher workspaces for
+  drafting, coverage-scoped moderation, editorial review, scheduling,
+  publishing, revisions, and workflow history. Story changes are authorized by
+  database RPCs; admins use audited reasons for article edits and publication
+  overrides.
+- Reporter media upload (images, video, and audio up to 25 MB) to a dedicated
+  Supabase Storage bucket, private staff inbox notifications, a printable
+  daily submission report, hierarchical location selection/validation, and
+  printable staff credentials with a locally generated QR verification code.
 - RLS policies restrict public reads to published news and active categories.
   Profile roles are assigned as `subscriber` on signup; users cannot self-promote.
 
-Reporter applications, media storage, comments, live streams, and the remaining
-legacy Flutter newsroom modules are not implemented in this first Supabase
-portal version. The admin interface only shows modules backed by real routes.
+Before accepting reporter applications, configure active states, RTOs, and
+reporter types, add the agreement document URL and its exact SHA-256, then
+publish that agreement in the admin console. New installations have no
+preconfigured states or RTOs. The reporter code is allocated on approval and
+remains stable across future assignments. Coverage and reporter assignments
+are retained as dated history. Applying the SQL migrations is a manual
+Supabase dashboard step; run migrations 0001 through 0007 in order before
+deploying the expanded newsroom workspace. Migration 0007 provisions public
+media reads and per-user upload ownership; it also schedules due-article
+processing when `pg_cron` is available. If the extension is unavailable,
+enable it or schedule `public.chowk_process_due_articles()` through a trusted
+server-side scheduler. AI moderation and official-feed review have not been
+ported. AI moderation processes article data with an external provider in the
+legacy system and must not be enabled until provider configuration and explicit
+data-processing approval are in place. YouTube stream entries reference videos;
+they do not start a broadcast. Test the migration and workflows in a
+non-production Supabase project first.
 
 ## Environment and deployment
 
@@ -105,10 +153,8 @@ commit `.env`, database passwords, service-role keys, or other secrets. Keep
 local development on the same project only while it is still empty or after
 confirming its data is backed up.
 
-The current workspace does not yet have Git metadata or a connected GitHub
-repository. After local Supabase tests pass, connect this folder to a dedicated
-Chowk portal repository and configure Hostinger to deploy that repository with
-`npm start`. Configure `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
+Configure Hostinger to deploy the dedicated Chowk portal repository with
+`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
 `NODE_ENV=production` in the hosting environment, install dependencies with
 `npm ci`, and use the host-provided `PORT`. Do not upload `.env` or commit it
 to Git.

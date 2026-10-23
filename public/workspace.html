@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf0">
+    <title>Newsroom workspace | CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/workspace.css">
+    <script src="/workspace.js" defer></script>
+  </head>
+  <body class="workspace-body">
+    <div class="development-notice" role="note" aria-label="Development phase notice">
+      <div class="notice-inner">
+        <span class="notice-dot" aria-hidden="true"></span>
+        <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
+      </div>
+    </div>
+    <header class="workspace-topbar">
+      <a class="workspace-brand" href="/">
+        <span class="workspace-brand-mark">C</span>
+        <span>CHOWK<span class="brand-dot">.</span><small>NEWSROOM</small></span>
+      </a>
+      <div class="workspace-user">
+        <span id="workspace-avatar" class="workspace-avatar">C</span>
+        <span><strong id="workspace-name">Newsroom staff</strong><small id="workspace-role">Staff</small></span>
+        <a href="/reporter" class="workspace-link">Reporter desk</a>
+        <button id="workspace-sign-out" type="button" class="workspace-link-button">Sign out</button>
+      </div>
+    </header>
+    <main class="workspace-main">
+      <section class="workspace-hero">
+        <div>
+          <span id="workspace-eyebrow" class="workspace-eyebrow">NEWSROOM OPERATIONS</span>
+          <h1 id="workspace-heading">Newsroom workspace</h1>
+          <p id="workspace-description">A role-specific view of your submissions and review queue.</p>
+        </div>
+        <button id="workspace-refresh" type="button" class="workspace-button secondary">Refresh queue</button>
+      </section>
+      <div id="workspace-message" class="workspace-message" role="status" hidden></div>
+      <section id="workspace-metrics" class="workspace-metrics" aria-label="Queue summary"></section>
+      <section id="workspace-notifications" class="workspace-panel workspace-notifications" hidden>
+        <div class="workspace-panel-heading">
+          <div><h2>Newsroom updates</h2><p id="workspace-notification-summary">Workflow changes and assignments for your account.</p></div>
+          <button id="workspace-notifications-read" class="workspace-button secondary" type="button">Mark all read</button>
+        </div>
+        <div id="workspace-notification-list" class="workspace-notification-list"></div>
+      </section>
+      <section id="workspace-coverage" class="workspace-panel workspace-coverage" hidden>
+        <div class="workspace-panel-heading">
+          <div><h2>Your assigned coverage</h2><p>Story submissions and moderation queues are limited to these locations.</p></div>
+        </div>
+        <div id="workspace-coverage-list" class="workspace-coverage-list"></div>
+      </section>
+      <section class="workspace-panel">
+        <div class="workspace-panel-heading">
+          <div>
+            <h2 id="queue-heading">Your stories</h2>
+            <p id="queue-description">Stories and their current workflow state.</p>
+          </div>
+          <button id="workspace-create" type="button" class="workspace-button" hidden>New story draft</button>
+        </div>
+        <div id="workspace-queue" class="workspace-queue">
+          <p class="workspace-loading">Loading your newsroom workspace…</p>
+        </div>
+      </section>
+    </main>
+    <dialog id="story-dialog" class="workspace-dialog">
+      <form id="story-form" method="dialog">
+        <span class="workspace-eyebrow">STORY EDITOR</span>
+        <h2 id="story-dialog-title">New story draft</h2>
+        <p id="story-dialog-help">Save a private draft. It will not appear in public news until editorial approval.</p>
+        <label class="workspace-field"><span>Headline</span><input name="title" minlength="8" maxlength="240" required></label>
+        <label class="workspace-field"><span>URL slug</span><input name="slug" minlength="3" maxlength="240" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required></label>
+        <label class="workspace-field"><span>Summary</span><textarea name="excerpt" maxlength="1000" rows="3"></textarea></label>
+        <label class="workspace-field"><span>Story content (minimum 50 characters)</span><textarea name="content" minlength="50" rows="9" required></textarea></label>
+        <label class="workspace-field"><span>Category</span><select name="category_id"><option value="">No category</option></select></label>
+        <label class="workspace-field"><span>Reporting location / coverage area</span><select name="reporting_location_id" required><option value="">Choose a reporting location</option></select></label>
+        <label class="workspace-field"><span>Image URL or uploaded file</span><input name="image_url" type="text" maxlength="2000"></label>
+        <label class="workspace-field"><span>Video URL or uploaded file</span><input name="video_url" type="text" maxlength="2000"></label>
+        <label class="workspace-field"><span>Audio URL or uploaded file</span><input name="audio_url" type="text" maxlength="2000"></label>
+        <label class="workspace-field"><span>Upload image, video, or audio (max 25 MB)</span><input id="story-media-file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav"></label>
+        <p id="story-media-status" class="workspace-form-error" role="status" hidden></p>
+        <label id="change-reason-field" class="workspace-field" hidden><span>Editorial change note</span><input name="change_reason" maxlength="500"></label>
+        <p id="story-form-error" class="workspace-form-error" role="alert" hidden></p>
+        <div class="workspace-dialog-actions">
+          <button id="story-cancel" class="workspace-button secondary" type="button">Cancel</button>
+          <button class="workspace-button" type="submit">Save draft</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

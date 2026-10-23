@@ -547,8 +547,282 @@
   padding-inline: 13px;
 }
 
+.admin-nav-heading-settings {
+  margin-top: 22px;
+}
+
 .admin-settings-button {
   justify-self: start;
+}
+
+.admin-account-form {
+  max-height: min(86vh, 760px);
+  overflow-y: auto;
+}
+
+.admin-audit-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(5, minmax(125px, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid #edf0f4;
+  background: #fcfcfd;
+}
+
+.admin-audit-filters .admin-form-field input,
+.admin-audit-filters .admin-form-field select {
+  min-height: 36px;
+  padding: 7px 9px;
+  font-size: 11px;
+}
+
+.admin-audit-apply {
+  min-height: 36px;
+  padding: 0 13px;
+  font-size: 10px;
+}
+
+.admin-audit-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-audit-heading-actions button {
+  white-space: nowrap;
+}
+
+.admin-audit-request-details {
+  display: grid;
+  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  background: #fcfcfd;
+  font-size: 10px;
+}
+
+.admin-audit-request-details dt {
+  color: #8993a4;
+  font-weight: 700;
+}
+
+.admin-audit-request-details dd {
+  min-width: 0;
+  margin: 0;
+  color: #4f5c72;
+  overflow-wrap: anywhere;
+}
+
+.admin-audit-snapshot {
+  padding: 12px;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  color: #4f5c72;
+  font-size: 11px;
+}
+
+.admin-audit-snapshot summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-audit-snapshot .admin-audit-value-grid {
+  margin-top: 12px;
+}
+
+.admin-audit-panel .admin-table-wrap td {
+  max-width: 230px;
+  white-space: normal;
+}
+
+.admin-audit-panel .audit-actor-cell {
+  min-width: 145px;
+  color: #27334a;
+  font-weight: 700;
+}
+
+.admin-audit-panel .audit-fields-cell {
+  min-width: 150px;
+  color: #69758a;
+}
+
+.admin-application-review-details {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.45fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 12px;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  background: #fcfcfd;
+  font-size: 10px;
+}
+
+.admin-application-review-details strong {
+  color: #8993a4;
+}
+
+.admin-application-review-details span,
+.admin-application-review-details a {
+  min-width: 0;
+  color: #4f5c72;
+  overflow-wrap: anywhere;
+}
+
+.admin-application-review-details a {
+  grid-column: 2;
+}
+
+.admin-audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-top: 1px solid #edf0f4;
+}
+
+.admin-audit-pagination span {
+  color: #8993a4;
+  font-size: 10px;
+}
+
+.admin-audit-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.admin-audit-dialog {
+  width: min(900px, calc(100% - 28px));
+}
+
+.admin-audit-detail {
+  display: grid;
+  max-height: min(86vh, 850px);
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.admin-audit-detail h2 {
+  margin: 0;
+  color: #27334a;
+  font-size: 20px;
+  text-transform: capitalize;
+}
+
+.admin-audit-detail > .admin-dialog-help {
+  margin: 0;
+}
+
+.admin-audit-change-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-audit-change {
+  padding: 12px;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-audit-change h3 {
+  margin: 0 0 10px;
+  color: #27334a;
+  font-size: 12px;
+}
+
+.admin-audit-value-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-audit-value {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f7f8fa;
+}
+
+.admin-audit-value pre {
+  max-height: 240px;
+  margin: 8px 0 0;
+  overflow: auto;
+  color: #556176;
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.admin-form-field {
+  display: grid;
+  gap: 6px;
+  color: #596579;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-form-field input,
+.admin-form-field select,
+.admin-form-field textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #dce1e9;
+  border-radius: 7px;
+  background: #fff;
+  color: #27334a;
+  font: inherit;
+  font-size: 12px;
+}
+
+.admin-form-field input:focus,
+.admin-form-field select:focus,
+.admin-form-field textarea:focus {
+  border-color: var(--orange);
+  outline: 2px solid rgb(255 105 11 / 16%);
+}
+
+.admin-form-field textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.admin-settings-panel {
+  max-width: 760px;
+}
+
+.admin-settings-form {
+  display: grid;
+  max-width: 520px;
+  gap: 15px;
+  padding: 20px;
+}
+
+.admin-settings-form input:disabled {
+  background: #f5f7fa;
+  color: #8993a4;
+  cursor: not-allowed;
+}
+
+.admin-settings-message {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.admin-settings-message.is-success {
+  color: #208357;
+}
+
+.admin-settings-message.is-error {
+  color: #a83434;
 }
 
 .admin-inline-error {
@@ -707,6 +981,18 @@
   .admin-topbar {
     padding-inline: 18px;
   }
+
+  .admin-audit-filters {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-audit-filters .admin-form-field:first-child {
+    grid-column: span 2;
+  }
+
+  .admin-audit-apply {
+    grid-column: span 2;
+  }
 }
 
 @media (max-width: 620px) {
@@ -777,5 +1063,21 @@
   .admin-table-wrap th,
   .admin-table-wrap td {
     padding: 10px 12px;
+  }
+
+  .admin-audit-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-audit-filters .admin-form-field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .admin-audit-apply {
+    grid-column: 1 / -1;
+  }
+
+  .admin-audit-value-grid {
+    grid-template-columns: 1fr;
   }
 }

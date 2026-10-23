@@ -52,6 +52,17 @@ connections are not available). The database password is distinct from the
 publishable key; enter the URI only at the script's masked local prompt. It is
 not saved in `.env` or in the deployed app.
 
+If the local bootstrap reports a self-signed certificate error, download the
+CA certificate from **Project Settings → Database → SSL Configuration**. Save
+it locally outside Git and add its path to the ignored `.env`, for example:
+
+```dotenv
+SUPABASE_DB_SSL_CA=C:\Users\YOUR_NAME\Downloads\prod-ca-2021.crt
+```
+
+The bootstrap verifies the server certificate against this CA; do not disable
+TLS verification.
+
 Run this in a local terminal from the project folder:
 
 ```powershell

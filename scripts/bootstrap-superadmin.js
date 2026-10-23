@@ -111,9 +111,19 @@ async function main() {
   const password = await ask("New account password (minimum 8 characters; input is masked): ", { secret: true });
   if (password.length < 8 || password.length > 72) throw new Error("Password must be between 8 and 72 characters.");
 
+  const caPath = process.env.SUPABASE_DB_SSL_CA?.trim();
+  let ca;
+  if (caPath) {
+    try {
+      ca = fs.readFileSync(path.resolve(caPath));
+    } catch {
+      throw new Error("Could not read SUPABASE_DB_SSL_CA. Check that it points to the downloaded Supabase CA certificate.");
+    }
+  }
+
   const client = new Client({
     connectionString: databaseUrl,
-    ssl: { rejectUnauthorized: true },
+    ssl: { rejectUnauthorized: true, ...(ca ? { ca } : {}) },
     connectionTimeoutMillis: 15_000
   });
 
@@ -171,6 +181,13 @@ async function main() {
       console.log("Email confirmation is still required before sign-in. Check the account inbox.");
     }
     console.log("Sign in at /admin. The password was not saved by this script.");
+  } catch (error) {
+    if (error.code === "SELF_SIGNED_CERT_IN_CHAIN" || error.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") {
+      throw new Error(
+        "TLS certificate verification failed. Download the CA certificate from Supabase Project Settings → Database → SSL Configuration, set SUPABASE_DB_SSL_CA in your local .env to its file path, then retry. Certificate verification remains enabled."
+      );
+    }
+    throw error;
   } finally {
     await client.end();
   }

@@ -371,6 +371,68 @@ async function handleAuth(request, response, registration) {
       sendJson(response, 400, { error: "Enter a valid phone number." });
       return;
     }
+    let reporterApplication = null;
+    if (registration) {
+      const accountType = body.account_type === undefined ? "subscriber" : body.account_type;
+      if (!["subscriber", "reporter"].includes(accountType)) {
+        sendJson(response, 400, { error: "Choose a valid account type." });
+        return;
+      }
+      if (body.accepted_policies !== true) {
+        sendJson(response, 400, { error: "Accept the site policies before creating an account." });
+        return;
+      }
+      if (accountType === "reporter") {
+        const stateId = Number(body.state_id);
+        const rtoId = Number(body.rto_office_id);
+        const reporterTypeId = Number(body.reporter_type_id);
+        if (![stateId, rtoId, reporterTypeId].every((id) => Number.isSafeInteger(id) && id > 0)) {
+          sendJson(response, 400, { error: "Choose a state, an RTO/reporting area, and a reporter type." });
+          return;
+        }
+        if (body.accepted_reporter_agreement !== true) {
+          sendJson(response, 400, { error: "Read and accept the current reporter agreement before applying." });
+          return;
+        }
+        const { response: optionsResponse, payload: options } = await supabaseRequest(
+          "/rest/v1/rpc/chowk_reporter_options"
+        );
+        if (!optionsResponse.ok) {
+          sendJson(response, optionsResponse.status, {
+            error: apiErrorMessage(options, "Reporter application setup could not be verified.")
+          });
+          return;
+        }
+        const state = (options.states || []).find((item) => Number(item.id) === stateId && item.is_active);
+        const rto = (options.rtos || []).find((item) =>
+          Number(item.id) === rtoId && Number(item.state_id) === stateId
+        );
+        const reporterType = (options.types || []).find((item) =>
+          Number(item.id) === reporterTypeId
+        );
+        const agreement = options.agreement;
+        if (!state || !rto || !reporterType) {
+          sendJson(response, 400, { error: "The selected state, RTO/reporting area, or reporter type is no longer active. Refresh the registration form." });
+          return;
+        }
+        if (!agreement
+            || body.agreement_version !== agreement.version
+            || body.agreement_sha256 !== agreement.sha256) {
+          sendJson(response, 409, { error: "The reporter agreement changed or is not published. Refresh and review the current agreement." });
+          return;
+        }
+        reporterApplication = {
+          state_id: stateId,
+          rto_office_id: rtoId,
+          reporter_type_id: reporterTypeId,
+          accepted_reporter_agreement: true,
+          agreement_version: agreement.version,
+          agreement_sha256: agreement.sha256,
+          signer_name: body.name.trim(),
+          acceptance_statement: "I have read and accept the Chowk reporter agreement."
+        };
+      }
+    }
 
     const endpoint = registration
       ? "/auth/v1/signup"
@@ -381,7 +443,13 @@ async function handleAuth(request, response, registration) {
         ? {
             email: body.email.trim(),
             password: body.password,
-            data: { full_name: body.name.trim(), phone: body.phone.trim() }
+            data: {
+              account_type: reporterApplication ? "reporter" : "subscriber",
+              accepted_policies: body.accepted_policies === true,
+              full_name: body.name.trim(),
+              phone: body.phone.trim(),
+              ...(reporterApplication ? { reporter_application: reporterApplication } : {})
+            }
           }
         : { email: body.email.trim(), password: body.password }
     });
@@ -630,8 +698,8 @@ async function adminRoute(request, response, requestUrl, session) {
       const stateId = Number(body.state_id);
       const rtoCode = typeof body.rto_code === "string" ? body.rto_code.trim().toUpperCase() : "";
       const cityName = typeof body.city_name === "string" ? body.city_name.trim() : "";
-      if (!Number.isSafeInteger(stateId) || stateId < 1 || !/^[A-Z0-9]{2}$/.test(rtoCode) || cityName.length > 120) {
-        sendJson(response, 400, { error: "Choose a state, a 2-character RTO code, and a valid city name." });
+      if (!Number.isSafeInteger(stateId) || stateId < 1 || !/^[A-Z0-9]{2,8}$/.test(rtoCode) || cityName.length > 120) {
+        sendJson(response, 400, { error: "Choose a state, an RTO code (2-8 alphanumeric characters), and a valid city name." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rto_offices", {
@@ -724,6 +792,49 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, id: result.payload }
         : { error: apiErrorMessage(result.payload, "Coverage assignment failed.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/zone-district-mappings" && request.method === "GET") {
+      const result = await supabaseRequest(
+        "/rest/v1/zone_districts?select=id,zone_id,district_id,valid_from,valid_to,assigned_by,created_at&order=valid_from.desc&limit=1000",
+        { token }
+      );
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload || [] }
+        : { error: apiErrorMessage(result.payload, "Zone/district mapping history could not be loaded.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/zone-district-mappings" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const zoneId = Number(body.zone_id);
+      const districtId = Number(body.district_id);
+      if (!Number.isSafeInteger(zoneId) || zoneId < 1 || !Number.isSafeInteger(districtId) || districtId < 1) {
+        sendJson(response, 400, { error: "Choose a zone and district to map." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_district_zone", {
+        method: "POST",
+        token,
+        body: { target_zone: zoneId, target_district: districtId }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: { id: result.payload } }
+        : { error: apiErrorMessage(result.payload, "District could not be mapped to the zone.") });
+      return;
+    }
+
+    const endZoneDistrictMapping = pathname.match(/^\/api\/admin\/zone-district-mappings\/(\d+)\/end$/);
+    if (endZoneDistrictMapping && request.method === "POST") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_end_district_zone", {
+        method: "POST",
+        token,
+        body: { target_mapping: Number(endZoneDistrictMapping[1]) }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Zone/district mapping could not be ended.") });
       return;
     }
 
@@ -1247,6 +1358,7 @@ async function adminRoute(request, response, requestUrl, session) {
     const articleItem = pathname.match(/^\/api\/admin\/articles\/(\d+)$/);
     const categoryItem = pathname.match(/^\/api\/admin\/categories\/(\d+)$/);
     const roleItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/role$/i);
+    const reporterProvisionItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reporter-provisioning$/i);
     if (adminArticleTransition && request.method === "POST") {
       const body = await readJsonBody(request);
       if (body.action !== "reopen_rejected" || typeof body.note !== "string") {
@@ -1348,12 +1460,110 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (roleItem && request.method === "PATCH") {
       const body = await readJsonBody(request);
+      if (body.role === "reporter") {
+        sendJson(response, 400, { error: "Reporter roles require a state, RTO, reporter type, and reporter ID. Use the reporter provisioning workflow." });
+        return;
+      }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
         method: "POST", token, body: { target_user: roleItem[1], new_role: body.role }
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
         : { error: apiErrorMessage(result.payload, "Role could not be updated.") });
+      return;
+    }
+
+    if (reporterProvisionItem && request.method === "POST") {
+      if (!isSameOrigin(request)) {
+        sendJson(response, 403, { error: "Cross-origin request rejected." });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const stateId = Number(body.state_id);
+      const rtoId = Number(body.rto_office_id);
+      const reporterTypeId = Number(body.reporter_type_id);
+      if (![stateId, rtoId, reporterTypeId].every((value) => Number.isSafeInteger(value) && value > 0)) {
+        sendJson(response, 400, { error: "Choose an active state, RTO/reporting area, and reporter type." });
+        return;
+      }
+      const [profile, state, rto, reporterType] = await Promise.all([
+        supabaseRequest(`/rest/v1/profiles?select=role&id=eq.${reporterProvisionItem[1]}&limit=1`, { token }),
+        supabaseRequest(`/rest/v1/states?select=id&id=eq.${stateId}&is_active=eq.true&limit=1`, { token }),
+        supabaseRequest(`/rest/v1/rto_offices?select=id,state_id&id=eq.${rtoId}&is_active=eq.true&limit=1`, { token }),
+        supabaseRequest(`/rest/v1/reporter_types?select=id&id=eq.${reporterTypeId}&is_active=eq.true&limit=1`, { token })
+      ]);
+      for (const result of [profile, state, rto, reporterType]) {
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "Reporter account options could not be validated.")
+          });
+          return;
+        }
+      }
+      if (!profile.payload?.[0]) {
+        sendJson(response, 404, { error: "User account not found." });
+        return;
+      }
+      if (!state.payload?.[0] || !rto.payload?.[0] || !reporterType.payload?.[0]
+          || Number(rto.payload[0].state_id) !== stateId) {
+        sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state and an active reporter type." });
+        return;
+      }
+      const previousRole = profile.payload[0].role;
+      if (previousRole !== "reporter") {
+        const promoted = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
+          method: "POST",
+          token,
+          body: { target_user: reporterProvisionItem[1], new_role: "reporter" }
+        });
+        if (!promoted.response.ok) {
+          sendJson(response, promoted.response.status, {
+            error: apiErrorMessage(promoted.payload, "User could not be promoted to reporter.")
+          });
+          return;
+        }
+      }
+      const assigned = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_reporter", {
+        method: "POST",
+        token,
+        body: { target_user: reporterProvisionItem[1], target_rto: rtoId, target_type: reporterTypeId }
+      });
+      if (!assigned.response.ok) {
+        if (previousRole !== "reporter") {
+          const restored = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
+            method: "POST",
+            token,
+            body: { target_user: reporterProvisionItem[1], new_role: previousRole }
+          });
+          sendJson(response, 502, {
+            error: restored.response.ok
+              ? `Reporter provisioning failed and the previous account role was restored: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`
+              : `Reporter provisioning failed, and the previous role could not be restored: ${apiErrorMessage(restored.payload, "role restoration failed.")}`,
+            recovery_required: !restored.response.ok
+          });
+          return;
+        }
+        sendJson(response, 502, {
+          error: `Reporter provisioning failed. The existing reporter role remains active; retry the assignment: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`,
+          recovery_required: true
+        });
+        return;
+      }
+      const reporterProfile = await supabaseRequest(
+        `/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${reporterProvisionItem[1]}&limit=1`,
+        { token }
+      );
+      if (!reporterProfile.response.ok || !reporterProfile.payload?.[0]?.reporter_code) {
+        sendJson(response, 502, {
+          error: "Reporter assignment succeeded, but the generated reporter ID could not be loaded. Refresh the reporter directory.",
+          recovery_required: true
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        success: true,
+        data: { reporter_code: reporterProfile.payload[0].reporter_code }
+      });
       return;
     }
 
@@ -1392,6 +1602,35 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 403, { error: "Only a super admin can create another super admin." });
         return;
       }
+      let reporterAssignment;
+      if (role === "reporter") {
+        const stateId = Number(body.state_id);
+        const rtoId = Number(body.rto_office_id);
+        const reporterTypeId = Number(body.reporter_type_id);
+        if (![stateId, rtoId, reporterTypeId].every((value) => Number.isSafeInteger(value) && value > 0)) {
+          sendJson(response, 400, { error: "Reporter accounts require an active state, RTO/reporting area, and reporter type." });
+          return;
+        }
+        const [state, rto, reporterType] = await Promise.all([
+          supabaseRequest(`/rest/v1/states?select=id&id=eq.${stateId}&is_active=eq.true&limit=1`, { token }),
+          supabaseRequest(`/rest/v1/rto_offices?select=id,state_id&id=eq.${rtoId}&is_active=eq.true&limit=1`, { token }),
+          supabaseRequest(`/rest/v1/reporter_types?select=id&id=eq.${reporterTypeId}&is_active=eq.true&limit=1`, { token })
+        ]);
+        for (const result of [state, rto, reporterType]) {
+          if (!result.response.ok) {
+            sendJson(response, result.response.status, {
+              error: apiErrorMessage(result.payload, "Reporter account options could not be validated.")
+            });
+            return;
+          }
+        }
+        if (!state.payload?.[0] || !rto.payload?.[0] || !reporterType.payload?.[0]
+            || Number(rto.payload[0].state_id) !== stateId) {
+          sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state and an active reporter type." });
+          return;
+        }
+        reporterAssignment = { stateId, rtoId, reporterTypeId };
+      }
       const created = await supabaseRequest("/auth/v1/signup", {
         method: "POST",
         body: { email, password, data: { full_name: fullName, phone } }
@@ -1416,6 +1655,39 @@ async function adminRoute(request, response, requestUrl, session) {
           return;
         }
       }
+      let reporterCode = null;
+      if (reporterAssignment) {
+        const assigned = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_reporter", {
+          method: "POST",
+          token,
+          body: {
+            target_user: createdUser.id,
+            target_rto: reporterAssignment.rtoId,
+            target_type: reporterAssignment.reporterTypeId
+          }
+        });
+        if (!assigned.response.ok) {
+          sendJson(response, 502, {
+            error: `The account was created and its reporter role was assigned, but reporter provisioning failed. Refresh Users, then use Reporter assignment on that account to retry: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`,
+            data: { user_id: createdUser.id },
+            recovery_required: true
+          });
+          return;
+        }
+        const reporterProfile = await supabaseRequest(
+          `/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${createdUser.id}&limit=1`,
+          { token }
+        );
+        if (!reporterProfile.response.ok || !reporterProfile.payload?.[0]?.reporter_code) {
+          sendJson(response, 502, {
+            error: "The reporter was provisioned, but the generated reporter ID could not be loaded. Refresh the reporter directory.",
+            data: { user_id: createdUser.id },
+            recovery_required: true
+          });
+          return;
+        }
+        reporterCode = reporterProfile.payload[0].reporter_code;
+      }
       const profile = await supabaseRequest(
         `/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&id=eq.${createdUser.id}&limit=1`,
         { token }
@@ -1434,6 +1706,12 @@ async function adminRoute(request, response, requestUrl, session) {
           event_data: {
             email,
             role: profile.payload[0].role,
+            ...(reporterAssignment ? {
+              state_id: reporterAssignment.stateId,
+              rto_office_id: reporterAssignment.rtoId,
+              reporter_type_id: reporterAssignment.reporterTypeId,
+              reporter_code: reporterCode
+            } : {}),
             changed_fields: [
               { field: "email", before: null, after: email },
               { field: "role", before: null, after: profile.payload[0].role }
@@ -1450,7 +1728,7 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 201, {
         success: true,
         confirmation_required: !createdUser.email_confirmed_at,
-        data: profile.payload[0]
+        data: { ...profile.payload[0], ...(reporterCode ? { reporter_code: reporterCode } : {}) }
       });
       return;
     }

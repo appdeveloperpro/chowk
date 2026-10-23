@@ -33,12 +33,21 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0004_audit_history.sql` and
    `supabase/migrations/0005_reporter_lifecycle.sql` and
    `supabase/migrations/0006_editorial_workflow.sql` and
-   `supabase/migrations/0007_newsroom_operations.sql`. These add account email
+   `supabase/migrations/0007_newsroom_operations.sql` and
+   `supabase/migrations/0008_reporter_location_parity.sql` and
+   `supabase/migrations/0009_reporter_registration_workflow.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
-   validation, and scheduled publication processing. Existing installations
-   must run all additive migrations in order before deploying these features.
+   validation, and scheduled publication processing. Migration 0008 separates
+   zones and districts beneath each state, preserves zone/district mappings as
+   dated history, treats coverage areas as divisions under districts or cities,
+   and connects admin reporter provisioning and staff coverage to that
+   hierarchy. Migration 0009 seeds states, the legacy Uttar Pradesh RTO
+   reporting areas, and the Tehsil Reporter type, then records reporter
+   applications and agreement acceptance atomically during signup. Existing
+   installations must run all additive migrations in order before deploying
+   these features.
 4. Start the portal:
 
    ```powershell
@@ -127,18 +136,23 @@ key and authenticated user tokens.
 - RLS policies restrict public reads to published news and active categories.
   Profile roles are assigned as `subscriber` on signup; users cannot self-promote.
 
-Before accepting reporter applications, configure active states, RTOs, and
-reporter types, add the agreement document URL and its exact SHA-256, then
-publish that agreement in the admin console. New installations have no
-preconfigured states or RTOs. The reporter code is allocated on approval and
-remains stable across future assignments. Coverage and reporter assignments
-are retained as dated history. Applying the SQL migrations is a manual
-Supabase dashboard step; run migrations 0001 through 0007 in order before
-deploying the expanded newsroom workspace. Migration 0007 provisions public
-media reads and per-user upload ownership; it also schedules due-article
-processing when `pg_cron` is available. If the extension is unavailable,
-enable it or schedule `public.chowk_process_due_articles()` through a trusted
-server-side scheduler. AI moderation and official-feed review have not been
+Before accepting reporter applications, review the seeded states, legacy
+Uttar Pradesh RTOs, and Tehsil Reporter type; add RTO/reporting areas for other
+states as needed. Add the reporter agreement document URL and its exact
+SHA-256, then publish that agreement in the admin console. The registration
+form collects the state, matching RTO, reporter type, and agreement acceptance
+before creating an account. Applications stay pending with subscriber access
+until admin approval. The reporter code is allocated on approval and remains
+stable across future assignments; admin-created reporters receive their code
+when their required assignment is provisioned. Coverage and reporter
+assignments are retained as dated history. Applying the SQL migrations is a
+manual Supabase dashboard step; run migrations 0001 through 0009 in order
+before deploying the expanded newsroom workspace. Migration 0008 adds
+legacy-compatible zone/district mapping and coverage. Migration 0007
+provisions public media reads and per-user upload ownership; it also schedules
+due-article processing when `pg_cron` is available. If the extension is
+unavailable, enable it or schedule `public.chowk_process_due_articles()`
+through a trusted server-side scheduler. AI moderation and official-feed review have not been
 ported. AI moderation processes article data with an external provider in the
 legacy system and must not be enabled until provider configuration and explicit
 data-processing approval are in place. YouTube stream entries reference videos;

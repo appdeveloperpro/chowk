@@ -94,6 +94,9 @@ const modules = {
   },
   locations: {
     path: "admin/locations",
+    related: [
+      { label: "Zone / district mapping history", path: "admin/zone-district-mappings" }
+    ],
     description: "Maintain the state, zone, district, city, and coverage-area directory.",
     createPath: "admin/locations",
     formFields: [
@@ -125,10 +128,53 @@ const modules = {
   }
 };
 
+function renderLocationModule(root, results) {
+  const addLocation = makeElement("button", "admin-primary-button admin-create-button", "Add location");
+  addLocation.type = "button";
+  addLocation.addEventListener("click", () => openConfiguredRecordDialog("locations", null));
+  const mapDistrict = makeElement("button", "admin-secondary-button admin-create-button", "Map district to zone");
+  mapDistrict.type = "button";
+  mapDistrict.disabled = Boolean(results[1]?.error);
+  mapDistrict.addEventListener("click", () => {
+    if (Array.isArray(results[1]?.data)) {
+      openZoneDistrictDialog(locationRecords);
+    }
+  });
+  root.append(addLocation, mapDistrict);
+
+  const byId = new Map(locationRecords.map((item) => [String(item.id), item]));
+  const locationRows = locationRecords.map((location) => ({
+    ...location,
+    hierarchy: locationPath(location, byId),
+    parent_location: byId.get(String(location.parent_id))?.name || "Top level"
+  }));
+  reporterPanel(root, "Locations", locationRows, "locations");
+
+  const mappingsResult = results[1];
+  const mappingPanel = makeElement("section", "admin-panel");
+  const mappingHeader = makeElement("div", "admin-panel-heading");
+  mappingHeader.append(makeElement("h2", "", "Zone / district mapping history"));
+  if (mappingsResult?.error) {
+    mappingPanel.append(mappingHeader, makeElement("p", "admin-empty admin-inline-error", mappingsResult.error));
+  } else {
+    const mappings = Array.isArray(mappingsResult?.data) ? mappingsResult.data : [];
+    const rows = mappings.map((mapping) => ({
+      zone: byId.get(String(mapping.zone_id))?.name || "Unavailable zone",
+      district: byId.get(String(mapping.district_id))?.name || "Unavailable district",
+      valid_from: formatDate(mapping.valid_from),
+      valid_to: mapping.valid_to ? formatDate(mapping.valid_to) : "Current",
+      id: mapping.id,
+      _active: !mapping.valid_to
+    }));
+    mappingPanel.append(mappingHeader, buildTable(rows, "zone-district-mappings"));
+  }
+  root.append(mappingPanel);
+}
+
 const allowedLocationParents = {
   state: [],
   zone: ["state"],
-  district: ["state", "zone"],
+  district: ["state"],
   city: ["district"],
   coverage_area: ["district", "city"]
 };
@@ -262,6 +308,15 @@ async function loadSection(section) {
     return;
   }
 
+  if (section === "zone-district-mappings" && row._active) {
+    rowButton(container, "End mapping", () => {
+      if (window.confirm("End this zone/district mapping now? Its history will be retained.")) {
+        void runAction(() => apiRequest(`admin/zone-district-mappings/${id}/end`, "POST", {}), refresh);
+      }
+    }, "admin-row-button danger");
+    return;
+  }
+
   if (section === "settings") {
     renderSettings();
     return;
@@ -346,6 +401,9 @@ function renderModule(section, results) {
   }
   if (section === "locations") {
     locationRecords = Array.isArray(results[0]?.data) ? results[0].data : [];
+    renderLocationModule(root, results);
+    content.replaceChildren(root);
+    return;
   }
 
   if (section === "users") {
@@ -652,12 +710,77 @@ function openCoverageDialog(data) {
   const locations = data.locations || [];
   openFormDialog(
     "Assign newsroom coverage",
-    "Choose one zone, district, city, or coverage area. The assignment and its effective dates are retained in coverage history.",
+    "Choose a zone, district, city, or division. Parent-child location assignments and their effective dates are retained in coverage history.",
     (form) => {
       appendReporterSelect(form, "user_id", "Newsroom staff", staff,
         (person) => `${person.full_name || person.email} · ${person.role}`);
-      appendReporterSelect(form, "location_id", "Coverage location", locations,
-        (location) => `${location.name} · ${location.location_type}`);
+      const typeSelect = appendValueSelect(form, "coverage_type", "Coverage level", [
+        ["zone", "Zone / region"],
+        ["district", "District"],
+        ["city", "City"],
+        ["coverage_area", "Division"]
+      ]);
+      const stateSelect = appendReporterSelect(form, "state_id", "State / UT", [], (state) => state.name);
+      const districtSelect = appendReporterSelect(form, "district_id", "District", [], (district) => district.name);
+      const citySelect = appendReporterSelect(form, "city_id", "City (optional)", [], (city) => city.name, "No city — division belongs to the district");
+      const targetSelect = appendReporterSelect(form, "location_id", "Coverage location", [], (location) => location.name);
+
+      const byId = new Map(locations.map((location) => [String(location.id), location]));
+      const getStateId = (location) => {
+        let current = location;
+        const visited = new Set();
+        while (current && current.location_type !== "state" && !visited.has(String(current.id))) {
+          visited.add(String(current.id));
+          current = byId.get(String(current.parent_id));
+        }
+        return current?.location_type === "state" ? String(current.id) : "";
+      };
+      const states = locations.filter((location) => location.location_type === "state" && location.is_active);
+      replaceValueOptions(stateSelect, states, "Choose a state / UT", (state) => state.name);
+      const setDisabled = (select, disabled) => {
+        select.disabled = disabled;
+        select.required = !disabled && select.name !== "city_id";
+      };
+      const refreshLocationChoices = () => {
+        const selectedState = stateSelect.value;
+        const selectedType = typeSelect.value;
+        const districts = locations.filter((location) =>
+          location.location_type === "district"
+          && location.is_active
+          && getStateId(location) === selectedState
+        );
+        replaceValueOptions(districtSelect, districts, "Choose a district", (district) => district.name);
+
+        const parentDistrictId = districtSelect.value;
+        const cities = locations.filter((location) =>
+          location.location_type === "city"
+          && location.is_active
+          && String(location.parent_id) === parentDistrictId
+        );
+        replaceValueOptions(citySelect, cities, "No city — division belongs to the district", (city) => city.name);
+
+        const eligible = locations.filter((location) => {
+          if (!location.is_active) return false;
+          if (selectedType === "zone" || selectedType === "district") {
+            return location.location_type === selectedType && getStateId(location) === selectedState;
+          }
+          if (selectedType === "city") {
+            return location.location_type === "city" && String(location.parent_id) === parentDistrictId;
+          }
+          const parentId = citySelect.value || parentDistrictId;
+          return location.location_type === "coverage_area" && String(location.parent_id) === parentId;
+        });
+        replaceValueOptions(targetSelect, eligible, "Choose coverage location", (location) => location.name);
+        setDisabled(districtSelect, !selectedState || !["city", "coverage_area"].includes(selectedType));
+        setDisabled(citySelect, !selectedState || selectedType !== "coverage_area" || !parentDistrictId);
+        districtSelect.required = Boolean(selectedState && ["city", "coverage_area"].includes(selectedType));
+        citySelect.required = false;
+        setDisabled(targetSelect, !selectedState || (["city", "coverage_area"].includes(selectedType) && !parentDistrictId));
+      };
+      [typeSelect, stateSelect, districtSelect, citySelect].forEach((select) =>
+        select.addEventListener("change", refreshLocationChoices)
+      );
+      refreshLocationChoices();
       const label = makeElement("label", "admin-form-checkbox");
       const descendants = document.createElement("input");
       descendants.type = "checkbox";
@@ -675,6 +798,70 @@ function openCoverageDialog(data) {
       await loadSection("reporter-coverage");
     },
     "Assign coverage"
+  );
+}
+
+function appendValueSelect(form, name, title, values) {
+  const label = makeElement("label", "admin-form-field");
+  label.append(makeElement("span", "", title));
+  const select = document.createElement("select");
+  select.name = name;
+  select.required = true;
+  values.forEach(([value, text], index) => {
+    const option = new Option(text, value);
+    option.selected = index === 0;
+    select.append(option);
+  });
+  label.append(select);
+  form.append(label);
+  return select;
+}
+
+function replaceValueOptions(select, values, placeholder, labelFor) {
+  const current = select.value;
+  select.replaceChildren(new Option(placeholder, ""));
+  values.forEach((value) => select.append(new Option(labelFor(value), String(value.id))));
+  if (values.some((value) => String(value.id) === current)) {
+    select.value = current;
+  }
+}
+
+function openZoneDistrictDialog(locations) {
+  const statesById = new Map(locations
+    .filter((location) => location.location_type === "state")
+    .map((location) => [String(location.id), location]));
+  const zones = locations.filter((location) => location.location_type === "zone" && location.is_active);
+  const districts = locations.filter((location) => location.location_type === "district" && location.is_active);
+  if (!zones.length || !districts.length) {
+    window.alert("Create an active zone and district under the same state before mapping.");
+    return;
+  }
+  openFormDialog(
+    "Map district to zone",
+    "A district can have one active zone mapping at a time. Reassigning it ends the previous mapping and keeps its history.",
+    (form) => {
+      const zoneSelect = appendReporterSelect(form, "zone_id", "Zone / region", zones, (zone) =>
+        `${zone.name} · ${statesById.get(String(zone.parent_id))?.name || "State unavailable"}`
+      );
+      const districtSelect = appendReporterSelect(form, "district_id", "District", [], (district) => district.name);
+      const populateDistricts = () => {
+        const zone = zones.find((item) => String(item.id) === zoneSelect.value);
+        const eligible = districts.filter((district) =>
+          String(district.parent_id) === String(zone?.parent_id)
+        );
+        replaceValueOptions(districtSelect, eligible, "Choose a district", (district) => district.name);
+      };
+      zoneSelect.addEventListener("change", populateDistricts);
+      populateDistricts();
+    },
+    async (values) => {
+      await apiRequest("admin/zone-district-mappings", "POST", {
+        zone_id: Number(values.get("zone_id")),
+        district_id: Number(values.get("district_id"))
+      });
+      await loadSection("locations");
+    },
+    "Map district"
   );
 }
 
@@ -777,12 +964,12 @@ function openStateDialog() {
 function openRtoDialog(states) {
   openFormDialog(
     "Add RTO / reporting area",
-    "RTO codes are two alphanumeric characters and combine with the state and reporter type codes for reporter IDs.",
+    "RTO codes are 2-8 alphanumeric characters and combine with the state and reporter type codes for reporter IDs.",
     (form) => {
       appendReporterSelect(form, "state_id", "State", states.filter((state) => state.is_active),
         (state) => `${state.state_name} (${state.state_code})`);
-      const code = addField(form, "RTO code", "rto_code", "text", "", { maxLength: 2 });
-      code.pattern = "[A-Za-z0-9]{2}";
+      const code = addField(form, "RTO code", "rto_code", "text", "", { maxLength: 8 });
+      code.pattern = "[A-Za-z0-9]{2,8}";
       addField(form, "City / reporting area name", "city_name", "text", "", { required: false, maxLength: 120 });
     },
     async (values) => {
@@ -956,6 +1143,7 @@ function appendAuditSelect(form, name, title, options) {
   });
   label.append(select);
   form.append(label);
+  return select;
 }
 
 function appendAuditDate(form, name, title) {
@@ -1166,7 +1354,8 @@ function buildTable(rows, section) {
     ...preferredColumns.filter((key) => rows.some((row) => Object.hasOwn(row, key))),
     ...rows.flatMap((row) => Object.keys(row))
   ])]
-    .filter((key) => !key.startsWith("_") && !excluded.has(key))
+    .filter((key) => !key.startsWith("_") && !excluded.has(key)
+      && !(section === "zone-district-mappings" && key === "id"))
     .slice(0, section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" ? 6 : 5);
   const wrapper = makeElement("div", "admin-table-wrap");
   const table = document.createElement("table");
@@ -1229,6 +1418,11 @@ function addRowActions(container, row, section) {
       role.append(option);
     });
     role.addEventListener("change", async () => {
+      if (role.value === "reporter" && row.role !== "reporter") {
+        role.value = row.role;
+        await openReporterProvisioningDialog(row, refresh);
+        return;
+      }
       try {
         await apiRequest(`admin/users/${id}/role`, "PATCH", { role: role.value });
         await refresh();
@@ -1238,6 +1432,11 @@ function addRowActions(container, row, section) {
       }
     });
     container.append(role);
+    if (row.role === "reporter") {
+      rowButton(container, "Reporter assignment", () => {
+        void openReporterProvisioningDialog(row, refresh);
+      });
+    }
     return;
   }
 
@@ -1387,11 +1586,13 @@ function openConfiguredRecordDialog(section, existing) {
         const value = existing?.[field.name];
         if (section === "locations" && field.name === "parent_id") {
           const label = makeElement("label", "admin-form-field");
-          label.append(makeElement("span", "", field.label));
+          label.append(makeElement("span", "", "Parent location"));
           const select = document.createElement("select");
           select.name = field.name;
+          select.required = form.elements.location_type.value !== "state";
           populateLocationParents(select, form.elements.location_type.value, value, existing?.id);
           form.elements.location_type.addEventListener("change", () => {
+            select.required = form.elements.location_type.value !== "state";
             populateLocationParents(select, form.elements.location_type.value, select.value, existing?.id);
           });
           label.append(select);
@@ -1467,10 +1668,11 @@ function openConfiguredRecordDialog(section, existing) {
 }
 
 function populateLocationParents(select, childType, selected, excludedId) {
-  select.replaceChildren(new Option("No parent", ""));
+  select.replaceChildren(new Option(childType === "state" ? "No parent required" : "Choose a parent location", ""));
   const types = allowedLocationParents[childType] || [];
   locationRecords
     .filter((location) => String(location.id) !== String(excludedId)
+      && location.is_active
       && types.includes(location.location_type))
     .forEach((location) => {
       const option = new Option(
@@ -1608,6 +1810,7 @@ function addRoleField(form, value = "subscriber") {
   });
   label.append(select);
   form.append(label);
+  return select;
 }
 
 function openFormDialog(title, helpText, fields, onSubmit, submitLabel = "Save changes") {
@@ -1655,25 +1858,115 @@ function openFormDialog(title, helpText, fields, onSubmit, submitLabel = "Save c
   return dialog;
 }
 
-function openUserDialog() {
+async function openUserDialog() {
+  let reporterOptions;
+  try {
+    reporterOptions = unwrapData(await apiRequest("admin/reporter-options")) || {};
+  } catch (error) {
+    window.alert(`Reporter account options could not be loaded: ${error.message}`);
+    return;
+  }
+
   openFormDialog(
     "Create newsroom account",
-    "Create an account with the selected newsroom role. If email confirmation is enabled in Supabase, the user must confirm before signing in.",
+    "Reporter accounts require a state, RTO / reporting area, and reporter type. Their reporter ID is generated from that assignment. Other newsroom roles do not need these fields.",
     (form) => {
       addField(form, "Full name", "full_name", "text", "", { minLength: 2, maxLength: 120, autocomplete: "name" });
       addField(form, "Email address", "email", "email", "", { maxLength: 254, autocomplete: "email" });
       addField(form, "Phone (optional)", "phone", "tel", "", { required: false, autocomplete: "tel" });
-      addRoleField(form);
+      const roleSelect = addRoleField(form);
+      const reporterFields = makeElement("div", "admin-reporter-fields");
+      reporterFields.hidden = roleSelect.value !== "reporter";
+      const states = (reporterOptions.states || []).filter((state) => state.is_active);
+      const rtos = (reporterOptions.rtos || []).filter((rto) => rto.is_active);
+      const types = (reporterOptions.reporter_types || []).filter((type) => type.is_active);
+      const stateSelect = appendReporterSelect(reporterFields, "state_id", "State / UT", states,
+        (state) => `${state.state_name} (${state.state_code})`);
+      const rtoSelect = appendReporterSelect(reporterFields, "rto_office_id", "RTO / reporting area", [],
+        (rto) => `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`);
+      const typeSelect = appendReporterSelect(reporterFields, "reporter_type_id", "Reporter type", types,
+        (type) => `${type.name} (${type.type_code})`);
+      const reporterInputs = [stateSelect, rtoSelect, typeSelect];
+      const updateReporterFields = () => {
+        const enabled = roleSelect.value === "reporter";
+        reporterFields.hidden = !enabled;
+        reporterInputs.forEach((input) => {
+          input.disabled = !enabled;
+          input.required = enabled;
+        });
+      };
+      const updateRtos = () => {
+        const stateId = stateSelect.value;
+        const eligibleRtos = rtos.filter((rto) => String(rto.state_id) === stateId);
+        replaceValueOptions(rtoSelect, eligibleRtos, "Choose an RTO / reporting area", (rto) =>
+          `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`
+        );
+      };
+      stateSelect.addEventListener("change", updateRtos);
+      roleSelect.addEventListener("change", updateReporterFields);
+      updateReporterFields();
+      reporterFields.append(makeElement("p", "admin-dialog-help", "The reporter ID is assigned after account creation and is retained when the reporter changes assignment."));
+      form.append(reporterFields);
       addField(form, "Temporary password", "password", "password", "", { minLength: 8, maxLength: 72, autocomplete: "new-password" });
     },
     async (formData) => {
-      const result = await apiRequest("admin/users", "POST", Object.fromEntries(formData.entries()));
+      const payload = Object.fromEntries(formData.entries());
+      if (payload.role === "reporter") {
+        ["state_id", "rto_office_id", "reporter_type_id"].forEach((field) => {
+          payload[field] = Number(payload[field]);
+        });
+      }
+      const result = await apiRequest("admin/users", "POST", payload);
       await loadSection("users");
       window.alert(result.confirmation_required
-        ? "Account created. The user must confirm the email before signing in."
-        : "Account created successfully.");
+        ? `Account created. The user must confirm the email before signing in.${result.data?.reporter_code ? ` Reporter ID: ${result.data.reporter_code}` : ""}`
+        : `Account created successfully.${result.data?.reporter_code ? ` Reporter ID: ${result.data.reporter_code}` : ""}`);
     },
     "Create account"
+  );
+}
+
+async function openReporterProvisioningDialog(user, refresh) {
+  let options;
+  try {
+    options = unwrapData(await apiRequest("admin/reporter-options")) || {};
+  } catch (error) {
+    window.alert(`Reporter account options could not be loaded: ${error.message}`);
+    return;
+  }
+  const states = (options.states || []).filter((state) => state.is_active);
+  const rtos = (options.rtos || []).filter((rto) => rto.is_active);
+  const types = (options.reporter_types || []).filter((type) => type.is_active);
+  openFormDialog(
+    "Provision reporter account",
+    "A reporter role is granted only with an active state, matching RTO / reporting area, and reporter type. A stable reporter ID will be generated.",
+    (form) => {
+      form.append(makeElement("p", "admin-dialog-help", `${user.full_name || user.email} · ${user.email}`));
+      const stateSelect = appendReporterSelect(form, "state_id", "State / UT", states,
+        (state) => `${state.state_name} (${state.state_code})`);
+      const rtoSelect = appendReporterSelect(form, "rto_office_id", "RTO / reporting area", [],
+        (rto) => `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`);
+      appendReporterSelect(form, "reporter_type_id", "Reporter type", types,
+        (type) => `${type.name} (${type.type_code})`);
+      stateSelect.addEventListener("change", () => {
+        replaceValueOptions(
+          rtoSelect,
+          rtos.filter((rto) => String(rto.state_id) === stateSelect.value),
+          "Choose an RTO / reporting area",
+          (rto) => `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`
+        );
+      });
+    },
+    async (values) => {
+      const result = await apiRequest(`admin/users/${user.id}/reporter-provisioning`, "POST", {
+        state_id: Number(values.get("state_id")),
+        rto_office_id: Number(values.get("rto_office_id")),
+        reporter_type_id: Number(values.get("reporter_type_id"))
+      });
+      await refresh();
+      window.alert(`Reporter account provisioned. Reporter ID: ${result.data.reporter_code}`);
+    },
+    "Provision reporter"
   );
 }
 

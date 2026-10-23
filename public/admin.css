@@ -854,6 +854,19 @@
   padding: 20px;
 }
 
+.admin-reporter-fields {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #f0dccb;
+  border-radius: 10px;
+  background: #fffaf5;
+}
+
+.admin-reporter-fields[hidden] {
+  display: none;
+}
+
 .admin-json-form h2 {
   margin: 0;
   color: #27334a;

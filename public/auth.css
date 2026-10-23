@@ -87,6 +87,32 @@
   gap: 16px;
 }
 
+.reporter-registration {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #f0dccb;
+  border-radius: 9px;
+  background: #fffaf5;
+}
+
+.reporter-registration[hidden] {
+  display: none;
+}
+
+.reporter-agreement {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.reporter-agreement > a {
+  color: var(--orange-dark);
+  font-size: 12px;
+  font-weight: 800;
+  text-underline-offset: 2px;
+}
+
 .auth-field {
   display: grid;
   gap: 7px;
@@ -115,7 +141,24 @@
   font-size: 14px;
 }
 
+.auth-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #ded7ce;
+  border-radius: 7px;
+  background: #fffdfa;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
 .auth-field input:focus {
+  border-color: var(--orange);
+  outline: 2px solid rgb(255 105 11 / 16%);
+}
+
+.auth-field select:focus {
   border-color: var(--orange);
   outline: 2px solid rgb(255 105 11 / 16%);
 }
@@ -236,6 +279,17 @@
   color: #6f6962;
   font-size: 11px;
   text-align: center;
+}
+
+.reporter-setup-message {
+  margin: 0;
+  color: #9a4c1b;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.reporter-setup-message[hidden] {
+  display: none;
 }
 
 .auth-home-link {

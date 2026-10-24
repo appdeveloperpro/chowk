@@ -1,0 +1,294 @@
+Reporter Engagement Agreement
+This Reporter Engagement Agreement (“Agreement”) is made on {{agreement.date}} at {{reporter.city}} between:
+1. {{company.legal_name}}, operating as “{{company.trade_name}}”, a {{company.entity_type}} with its registered office at {{company.registered_address}} (registration no. {{company.registration_number}}) (“Chowk”); and
+2. {{reporter.full_name}}, identified by the verified account contact details on this application, mobile {{reporter.phone}}, email {{reporter.email}} ("Reporter").
+Chowk and the Reporter are each a “Party” and together the “Parties”.
+Background
+A. Chowk runs a local-language news app and website (the “Platform”), beginning in Uttar
+Pradesh.
+B. Chowk wishes to engage the Reporter to gather and submit news content from the
+Assigned Area, and the Reporter agrees to do so on these terms.
+C. The Parties agree that the truth, accuracy and lawfulness of news are the foundation of
+this engagement.
+1. Definitions
+“Assigned Area”: the State, Zone, District and Division recorded in Schedule A or on
+the Platform.
+“Content”: any report, text, headline suggestion, photograph, audio, video, graphic,
+data, location tag or other material submitted by the Reporter, in any form.
+“Reporter Code”: the unique identification code issued by Chowk to the Reporter.
+“AI Tools”: any artificial-intelligence tool used by the Reporter or by Chowk, including
+Chowk’s AI moderation and editing tools.
+“Claim”: any complaint, notice, demand, suit, FIR, regulatory action or other proceeding
+by any person arising from Content.
+“Losses”: all damages, awards, fines, settlements, costs, legal and professional fees (on
+an actual-cost basis), and the costs of takedown, correction and apology, together
+with any reasonable loss directly caused.
+
+“Applicable Law”: all Indian laws, as amended from time to time, including the
+Bharatiya Nyaya Sanhita, 2023; Information Technology Act, 2000; Copyright Act, 1957;
+Digital Personal Data Protection Act, 2023; Protection of Children from Sexual
+Offences Act, 2012; Juvenile Justice Act, 2015; Representation of the People Act, 1951;
+Contempt of Courts Act, 1971; Official Secrets Act, 1923; the Press Council Act, 1978
+and its norms of journalistic conduct; and all orders of courts and regulators.
+2. Nature of engagement
+2.1 The Reporter is engaged as an independent contractor, not as an employee, partner or
+agent of Chowk. The Reporter is not entitled to salary, provident fund, gratuity, leave or
+other employee benefits. The Reporter decides how and when to carry out assignments,
+subject to Chowk’s editorial standards.
+2.2 The Reporter has no authority to bind Chowk, make statements on its behalf, enter
+contracts for it, or describe himself or herself as its employee.
+2.3 The Reporter is assigned to the Assigned Area. Chowk may assign other reporters to
+the same area. The Reporter Code and any identity card remain Chowk’s property, are to
+be used only for Chowk assignments, and must be returned or deactivated on request.
+2.4 The Reporter bears his or her own equipment, travel, communication, tax and
+personal-safety costs unless Chowk approves an expense in writing in advance.
+3. Reporting standards
+3.1 The Reporter shall report only what he or she has personally seen or heard, or has
+verified through reliable sources.
+3.2 Before submitting any report that names or identifies a person or organisation in
+connection with a crime, misconduct, corruption, dispute or allegation, the Reporter must:
+(a) seek the version of the affected person or organisation and record the attempt; (b)
+rely on a documented source such as an FIR, police or official statement, court record or
+document; and (c) attribute every allegation clearly to its source.
+3.3 Facts must be kept separate from opinion, and opinion must be clearly marked.
+3.4 On request, the Reporter shall confidentially disclose his or her sources to Chowk’s
+editorial team. For serious allegations, the Reporter shall not rely solely on an anonymous
+source without prior editor approval.
+3.5 The Reporter shall not accept money, gifts or favours for coverage, shall not present
+sponsored or promotional material as news, and shall disclose any personal, family or
+financial interest in a subject before submitting.
+
+3.6 AI Tools. The Reporter may use AI Tools only for translation, spelling or grammar. The
+Reporter shall not use AI Tools to generate facts, quotes, images, audio or video, or any
+material depicting events that did not happen, and shall not submit manipulated or
+synthetic media. Any AI-assisted material must be disclosed to Chowk at submission.
+3.7 Photographs, audio and video must be genuine, taken by the Reporter or used with
+permission, and not edited in a way that changes their meaning. Metadata, timestamps
+and location data must not be altered or falsified.
+3.8 The Reporter shall obtain consents required by law before recording or publishing
+identifiable persons and shall follow Schedule B and Chowk’s editorial guidelines as
+updated from time to time.
+4. Prohibited content
+The Reporter shall not submit Content that:
+(a) is false, fabricated, misleading or recklessly unverified;
+(b) is defamatory of any person, organisation or community;
+(c) promotes enmity or hatred between religions, castes, communities, languages or
+regions, or incites violence or disorder;
+(d) discloses the identity of a child in conflict with law, a child victim, or a victim of a
+sexual offence;
+(e) is in contempt of court or prejudices a pending case;
+(f) violates election law or the Model Code of Conduct, including campaigning disguised
+as news;
+(g) is obscene, or glorifies suicide or violence, or shows graphic gore contrary to Chowk’s
+guidelines;
+(h) infringes copyright, trademark, privacy or any other right, or is plagiarised;
+(i) discloses information protected by law or held in confidence;
+(j) publishes personal data without a lawful basis;
+(k) is paid, sponsored or promotional but presented as news; or
+(l) is otherwise unlawful or against public order or decency.
+5. Reporter’s warranties
+For each item of Content, the Reporter represents, warrants and undertakes that:
+
+(a) it is the Reporter’s original work;
+(b) it is true and accurate to the best of the Reporter’s knowledge after the verification
+required by Section 3, and no fact has been fabricated, exaggerated or distorted;
+(c) it is lawful and does not breach Section 4;
+(d) the Reporter owns or has the right to all material in it and has obtained every consent
+and permission needed;
+(e) it has not been published or offered elsewhere; and
+(f) all information the Reporter has given about his or her identity, location and
+credentials is accurate.
+6. Records and evidence
+6.1 The Reporter shall keep raw notes, original audio, video and photo files, messages with
+sources and supporting documents for [24] months after each submission.
+6.2 The Reporter shall produce these records within [48] hours of Chowk’s request and
+shall cooperate in any verification.
+6.3 The Reporter consents to Chowk relying on Platform logs, including submission times,
+device data and location data, as evidence.
+7. Submission and editorial control
+7.1 The Reporter shall submit Content only through the Platform. Content is reviewed
+through Chowk’s workflow, which may include human and AI-assisted moderators and
+editors.
+7.2 Chowk has sole editorial discretion to edit, translate, reject, hold, schedule, publish,
+correct, re-headline or unpublish any Content. Chowk is not obliged to publish anything.
+7.3 Review, approval or editing by Chowk, including by AI Tools, is a quality-control step
+only. It does not reduce the Reporter’s responsibility for the truth and lawfulness of the
+facts and material the Reporter supplied, and it is not a representation by Chowk that the
+Content is accurate.
+7.4 The Reporter is not responsible to the extent that a Claim arises solely from headlines,
+captions, additions, deletions or combinations introduced by Chowk without the
+Reporter’s input (“Chowk Changes”).
+7.5 The Reporter shall tell Chowk immediately if he or she learns that any submitted
+Content is wrong, doubtful or disputed.
+
+8. Intellectual property
+8.1 In consideration of the fees in Schedule A, the Reporter assigns to Chowk absolutely
+and irrevocably all copyright and other rights in the Content, for the full term of copyright,
+throughout the world and in all media and formats now known or later developed,
+including the rights to reproduce, publish, translate, adapt, communicate to the public,
+license and sublicense. The Parties expressly agree that these rights shall not lapse for
+non-exercise under section 19(4) of the Copyright Act, 1957.
+8.2 To the extent permitted by law, the Reporter waives any right to object to
+modifications made consistent with Section 7. Chowk will credit the Reporter by name or
+Reporter Code unless safety or editorial reasons require otherwise.
+8.3 The Reporter grants Chowk a licence to use his or her name, image, voice and Reporter
+Code on the Platform and in promotion during the term and for archived Content
+afterwards.
+8.4 The Reporter may show published pieces in a personal portfolio with credit to Chowk.
+8.5 The Reporter shall not include third-party material without written permission and
+shall tell Chowk about any such material.
+9. Fees and payment
+9.1 Chowk shall pay the fees in Schedule A for Content that Chowk accepts or publishes,
+within [30] days of the end of each [month / invoice].
+9.2 Chowk shall deduct tax at source where required. The Reporter is responsible for his
+or her own taxes and any GST registration.
+9.3 No fee is payable for rejected, unpublished or withdrawn Content unless Schedule A
+says so.
+9.4 Chowk may withhold, and set off against amounts due to the Reporter, a reasonable
+estimate of Losses arising from a Claim relating to the Reporter’s Content, pending its
+resolution. Chowk may also recover fees paid for Content later found to be false,
+fabricated or unlawful.
+10. Confidentiality and data protection
+10.1 The Reporter shall keep confidential unpublished stories, internal processes,
+credentials, editorial discussions, business information and the identity of sources.
+10.2 Chowk shall protect the identity of a confidential source disclosed to it, except
+where disclosure is required by law, a court or a competent authority.
+
+10.3 The Reporter shall handle personal data only as needed for assignments, in line with
+the Digital Personal Data Protection Act, 2023 and Chowk’s privacy policy, and shall report
+any data breach to Chowk immediately.
+10.4 The Reporter consents to Chowk processing his or her personal data, including
+identity, location during assignments, device and activity logs and payment details, for
+administration, verification, payment and legal compliance.
+11. Responsibility and indemnity
+11.1 As between the Parties, the Reporter is solely responsible for the truth, accuracy and
+lawfulness of the Content and for compliance with Sections 3 to 5.
+11.2 The Reporter shall indemnify, and if Chowk requires defend, Chowk and its owners,
+partners, directors, editors, officers and employees (the “Indemnified Persons”) against
+all Losses arising out of or in connection with: (a) any Claim relating to Content supplied
+by the Reporter that is false, fabricated, misleading, defamatory or otherwise unlawful, or
+that breaches Section 4 or 5; (b) the Reporter’s breach of this Agreement or Applicable
+Law; (c) infringement of third-party rights by the Content; and (d) the Reporter’s
+negligence, misconduct or unlawful acts during assignments.
+11.3 The indemnity does not cover Losses to the extent caused by Chowk Changes or by
+Chowk’s own wilful misconduct.
+11.4 Chowk shall notify the Reporter of a Claim. Chowk controls the defence and chooses
+counsel, and may settle where it reasonably considers settlement prudent after
+consulting the Reporter. The Reporter shall cooperate and shall not settle, or
+communicate with the claimant about the Claim, without Chowk’s prior written consent.
+11.5 The Reporter shall reimburse legal and other costs as they are incurred, within [15]
+days of Chowk’s invoice with reasonable proof.
+11.6 Nothing in this Agreement makes Chowk responsible for the Reporter’s own civil or
+criminal liability. The Reporter acknowledges that he or she may be separately liable to
+claimants and authorities. Nothing in this Agreement stops Chowk from cooperating with
+authorities or giving them the Reporter’s identity and records.
+11.7 [Optional: The Reporter’s total liability under this Section is limited to ₹ [amount],
+except for fabrication, fraud or wilful misconduct, for which it is unlimited.]
+12. Chowk’s rights and remedies
+12.1 Chowk may remove, disable, edit or label any Content at any time without notice.
+
+12.2 Chowk may publish corrections, clarifications, apologies or a right of reply as it
+decides or as the law requires. The Reporter shall cooperate, and where the correction
+results from the Reporter’s breach, the Reporter shall bear Chowk’s actual costs.
+12.3 Chowk may suspend the Reporter Code immediately on suspicion of breach, pending
+inquiry.
+12.4 Chowk may report matters to, and share evidence with, law-enforcement agencies,
+regulators and courts where required by law or to protect its rights.
+12.5 These remedies are in addition to all other rights, including injunctive relief.
+13. Complaints and legal notices
+The Reporter shall tell Chowk within 24 hours of receiving any complaint, notice, threat,
+summons or approach about any Content, shall forward a copy, shall preserve all
+evidence, and shall not delete anything. The Reporter shall give statements and affidavits
+and attend hearings as Chowk reasonably requests, including after this Agreement ends.
+14. Safety and conduct
+The Reporter shall not trespass, obstruct public servants, impersonate officials, bribe,
+hack, or record secretly where the law forbids it. The Reporter may decline any
+assignment he or she considers unsafe. Chowk does not provide insurance unless
+Schedule A says so.
+15. Exclusivity per story and conflicts
+15.1 Content submitted to Chowk is exclusive to Chowk until the earliest of publication,
+rejection, or [72] hours without a decision.
+15.2 The Reporter shall not share unpublished Content with anyone else.
+15.3 The Reporter is free to work for others after this Agreement ends, subject to Sections
+8 and 10.
+16. Term and termination
+16.1 This Agreement starts on the date above and continues for [12] months, renewing
+automatically for like periods unless a Party gives notice.
+16.2 Either Party may terminate for convenience on [15] days’ written notice. A message
+through the Platform counts as written notice.
+
+16.3 Chowk may terminate immediately for false or fabricated Content, breach of Sections
+3 to 5, 10, 13 or 14, misuse of the Reporter Code, or a legal order.
+16.4 On termination the Reporter Code is deactivated, confidential material is returned or
+deleted, and Chowk pays undisputed fees for accepted Content, subject to Section 9.4.
+16.5 Sections 6, 8, 9.4, 10, 11, 12, 13 and 17 to 20 survive termination.
+17. Limitation of Chowk’s liability
+Chowk is not liable for indirect or consequential loss. Chowk’s total liability to the
+Reporter is limited to fees paid or payable in the preceding [3] months, except for unpaid
+fees due and where the law does not allow limitation.
+18. Electronic execution and records
+This Agreement may be signed physically, by e-signature (including Aadhaar eSign) or by
+in-app acceptance. Platform records, including submissions, timestamps, approvals and
+messages, are admissible and, absent manifest error, are accurate evidence. Chowk may
+give notice through the Platform, email, SMS or WhatsApp to the Reporter’s registered
+details.
+19. Governing law and disputes
+19.1 This Agreement is governed by Indian law.
+19.2 The Parties shall first try to settle any dispute amicably within 30 days of written
+notice.
+19.3 Unresolved disputes shall be referred to arbitration under the Arbitration and
+Conciliation Act, 1996 before a sole arbitrator appointed by mutual consent or, failing that,
+by [the High Court / an arbitral institution]. The seat and venue are {{reporter.city}} and the
+language is [English / Hindi]. The award is final and binding.
+19.4 Courts at {{reporter.city}} have exclusive jurisdiction for interim relief and enforcement,
+and Chowk may seek injunctive relief, including takedown and preservation of evidence,
+at any time.
+20. General
+20.1 This Agreement is the entire agreement between the Parties on its subject. It may be
+amended only in writing or by the Reporter’s in-app acceptance after notice. Updates to
+Schedule B and the editorial guidelines take effect on notice but shall not reduce agreed
+
+fees.
+20.2 If any provision is unenforceable, the rest remains in force. No waiver is effective
+unless in writing.
+20.3 Chowk may assign this Agreement to a successor or affiliate. The Reporter may not
+assign or subcontract.
+20.4 Neither Party is liable for delay caused by events beyond its reasonable control.
+20.5 This Agreement is made in English and Hindi. [English / Hindi] prevails if they differ.
+20.6 The Reporter confirms that he or she has read this Agreement, has had it explained in
+a language he or she understands, and has had the chance to take independent legal
+advice.
+20.7 This Agreement shall be stamped as required under the applicable Stamp Act. Stamp
+costs are borne by {{company.trade_name}}.
+Schedule A - Reporter and engagement details
+Reporter ID: {{reporter.reporter_code}}
+Assigned area: {{reporter.state}} / {{reporter.rto}} / {{reporter.city}}
+Reporter type: {{reporter.type}}
+Fees: [Enter fees per accepted story or monthly retainer]
+Payment cycle: [Enter payment cycle]
+Payment details: Held securely on the Platform, not written here
+Term and notice: [Enter term] / [Enter notice period]
+Record retention: [Enter retention period]
+Optional liability cap (Section 11.7): [Enter none or agreed amount]
+Insurance provided by {{company.trade_name}}: [Enter none or details]
+
+Schedule B - Verification checklist (every report)
+1. Did I see or hear this myself, or verify it with a reliable source?
+2. Is every allegation tied to a document or named source?
+3. Did I seek and record the other side's version?
+4. Are names, dates, places and numbers checked?
+5. Are photos, audio and video genuine, unedited, and taken at the stated place and time?
+6. Have I avoided identifying minors and victims of sexual offences?
+7. Have I kept opinion out of the facts and disclosed any conflict of interest and any AI use?
+8. Have I saved my raw notes and original files?
+
+Schedule C - Reporter's declaration
+I declare that I have read and understood this Agreement, that I will report only what I have verified, and that I accept responsibility for the Content I submit.
+
+Signatures
+For {{company.trade_name}}
+Authorized representative: {{company.legal_name}}
+
+Reporter
+{{reporter.full_name}}
+Accepted electronically through the reporter application on {{agreement.date}}.

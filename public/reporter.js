@@ -40,13 +40,17 @@ async function request(path, method = "GET", body) {
   return result;
 }
 
-function addField(form, labelText, name, type, value = "", required = true) {
+function addField(form, labelText, name, type, value = "", fieldOptions = true) {
   const label = element("label", "reporter-field");
   label.append(element("span", "", labelText));
   const input = document.createElement("input");
   input.type = type;
   input.name = name;
-  input.required = required;
+  const config = typeof fieldOptions === "boolean" ? { required: fieldOptions } : fieldOptions;
+  input.required = config.required !== false;
+  ["minLength", "maxLength", "min", "max", "step", "pattern", "autocomplete", "inputMode"].forEach((key) => {
+    if (config[key] !== undefined) input[key] = config[key];
+  });
   if (value !== null && value !== undefined) input.value = String(value);
   label.append(input);
   form.append(label);
@@ -75,15 +79,55 @@ function addSelect(form, name, labelText, values, selected, placeholder) {
   return select;
 }
 
-function addAgreement(root, agreement, signerName) {
+function reporterAgreementPreviewUrl(form, download = false) {
+  const params = new URLSearchParams();
+  const fields = [
+    ["state_id", "state_id"],
+    ["rto_office_id", "rto_office_id"],
+    ["reporter_type_id", "reporter_type_id"]
+  ];
+  for (const [fieldName, queryName] of fields) {
+    const field = form.elements.namedItem(fieldName);
+    if (field?.value) params.set(queryName, field.value);
+  }
+  if (download) params.set("download", "1");
+  const query = params.toString();
+  return `/api/reporter/agreement-preview${query ? `?${query}` : ""}`;
+}
+
+function addAgreement(root, agreement, signerName, form) {
   const box = element("section", "reporter-agreement");
-  box.append(element("strong", "", `Application agreement · Version ${agreement.version}`));
-  const link = element("a", "", "Open the full agreement");
-  link.href = agreement.document_url;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  box.append(link);
-  box.append(element("span", "", `Document SHA-256: ${agreement.sha256}`));
+  box.append(element("strong", "", `Personalized application agreement · Version ${agreement.version}`));
+  const previewLink = element("a", "", "Preview generated agreement PDF");
+  previewLink.target = "_blank";
+  previewLink.rel = "noopener noreferrer";
+  const downloadLink = element("a", "", "Download personalized agreement PDF");
+  downloadLink.target = "_blank";
+  downloadLink.rel = "noopener noreferrer";
+  const updateLinks = () => {
+    const hasSelection = !form.elements.namedItem("state_id")
+      || ["state_id", "rto_office_id", "reporter_type_id"].every((name) =>
+        Boolean(form.elements.namedItem(name)?.value)
+      );
+    [previewLink, downloadLink].forEach((link) => {
+      link.toggleAttribute("aria-disabled", !hasSelection);
+      if (hasSelection) link.removeAttribute("tabindex");
+      else link.tabIndex = -1;
+    });
+    if (hasSelection) {
+      previewLink.href = reporterAgreementPreviewUrl(form);
+      downloadLink.href = reporterAgreementPreviewUrl(form, true);
+    } else {
+      previewLink.removeAttribute("href");
+      downloadLink.removeAttribute("href");
+    }
+  };
+  ["state_id", "rto_office_id", "reporter_type_id"].forEach((name) => {
+    form.elements.namedItem(name)?.addEventListener("change", updateLinks);
+  });
+  updateLinks();
+  box.append(previewLink, downloadLink);
+  box.append(element("span", "", `Agreement template SHA-256: ${agreement.sha256}. The generated PDF copy is separately hashed and retained when you accept.`));
   const signer = addField(box, "Your full legal name (agreement signer)", "signer_name", "text", signerName);
   signer.autocomplete = "name";
   signer.minLength = 2;
@@ -101,18 +145,187 @@ function addAgreement(root, agreement, signerName) {
   return box;
 }
 
-function addDraftAgreementNotice(root) {
+function addNoAgreementNotice(root) {
   const notice = element("section", "reporter-agreement reporter-agreement-draft full-width");
   notice.append(
-    element("strong", "", "Reporter engagement agreement · Draft preview"),
-    element("p", "reporter-card-copy", "This document is a draft for legal review and contains unfinished fields. It is provided for preview only; submitting your application does not accept or sign this draft.")
+    element("strong", "", "No application agreement is published"),
+    element("p", "reporter-card-copy", "You can submit your reporter application now. No agreement acceptance is recorded until an admin publishes an agreement version.")
   );
-  const link = element("a", "", "Open the draft agreement (PDF)");
-  link.href = "/documents/reporter-engagement-agreement-draft.pdf";
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  notice.append(link);
   root.append(notice);
+}
+
+function addSelectField(form, labelText, name, values, selected = "", placeholder = "Choose an option", required = true) {
+  const label = element("label", "reporter-field");
+  label.append(element("span", "", labelText));
+  const select = document.createElement("select");
+  select.name = name;
+  select.required = required;
+  const first = element("option", "", placeholder);
+  first.value = "";
+  first.disabled = true;
+  first.selected = !selected;
+  select.append(first);
+  values.forEach((value) => {
+    const option = element("option", "", value.label);
+    option.value = String(value.id);
+    option.selected = String(value.id) === String(selected);
+    select.append(option);
+  });
+  label.append(select);
+  form.append(label);
+  return select;
+}
+
+function addTextareaField(form, labelText, name, { required = false, maxLength = 1000, rows = 3, value = "" } = {}) {
+  const label = element("label", "reporter-field reporter-field-full");
+  label.append(element("span", "", labelText));
+  const textarea = document.createElement("textarea");
+  textarea.name = name;
+  textarea.required = required;
+  textarea.maxLength = maxLength;
+  textarea.rows = rows;
+  textarea.value = value || "";
+  label.append(textarea);
+  form.append(label);
+  return textarea;
+}
+
+function createReporterPhotoCropper(container) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/jpeg,image/png";
+  input.required = true;
+  input.setAttribute("aria-label", "Upload passport-size reporter photo");
+  const label = element("label", "reporter-field reporter-field-full");
+  label.append(element("span", "", "Passport-size photo (JPG or PNG)"));
+  label.append(input);
+  container.append(label);
+
+  const cropPanel = element("div", "reporter-photo-crop");
+  cropPanel.hidden = true;
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  canvas.setAttribute("aria-label", "Square preview of cropped reporter photo");
+  cropPanel.append(canvas);
+  const controls = element("div", "reporter-photo-crop-controls");
+  const zoom = document.createElement("input");
+  zoom.type = "range";
+  zoom.min = "1";
+  zoom.max = "3";
+  zoom.step = "0.01";
+  zoom.value = "1";
+  const horizontal = document.createElement("input");
+  horizontal.type = "range";
+  horizontal.min = "-100";
+  horizontal.max = "100";
+  horizontal.value = "0";
+  const vertical = document.createElement("input");
+  vertical.type = "range";
+  vertical.min = "-100";
+  vertical.max = "100";
+  vertical.value = "0";
+  [
+    ["Zoom", zoom],
+    ["Horizontal crop", horizontal],
+    ["Vertical crop", vertical]
+  ].forEach(([name, control]) => {
+    const controlLabel = element("label", "reporter-field");
+    controlLabel.append(element("span", "", name), control);
+    controls.append(controlLabel);
+  });
+  cropPanel.append(controls);
+  container.append(cropPanel);
+
+  let sourceImage = null;
+  let sourceUrl = "";
+  const redraw = () => {
+    if (!sourceImage) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const baseScale = Math.max(canvas.width / sourceImage.naturalWidth, canvas.height / sourceImage.naturalHeight);
+    const scale = baseScale * Number(zoom.value);
+    const drawWidth = sourceImage.naturalWidth * scale;
+    const drawHeight = sourceImage.naturalHeight * scale;
+    const overflowX = Math.max(0, drawWidth - canvas.width);
+    const overflowY = Math.max(0, drawHeight - canvas.height);
+    const x = (canvas.width - drawWidth) / 2 - (Number(horizontal.value) / 100) * overflowX / 2;
+    const y = (canvas.height - drawHeight) / 2 - (Number(vertical.value) / 100) * overflowY / 2;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(sourceImage, x, y, drawWidth, drawHeight);
+  };
+  [zoom, horizontal, vertical].forEach((control) => control.addEventListener("input", redraw));
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    sourceUrl = "";
+    sourceImage = null;
+    if (!file) {
+      cropPanel.hidden = true;
+      return;
+    }
+    if (!["image/jpeg", "image/png"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      input.setCustomValidity("Choose a JPG or PNG photo no larger than 5 MB.");
+      input.reportValidity();
+      input.value = "";
+      cropPanel.hidden = true;
+      return;
+    }
+    input.setCustomValidity("");
+    sourceUrl = URL.createObjectURL(file);
+    sourceImage = new Image();
+    sourceImage.onload = () => {
+      zoom.value = "1";
+      horizontal.value = "0";
+      vertical.value = "0";
+      cropPanel.hidden = false;
+      redraw();
+    };
+    sourceImage.onerror = () => {
+      input.setCustomValidity("The selected photo could not be read.");
+      input.reportValidity();
+      input.value = "";
+      cropPanel.hidden = true;
+    };
+    sourceImage.src = sourceUrl;
+  });
+  return {
+    input,
+    async file() {
+      if (!sourceImage) throw new Error("Choose and crop your passport-size photo.");
+      return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error("The cropped photo could not be prepared."));
+            return;
+          }
+          resolve(new File([blob], "reporter-photo.jpg", { type: "image/jpeg" }));
+        }, "image/jpeg", 0.9);
+      });
+    },
+    dispose() {
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      sourceUrl = "";
+      sourceImage = null;
+    }
+  };
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name || "the selected document"}.`));
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const separator = result.indexOf(",");
+      if (separator < 0) {
+        reject(new Error(`Could not encode ${file.name || "the selected document"}.`));
+        return;
+      }
+      resolve(result.slice(separator + 1));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function renderApplicationForm(action, existing = null) {
@@ -134,75 +347,239 @@ function renderApplicationForm(action, existing = null) {
   );
 
   const form = element("form", "reporter-form-grid");
+  const applicationFiles = new Map();
+  let cropper = null;
+  let activeStep = 0;
+  const steps = [];
+  let updateSteps = () => {};
+  const progress = element("ol", "reporter-form-progress");
+  const stepContainers = element("div", "reporter-form-steps");
+  const navigation = element("div", "reporter-form-navigation");
+  const backButton = element("button", "reporter-button secondary", "Back");
+  backButton.type = "button";
+  const nextButton = element("button", "reporter-button", "Next");
+  nextButton.type = "button";
+  const submit = element("button", "reporter-button", "Review and submit application");
+  submit.type = "submit";
+  navigation.append(backButton, nextButton, submit);
+
+  const addStep = (title, helpText) => {
+    const index = steps.length;
+    const step = document.createElement("fieldset");
+    step.className = "reporter-form-step reporter-form-grid";
+    step.hidden = true;
+    const legend = element("legend", "", `${index + 1}. ${title}`);
+    step.append(legend);
+    if (helpText) step.append(element("p", "reporter-card-copy reporter-field-full", helpText));
+    steps.push(step);
+    stepContainers.append(step);
+    const indicator = document.createElement("li");
+    indicator.append(element("span", "", String(index + 1)), element("strong", "", title));
+    progress.append(indicator);
+    return step;
+  };
+
   if (!acceptingUpdatedAgreement) {
+    const profileStep = addStep("Your profile", "We use your verified account name, email and phone. Add the details needed to contact you safely.");
+    const accountSummary = element("div", "reporter-account-summary reporter-field-full");
+    accountSummary.append(
+      dataItem("Account name", identity.full_name || identity.name || "—"),
+      dataItem("Account email", identity.email || "—"),
+      dataItem("Account phone", identity.phone || "Update your account profile if this is missing.")
+    );
+    profileStep.append(accountSummary);
+    addField(profileStep, "Emergency contact full name", "emergency_contact_name", "text", existing?.private_details?.emergency_contact_name, { minLength: 2, maxLength: 120, autocomplete: "name" });
+    addField(profileStep, "Relationship to you", "emergency_contact_relationship", "text", existing?.private_details?.emergency_contact_relationship, { minLength: 2, maxLength: 80 });
+    const emergencyPhone = addField(profileStep, "Emergency contact phone", "emergency_contact_phone", "tel", existing?.private_details?.emergency_contact_phone, { minLength: 7, maxLength: 30, autocomplete: "tel" });
+    emergencyPhone.pattern = "[+0-9]{7,15}";
+    addSelectField(profileStep, "Blood group (optional to disclose)", "blood_group", [
+      ...["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((value) => ({ id: value, label: value })),
+      { id: "Prefer not to say", label: "Prefer not to say" }
+    ], existing?.private_details?.blood_group || "Prefer not to say", "Choose blood group");
+    addField(profileStep, "Preferred reporting language (optional)", "preferred_language", "text", existing?.private_details?.preferred_language, { required: false, maxLength: 80 });
+    addField(profileStep, "Reporting experience in years (optional)", "experience_years", "number", existing?.private_details?.experience_years, { required: false, min: 0, max: 80, step: 0.5 });
+    addTextareaField(profileStep, "Journalism / community reporting experience (optional)", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
+    addTextareaField(profileStep, "Preferred localities or beat (optional)", "coverage_localities", { maxLength: 1000, value: existing?.private_details?.coverage_localities });
+    addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
+
+    const areaStep = addStep("City & area coverage", "Choose the state, city and coverage type you are applying for.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
-    const stateSelect = addSelect(form, "state_id", "State", states, existing?.state?.id || "", "Choose a state");
+    const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
     const rtoValues = (options.rtos || []).filter((rto) =>
       String(rto.state_id) === String(existing?.state?.id || "")
     ).map((rto) => ({
       id: rto.id,
-      label: `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`
+      label: rto.city_name || rto.rto_code
     }));
-    const rtoSelect = addSelect(form, "rto_office_id", "RTO / reporting area", rtoValues, existing?.rto?.id || "", "Choose a state first");
+    const rtoSelect = addSelectField(areaStep, "City", "rto_office_id", rtoValues, existing?.rto?.id || "", "Choose a state first");
     const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
-    addSelect(form, "reporter_type_id", "Reporter type", types, existing?.reporter_type?.id || "", "Choose reporter type");
+    addSelectField(areaStep, "Area Coverage", "reporter_type_id", types, existing?.reporter_type?.id || "", "Choose area coverage");
     stateSelect.addEventListener("change", () => {
       const eligible = (options.rtos || []).filter((rto) =>
         String(rto.state_id) === stateSelect.value
       );
       rtoSelect.replaceChildren();
-      const placeholder = element("option", "", eligible.length ? "Choose an RTO" : "No active RTOs for this state");
+      const placeholder = element("option", "", eligible.length ? "Choose a city" : "No active cities for this state");
       placeholder.value = "";
       placeholder.disabled = true;
       placeholder.selected = true;
       rtoSelect.append(placeholder);
       eligible.forEach((rto) => {
-        const option = element("option", "", `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`);
+        const option = element("option", "", rto.city_name || rto.rto_code);
         option.value = String(rto.id);
         rtoSelect.append(option);
       });
+      rtoSelect.dispatchEvent(new Event("change"));
     });
-    if (resubmitting && existing?.review_note) {
-      const note = element("p", "reporter-review-note", `Admin requested an update: ${existing.review_note}`);
-      form.prepend(note);
-    }
-  }
 
-  form.classList.add("reporter-form-grid");
-  if (options?.agreement) {
-    form.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name));
-    form.lastElementChild.classList.add("full-width");
-  } else if (!acceptingUpdatedAgreement) {
-    addDraftAgreementNotice(form);
-  }
-  if (!acceptingUpdatedAgreement) {
+    const documentsStep = addStep("Identity & bank documents", "Upload clear, readable documents. These are stored privately and are visible only to authorized admins reviewing your application.");
+    const privacyNote = element("p", "reporter-sensitive-data-note reporter-field-full",
+      "Aadhaar: upload a MASKED Aadhaar copy only. Hide the first 8 digits so only the last 4 are visible. Never upload an unmasked Aadhaar copy. Avoid uploading unrelated personal documents.");
+    documentsStep.append(privacyNote);
+    const photoGroup = element("div", "reporter-field-full");
+    cropper = createReporterPhotoCropper(photoGroup);
+    documentsStep.append(photoGroup);
+    const addDocumentInput = (type, labelText, helpText) => {
+      const label = element("label", "reporter-field reporter-field-full");
+      label.append(element("span", "", labelText));
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf";
+      input.required = true;
+      input.addEventListener("change", () => {
+        applicationFiles.delete(type);
+        const file = input.files?.[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024
+            || !["image/jpeg", "image/png", "application/pdf"].includes(file.type)) {
+          input.setCustomValidity("Choose a JPG, PNG or PDF document no larger than 5 MB.");
+          input.reportValidity();
+          input.value = "";
+          return;
+        }
+        input.setCustomValidity("");
+        applicationFiles.set(type, file);
+      });
+      label.append(input, element("small", "reporter-field-help", helpText));
+      documentsStep.append(label);
+    };
+    addDocumentInput("masked_aadhaar", "Masked Aadhaar copy", "JPG, PNG or PDF · maximum 5 MB");
+    const maskedAadhaarCheck = document.createElement("label");
+    maskedAadhaarCheck.className = "reporter-check reporter-field-full";
+    const maskedAadhaarConfirmed = document.createElement("input");
+    maskedAadhaarConfirmed.type = "checkbox";
+    maskedAadhaarConfirmed.name = "masked_aadhaar_confirmed";
+    maskedAadhaarConfirmed.required = true;
+    maskedAadhaarCheck.append(maskedAadhaarConfirmed, element("span", "", "I confirm this is a masked Aadhaar copy showing only the last four digits."));
+    documentsStep.append(maskedAadhaarCheck);
+    const privacyConsent = document.createElement("label");
+    privacyConsent.className = "reporter-check reporter-field-full";
+    const privacyConsentInput = document.createElement("input");
+    privacyConsentInput.type = "checkbox";
+    privacyConsentInput.name = "document_processing_consent";
+    privacyConsentInput.required = true;
+    privacyConsent.append(
+      privacyConsentInput,
+      element("span", "", "I consent to Chowk securely storing and using these documents only for application review, identity verification and reporter onboarding. I understand that authorized admins can review them.")
+    );
+    documentsStep.append(privacyConsent);
+    addDocumentInput("pan_card", "PAN card", "JPG, PNG or PDF · maximum 5 MB");
+    addField(documentsStep, "Bank account holder name", "bank_account_holder", "text", identity.full_name || identity.name, { minLength: 2, maxLength: 120, autocomplete: "name" });
+    addField(documentsStep, "Bank name", "bank_name", "text", "", { minLength: 2, maxLength: 160, autocomplete: "organization" });
+    const accountNumber = addField(documentsStep, "Bank account number", "bank_account_number", "text", "", { minLength: 6, maxLength: 24, autocomplete: "off" });
+    accountNumber.inputMode = "numeric";
+    accountNumber.pattern = "[0-9 ]{6,29}";
+    const accountNumberConfirm = addField(documentsStep, "Confirm bank account number", "bank_account_number_confirm", "text", "", { minLength: 6, maxLength: 24, autocomplete: "off" });
+    accountNumberConfirm.inputMode = "numeric";
+    accountNumberConfirm.pattern = "[0-9 ]{6,29}";
+    const validateAccountNumber = () => {
+      const matches = accountNumber.value.replace(/\s/g, "") === accountNumberConfirm.value.replace(/\s/g, "");
+      accountNumberConfirm.setCustomValidity(matches ? "" : "Bank account numbers do not match.");
+    };
+    accountNumber.addEventListener("input", validateAccountNumber);
+    accountNumberConfirm.addEventListener("input", validateAccountNumber);
+    const ifsc = addField(documentsStep, "IFSC code", "bank_ifsc", "text", "", { minLength: 11, maxLength: 11, autocomplete: "off" });
+    ifsc.pattern = "[A-Za-z]{4}0[A-Za-z0-9]{6}";
+    ifsc.addEventListener("input", () => { ifsc.value = ifsc.value.toUpperCase(); });
+    addDocumentInput("bank_proof", "Cancelled cheque / bank proof", "Upload a cancelled cheque or bank passbook first page showing the account holder, account number and IFSC · JPG, PNG or PDF · maximum 5 MB");
+
+    const reviewStep = addStep("Review & submit", "Check your application details before sending them for admin review.");
+    if (options?.agreement) {
+      reviewStep.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name, form));
+      reviewStep.lastElementChild.classList.add("reporter-field-full");
+    } else {
+      const noAgreement = element("section", "reporter-agreement reporter-agreement-draft reporter-field-full");
+      noAgreement.append(
+        element("strong", "", "No application agreement is published"),
+        element("p", "reporter-card-copy", "You can submit your reporter application now. No agreement acceptance is recorded until an admin publishes an agreement version.")
+      );
+      reviewStep.append(noAgreement);
+    }
     const declaration = document.createElement("label");
-    declaration.className = "reporter-check full-width";
+    declaration.className = "reporter-check reporter-field-full";
     const confirmed = document.createElement("input");
     confirmed.type = "checkbox";
     confirmed.name = "details_confirmed";
     confirmed.required = true;
-    declaration.append(
-      confirmed,
-      element("span", "", "I confirm that the information in this reporter application is accurate.")
-    );
-    form.append(declaration);
+    declaration.append(confirmed, element("span", "", "I confirm that my application details and submitted documents are accurate and belong to me."));
+    reviewStep.append(declaration);
+
+    if (resubmitting && existing?.review_note) {
+      const note = element("p", "reporter-review-note reporter-field-full", `Admin requested an update: ${existing.review_note}`);
+      profileStep.prepend(note);
+    }
+    updateSteps = () => {
+      steps.forEach((step, index) => {
+        step.hidden = index !== activeStep;
+        progress.children[index].classList.toggle("is-active", index === activeStep);
+        progress.children[index].classList.toggle("is-complete", index < activeStep);
+      });
+      backButton.hidden = activeStep === 0;
+      nextButton.hidden = activeStep === steps.length - 1;
+      submit.hidden = activeStep !== steps.length - 1;
+    };
+    const validateCurrentStep = () => {
+      const invalidField = [...steps[activeStep].querySelectorAll("input, select, textarea")]
+        .find((field) => !field.checkValidity());
+      if (invalidField) invalidField.reportValidity();
+      return !invalidField;
+    };
+    nextButton.addEventListener("click", () => {
+      if (!validateCurrentStep()) return;
+      activeStep = Math.min(activeStep + 1, steps.length - 1);
+      updateSteps();
+      applicationPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    backButton.addEventListener("click", () => {
+      activeStep = Math.max(activeStep - 1, 0);
+      updateSteps();
+    });
+    updateSteps();
+    if (resubmitting && existing?.review_note) {
+      form.dataset.resubmitting = "true";
+    }
+    form.append(progress, stepContainers);
+  } else {
+    const agreementStep = document.createElement("div");
+    agreementStep.className = "reporter-field-full";
+    agreementStep.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name, form));
+    form.append(agreementStep);
   }
-  const submit = element("button", "reporter-button", acceptingUpdatedAgreement
-    ? "Accept current agreement"
-    : resubmitting
-      ? "Resubmit application"
-      : "Review and submit application");
-  submit.type = "submit";
   const summary = element("section", "reporter-application-review");
   summary.hidden = true;
   form.append(summary);
-  form.append(submit);
+  if (acceptingUpdatedAgreement) {
+    submit.textContent = "Accept current agreement";
+    navigation.replaceChildren(submit);
+  }
+  form.append(navigation);
   applicationPanel.append(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!form.reportValidity()) return;
+    if (acceptingUpdatedAgreement) {
+      if (!form.reportValidity()) return;
+    } else if (!validateLastStep()) return;
     if (!acceptingUpdatedAgreement && summary.hidden) {
       const values = new FormData(form);
       const selectedState = options.states.find((state) => String(state.id) === String(values.get("state_id")));
@@ -210,21 +587,36 @@ function renderApplicationForm(action, existing = null) {
       const selectedType = options.types.find((type) => String(type.id) === String(values.get("reporter_type_id")));
       summary.replaceChildren(
         element("strong", "", "Check your application before sending"),
-        element("span", "", `Reporting area: ${selectedState?.state_name || "—"} · ${selectedRto?.rto_code || "—"} ${selectedRto?.city_name || ""}`),
-        element("span", "", `Reporter type: ${selectedType?.name || "—"}`),
+        element("span", "", `State: ${selectedState?.state_name || "—"}`),
+        element("span", "", `City: ${selectedRto?.city_name || selectedRto?.rto_code || "—"}`),
+        element("span", "", `Area coverage: ${selectedType?.name || "—"}`),
+        element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
+        element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 4`),
+        element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
         element("span", "", options.agreement
-          ? `Application agreement: version ${options.agreement.version} accepted`
-          : "Application agreement: draft preview only; no legal agreement acceptance is recorded."),
+          ? `Personalized application agreement: version ${options.agreement.version} accepted`
+          : "Application agreement: no version is published; no acceptance will be recorded."),
         element("span", "", "An admin reviews this application. Your account stays a subscriber until onboarding is complete.")
       );
+      const edit = element("button", "reporter-button secondary", "Edit application details");
+      edit.type = "button";
+      edit.addEventListener("click", () => {
+        summary.hidden = true;
+        updateSteps();
+        applicationPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      summary.append(edit);
       summary.hidden = false;
       submit.textContent = "Confirm and submit";
+      nextButton.hidden = true;
+      backButton.hidden = true;
       summary.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     submit.disabled = true;
     submit.textContent = "Submitting…";
     const values = new FormData(form);
+    const uploadedDocuments = [];
     try {
       if (acceptingUpdatedAgreement) {
         const payload = {
@@ -235,6 +627,18 @@ function renderApplicationForm(action, existing = null) {
         };
         await request("/api/reporter/agreement/accept", "POST", payload);
       } else {
+        const photo = await cropper.file();
+        applicationFiles.set("profile_photo", photo);
+        for (const documentType of ["profile_photo", "masked_aadhaar", "pan_card", "bank_proof"]) {
+          const file = applicationFiles.get(documentType);
+          if (!file) throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
+          showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
+          uploadedDocuments.push((await request("/api/reporter/application-documents", "POST", {
+            document_type: documentType,
+            mime_type: file.type,
+            file_base64: await readFileAsBase64(file)
+          })).data);
+        }
         const payload = {
           details_confirmed: values.get("details_confirmed") === "on",
           agreement_version: options.agreement?.version || null,
@@ -247,21 +651,57 @@ function renderApplicationForm(action, existing = null) {
         payload.state_id = values.get("state_id");
         payload.rto_office_id = values.get("rto_office_id");
         payload.reporter_type_id = values.get("reporter_type_id");
+        payload.private_details = {
+          emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),
+          emergency_contact_relationship: String(values.get("emergency_contact_relationship") || "").trim(),
+          emergency_contact_phone: String(values.get("emergency_contact_phone") || "").trim(),
+          blood_group: String(values.get("blood_group") || "Prefer not to say"),
+          masked_aadhaar_confirmed: values.get("masked_aadhaar_confirmed") === "on",
+          document_processing_consent: values.get("document_processing_consent") === "on",
+          preferred_language: String(values.get("preferred_language") || "").trim(),
+          coverage_localities: String(values.get("coverage_localities") || "").trim(),
+          experience_years: String(values.get("experience_years") || ""),
+          experience_summary: String(values.get("experience_summary") || "").trim(),
+          availability: String(values.get("availability") || "").trim(),
+          bank_account_holder: String(values.get("bank_account_holder") || "").trim(),
+          bank_name: String(values.get("bank_name") || "").trim(),
+          bank_account_number: String(values.get("bank_account_number") || "").replace(/\s/g, ""),
+          bank_ifsc: String(values.get("bank_ifsc") || "").trim().toUpperCase()
+        };
+        payload.application_documents = uploadedDocuments;
         await request("/api/reporter/applications", "POST", payload);
       }
       showMessage(acceptingUpdatedAgreement ? "Your updated agreement acceptance was recorded." : "Your reporter application was submitted.", true);
+      cropper?.dispose();
       await loadReporterDesk();
     } catch (error) {
+      for (const document of uploadedDocuments) {
+        try {
+          await request("/api/reporter/application-documents", "DELETE", {
+            storage_path: document.storage_path
+          });
+        } catch (cleanupError) {
+          console.error("Could not remove an unsubmitted reporter document:", cleanupError.message);
+        }
+      }
       showMessage(error.message);
     } finally {
       submit.disabled = false;
       submit.textContent = acceptingUpdatedAgreement
         ? "Accept current agreement"
         : resubmitting
-          ? "Resubmit application"
-          : "Review and submit application";
+          ? "Confirm and resubmit"
+          : "Confirm and submit";
     }
   });
+
+  function validateLastStep() {
+    if (!steps.length) return form.reportValidity();
+    const invalidField = [...steps[activeStep].querySelectorAll("input, select, textarea")]
+      .find((field) => !field.checkValidity());
+    if (invalidField) invalidField.reportValidity();
+    return !invalidField;
+  }
 }
 
 function dataItem(label, value, code = false) {
@@ -414,8 +854,8 @@ function renderStatus() {
     details.append(
       dataItem("Submitted", formatDate(application.created_at)),
       dataItem("Requested state", `${application.state?.state_name || "—"} (${application.state?.state_code || ""})`),
-      dataItem("RTO / reporting area", `${application.rto?.rto_code || "—"} ${application.rto?.city_name || ""}`),
-      dataItem("Reporter type", `${application.reporter_type?.name || "—"} (${application.reporter_type?.type_code || ""})`),
+      dataItem("City", application.rto?.city_name || application.rto?.rto_code || "—"),
+      dataItem("Area coverage", `${application.reporter_type?.name || "—"} (${application.reporter_type?.type_code || ""})`),
       dataItem("Agreement", application.agreement_version || "—"),
       dataItem("Agreement accepted", formatDate(application.agreement_accepted_at)),
       dataItem("Review completed", formatDate(application.reviewed_at)),
@@ -428,12 +868,43 @@ function renderStatus() {
       statusPanel.append(element("h3", "", "Application agreement acceptance history"));
       const history = element("div", "reporter-data-grid");
       acceptances.forEach((receipt) => {
-        history.append(dataItem(
+        const item = dataItem(
           `Version ${receipt.agreement_version} · ${formatDate(receipt.accepted_at)}`,
-          `${receipt.signer_name} · ${receipt.acceptance_statement} · SHA-256 ${receipt.agreement_sha256}`
-        ));
+          `${receipt.signer_name} · ${receipt.acceptance_statement} · Template SHA-256 ${receipt.agreement_sha256}${receipt.generated_document_sha256 ? ` · Generated PDF SHA-256 ${receipt.generated_document_sha256}` : ""}`
+        );
+        if (receipt.document_storage_path && receipt.id) {
+          const documentUrl = `/api/reporter/agreement-accepted-document?acceptance_id=${encodeURIComponent(receipt.id)}`;
+          const links = element("div", "reporter-credential-actions");
+          const preview = element("a", "", "View this accepted PDF");
+          preview.href = documentUrl;
+          preview.target = "_blank";
+          preview.rel = "noopener noreferrer";
+          const download = element("a", "", "Download this accepted PDF");
+          download.href = `${documentUrl}&download=1`;
+          download.target = "_blank";
+          download.rel = "noopener noreferrer";
+          links.append(preview, download);
+          item.append(links);
+        }
+        history.append(item);
       });
       statusPanel.append(history);
+    }
+    const acceptedDocumentUrl = acceptances.some((receipt) => receipt.document_storage_path)
+      ? ""
+      : application.agreement_document_url;
+    if (acceptedDocumentUrl && application.agreement_accepted) {
+      const links = element("div", "reporter-credential-actions");
+      const preview = element("a", "", "View accepted agreement PDF");
+      preview.href = acceptedDocumentUrl;
+      preview.target = "_blank";
+      preview.rel = "noopener noreferrer";
+      const download = element("a", "", "Download accepted agreement PDF");
+      download.href = acceptedDocumentUrl;
+      download.target = "_blank";
+      download.rel = "noopener noreferrer";
+      links.append(preview, download);
+      statusPanel.append(links);
     }
     if (application.review_note) {
       statusPanel.append(element("h3", "", application.status === "needs_information"

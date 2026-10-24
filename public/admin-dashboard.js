@@ -565,8 +565,8 @@ function renderReporterAdminSection(section, root, data) {
       applicant_name: application.user?.full_name || "—",
       email: application.user?.email || "—",
       state_name: application.state?.state_name || "—",
-      reporting_area: [application.rto?.rto_code, application.rto?.city_name].filter(Boolean).join(" · ") || "—",
-      reporter_type_name: application.reporter_type?.name || "—",
+      city: application.rto?.city_name || application.rto?.rto_code || "—",
+      area_coverage: application.reporter_type?.name || "—",
       details_confirmed: application.applicant_details_confirmed ? "Confirmed" : "Not recorded"
     }));
     reporterPanel(root, "Reporter applications", rows, section);
@@ -648,15 +648,16 @@ function renderReporterAdminSection(section, root, data) {
     const rows = agreements.map((agreement) => ({
       version: agreement.version,
       sha256: agreement.sha256,
-      document: agreement.document_url ? "PDF available" : "No document",
+      document: agreement.template_content ? "Dynamic PDF template" : "Legacy PDF",
       status: agreement.status,
       published_at: formatDate(agreement.published_at),
       document_url: agreement.document_url,
+      _dynamic_template: Boolean(agreement.template_content),
       _storage_object_path: agreement.storage_object_path,
       _published_version: currentVersion,
       id: agreement.id
     }));
-    reporterActionButton(root, "Upload new application agreement version", () => openAgreementDialog("application"));
+    reporterActionButton(root, "Create application agreement version", () => void openReporterAgreementTemplateDialog());
     reporterPanel(root, "Versioned agreements", rows, section);
     return;
   }
@@ -1153,6 +1154,10 @@ function openCredentialDialog(staff) {
 
 function openAgreementDialog(kind) {
   const isService = kind === "service";
+  if (!isService) {
+    void openReporterAgreementTemplateDialog();
+    return;
+  }
   const path = isService ? "admin/reporter-service-agreements" : "admin/reporter-agreements";
   const section = isService ? "reporter-service-agreements" : "reporter-agreements";
   let selectedFile = null;
@@ -1222,6 +1227,88 @@ function openAgreementDialog(kind) {
   dialog.addEventListener("close", () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, { once: true });
+}
+
+async function openReporterAgreementTemplateDialog() {
+  let previewUrl = "";
+  try {
+    const templateResult = await apiRequest("admin/reporter-agreement-template");
+    const template = templateResult.data || {};
+    const dialog = openFormDialog(
+      "Create application agreement template version",
+      "Edit the agreement text and save a new immutable version. Supported {{fields}} are filled by the server from the verified organization profile and the reporter's account/application. Replace every remaining square-bracket term before publishing; the database blocks publication while any remain.",
+      (form) => {
+        const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
+        version.pattern = "[a-zA-Z0-9._-]{1,40}";
+
+        const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
+        contentLabel.append(makeElement("span", "", "Agreement text template"));
+        const content = document.createElement("textarea");
+        content.name = "template_content";
+        content.required = true;
+        content.minLength = 1000;
+        content.maxLength = 50000;
+        content.rows = 28;
+        content.spellcheck = false;
+        content.value = template.template_content || "";
+        contentLabel.append(content);
+        form.append(contentLabel);
+
+        const fields = makeElement("details", "admin-agreement-template-fields");
+        fields.append(makeElement("summary", "", "Available server fields"));
+        const fieldList = makeElement("p", "admin-dialog-help",
+          (template.supported_fields || []).join("  ·  "));
+        fields.append(fieldList);
+        form.append(fields);
+
+        const preview = makeElement("button", "admin-secondary-button", "Preview generated PDF");
+        preview.type = "button";
+        preview.addEventListener("click", async () => {
+          const previewWindow = window.open("about:blank", "_blank");
+          if (!previewWindow) {
+            window.alert("Allow pop-ups to open the generated PDF preview.");
+            return;
+          }
+          previewWindow.opener = null;
+          preview.disabled = true;
+          try {
+            const response = await fetch(proxyUrl("admin/reporter-agreement-template/preview"), {
+              method: "POST",
+              cache: "no-store",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ template_content: content.value })
+            });
+            if (!response.ok) {
+              const result = await response.json().catch(() => ({}));
+              throw new Error(responseMessage(result));
+            }
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            previewUrl = URL.createObjectURL(await response.blob());
+            previewWindow.location.replace(previewUrl);
+          } catch (error) {
+            previewWindow.close();
+            window.alert(error.message);
+          } finally {
+            preview.disabled = false;
+          }
+        });
+        form.append(preview);
+      },
+      async (values) => {
+        await apiRequest("admin/reporter-agreements", "POST", {
+          version: values.get("version"),
+          template_content: values.get("template_content")
+        });
+        await loadSection("reporter-agreements");
+      },
+      "Save draft version"
+    );
+    dialog.addEventListener("close", () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    }, { once: true });
+  } catch (error) {
+    window.alert(error.message);
+  }
 }
 
 function openReporterOrganizationProfileDialog(profile) {
@@ -1683,7 +1770,7 @@ function buildTable(rows, section) {
     : section === "users"
     ? ["full_name", "email", "phone", "role", "created_at"]
     : section === "reporter-applications"
-      ? ["applicant_name", "email", "state_name", "reporting_area", "reporter_type_name", "status", "details_confirmed"]
+      ? ["applicant_name", "email", "state_name", "city", "area_coverage", "status", "details_confirmed"]
       : section === "reporter-credentials"
         ? ["name", "role", "type", "reference", "status", "scope", "valid_until"]
         : ["reporter-agreements", "reporter-service-agreements"].includes(section)
@@ -1867,7 +1954,12 @@ function addRowActions(container, row, section) {
   }
 
   if (section === "reporter-applications" && ["pending", "needs_information"].includes(row.status)) {
+    rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
     rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
+    return;
+  }
+  if (section === "reporter-applications") {
+    rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
     return;
   }
 
@@ -1904,7 +1996,7 @@ function addRowActions(container, row, section) {
         const endpoint = section === "reporter-service-agreements"
           ? "reporter-service-agreements"
           : "reporter-agreements";
-        const previewUrl = row._storage_object_path
+        const previewUrl = row._storage_object_path || row._dynamic_template
           ? proxyUrl(`admin/${endpoint}/${id}/preview`)
           : new URL(row.document_url, window.location.origin).toString();
         const parsedUrl = new URL(previewUrl, window.location.origin);
@@ -1923,7 +2015,7 @@ function addRowActions(container, row, section) {
         const replacesPublished = row._published_version;
         const message = isService
           ? `Publish service agreement version ${row.version}? Approved reporters must accept this exact PDF before receiving credentials. The current published version will be archived.`
-          : `Publish application agreement version ${row.version}? New applicants must accept this exact PDF. The current published version will be archived.`;
+          : `Publish application agreement template version ${row.version}? New applicants will receive a personalized PDF generated from the verified company details and their application. The exact accepted PDF will be retained. The current published version will be archived.`;
         if (window.confirm(replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message)) {
           const endpoint = isService ? "reporter-service-agreements" : "reporter-agreements";
           void runAction(() => apiRequest(`admin/${endpoint}/${id}/publish`, "POST", {}), refresh);
@@ -2075,6 +2167,101 @@ function populateLocationParents(select, childType, selected, excludedId) {
     });
 }
 
+async function openReporterPrivateDetailsDialog(application) {
+  try {
+    const result = await apiRequest(`admin/reporter-applications/${application.id}/private-details`);
+    const data = result.data || {};
+    const details = data.details || {};
+    const dialog = document.createElement("dialog");
+    dialog.className = "admin-json-dialog";
+    const body = makeElement("section", "admin-json-form");
+    body.append(
+      makeElement("span", "admin-eyebrow", "RESTRICTED · ADMIN REVIEW"),
+      makeElement("h2", "", `Private application details · ${application.user?.full_name || application.id}`),
+      makeElement("p", "admin-dialog-help", "Identity and bank documents are sensitive. Open them only to review this application. Document links expire shortly.")
+    );
+    const detailsGrid = makeElement("div", "admin-application-private-grid");
+    [
+      ["Emergency contact", details.emergency_contact_name],
+      ["Relationship", details.emergency_contact_relationship],
+      ["Emergency phone", details.emergency_contact_phone],
+      ["Blood group", details.blood_group],
+      ["Masked Aadhaar confirmed", details.masked_aadhaar_confirmed ? "Yes" : "No"],
+      ["Document privacy consent", details.document_processing_consent ? "Recorded" : "Not recorded"],
+      ["Preferred language", details.preferred_language],
+      ["Coverage localities", details.coverage_localities],
+      ["Experience", details.experience_years == null ? "—" : `${details.experience_years} years`],
+      ["Availability", details.availability],
+      ["Bank account holder", details.bank_account_holder],
+      ["Bank name", details.bank_name],
+      ["IFSC", details.bank_ifsc]
+    ].forEach(([label, value]) => {
+      detailsGrid.append(
+        makeElement("strong", "", label),
+        makeElement("span", "", value || "—")
+      );
+    });
+    const accountNumber = String(details.bank_account_number || "");
+    const accountNumberValue = makeElement(
+      "span",
+      "",
+      accountNumber ? `${"*".repeat(Math.max(0, accountNumber.length - 4))}${accountNumber.slice(-4)}` : "—"
+    );
+    const revealAccount = makeElement("button", "admin-secondary-button", "Show full account number");
+    revealAccount.type = "button";
+    revealAccount.addEventListener("click", () => {
+      const revealed = revealAccount.dataset.revealed === "true";
+      accountNumberValue.textContent = revealed
+        ? `${"*".repeat(Math.max(0, accountNumber.length - 4))}${accountNumber.slice(-4)}`
+        : accountNumber;
+      revealAccount.dataset.revealed = String(!revealed);
+      revealAccount.textContent = revealed ? "Show full account number" : "Hide full account number";
+    });
+    const accountNumberCell = makeElement("div", "admin-private-account-value");
+    accountNumberCell.append(accountNumberValue, revealAccount);
+    detailsGrid.append(makeElement("strong", "", "Bank account number"), accountNumberCell);
+    if (details.experience_summary) {
+      detailsGrid.append(makeElement("strong", "", "Experience summary"), makeElement("span", "", details.experience_summary));
+    }
+    body.append(detailsGrid, makeElement("h3", "", "Submitted documents"));
+    const documentLabels = {
+      profile_photo: "Passport-size profile photo",
+      masked_aadhaar: "Masked Aadhaar copy",
+      pan_card: "PAN card",
+      bank_proof: "Cancelled cheque / bank proof"
+    };
+    const documents = Array.isArray(data.documents) ? data.documents : [];
+    if (documents.length) {
+      const list = makeElement("div", "admin-application-private-documents");
+      documents.forEach((document) => {
+        const item = makeElement("div", "admin-application-private-document");
+        item.append(makeElement("span", "", documentLabels[document.document_type] || document.document_type));
+        const link = makeElement("a", "", "Open private document");
+        link.href = document.preview_url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        item.append(link, makeElement("small", "", `SHA-256 ${document.sha256}`));
+        list.append(item);
+      });
+      body.append(list);
+    } else {
+      body.append(makeElement("p", "admin-empty", "No private documents were found for this application."));
+    }
+    const actions = makeElement("div", "admin-dialog-actions");
+    const close = makeElement("button", "admin-primary-button", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => dialog.close());
+    actions.append(close);
+    body.append(actions);
+    dialog.append(body);
+    document.body.append(dialog);
+    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    dialog.showModal();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
 function openReporterReviewDialog(application, refresh) {
   openFormDialog(
     "Review reporter application",
@@ -2120,10 +2307,9 @@ function openReporterReviewDialog(application, refresh) {
         ["Application", `#${application.id} · ${application.status}`],
         ["Applicant", user.full_name || "—"],
         ["Email / phone", [user.email, user.phone].filter(Boolean).join(" · ") || "—"],
-        ["Requested coverage", [
+        ["Requested State / City / Area Coverage", [
           application.state?.state_name,
-          application.rto?.rto_code,
-          application.rto?.city_name,
+          application.rto?.city_name || application.rto?.rto_code,
           application.reporter_type?.name
         ].filter(Boolean).join(" · ") || "—"],
         ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"],

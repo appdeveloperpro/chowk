@@ -39,7 +39,9 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0010_reporter_onboarding.sql`,
    `supabase/migrations/0011_reporter_application_intake.sql`, and
    `supabase/migrations/0012_reporter_organization_profile.sql`, and
-   `supabase/migrations/0013_reporter_agreement_admin_controls.sql`. These add account email
+   `supabase/migrations/0013_reporter_agreement_admin_controls.sql`, and
+   `supabase/migrations/0014_dynamic_reporter_agreements.sql`, and
+   `supabase/migrations/0015_reporter_application_documents.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -54,17 +56,22 @@ Requires Node.js 18 or newer.
    authority-letter acknowledgement before an approved reporter receives the
    reporter role. Migration 0011 keeps application intake open when no finalized
    agreement is published and records the applicant's accuracy confirmation;
-   it does not treat the supplied draft agreement as accepted. Migration 0012
+   it does not treat an unpublished template as accepted. Migration 0012
    adds the admin-only organization legal profile with clearly labeled demo
    values and blocks publishing new agreement versions until an admin verifies
-   the profile. Finalized agreements remain lawyer-reviewed documents; profile
-   values are not merged into or used to generate PDF text. Migration 0013 adds
-   admin PDF uploads to private Supabase Storage, server-calculated SHA-256
-   hashes, previewable immutable versions, publish/archive controls, scoped
-   signed links for published or accepted PDFs, and protections against
-   modifying or deleting recorded agreement versions. Existing
-   installations must run all additive migrations in order before deploying
-   these features.
+   the profile. Migration 0013 adds private storage and immutable version controls
+   for uploaded reporter service-agreement PDFs. Migration 0014 adds editable,
+   immutable application-agreement templates and server-generated personalized
+   PDFs using the verified organization profile and each applicant's account and
+   application details. On acceptance, the exact generated PDF, its SHA-256
+   hash, and identity snapshots are retained for the reporter. The service
+   agreement remains an admin-uploaded PDF. Migration 0015 adds the multi-step
+   reporter application, profile-photo cropping, emergency contact and
+   reporting-profile fields, masked-Aadhaar/PAN/bank-proof uploads, bank
+   account details, and a private storage bucket with admin-only review access
+   for sensitive uploads. Applicants must upload a masked Aadhaar copy only;
+   never accept an unmasked copy. Existing installations must run all additive
+   migrations in order before deploying these features.
 4. Start the portal:
 
    ```powershell
@@ -141,8 +148,10 @@ key and authenticated user tokens.
   record, status, and limited identity/scope details.
 - Reporter administration for application review, state/RTO/type-code setup,
   stable reporter ID allocation, assignment and coverage history, versioned
-  agreement PDF uploads, preview, immutable versioning, publish/archive
-  controls, organization-profile verification, staff ID/authority-letter
+  application-agreement template editing and generated-PDF previews,
+  uploaded service-agreement PDF management, immutable versioning,
+  publish/archive controls, organization-profile verification, restricted
+  review of applicant identity and bank documents, staff ID/authority-letter
   issuance, revocation, and expanded audit filtering.
 - Role-specific reporter, moderator, editor, and publisher workspaces for
   drafting, coverage-scoped moderation, editorial review, scheduling,
@@ -175,11 +184,20 @@ version stops new acceptances but does not erase historical acceptance records
 or revoke existing reporter access.
 Review the seeded states, legacy Uttar Pradesh RTOs, and Tehsil Reporter type;
 add RTO/reporting areas for other states as needed. Applicants create and
-verify a subscriber account, then submit their state, RTO/reporting area, and
-reporter type from the reporter desk. If a finalized application agreement is
-published, it is shown for acceptance during application; otherwise the desk
-shows the supplied Reporter Engagement Agreement as an explicitly labeled
-draft preview and records no legal acceptance. Admins review the application,
+verify a subscriber account, then complete the four-step reporter application:
+profile and emergency contact; State, City, and Area Coverage; cropped profile
+photo, masked Aadhaar, PAN and bank proof plus payment details; and final review.
+The form reuses account name/email/phone and asks for optional reporting
+experience, preferred language, localities and availability. Sensitive files
+are stored privately; only the applicant and admins can access them. Aadhaar
+must be masked with only its last four digits visible. If a finalized
+application agreement is published, the server generates a personalized PDF
+for preview and acceptance during application; otherwise the desk clearly
+explains that no agreement acceptance will be recorded. Admins edit and publish
+immutable template versions after completing all legal terms and verifying
+organization details. Admins can open a restricted private-details view from
+each application to review the submitted details and short-lived document links.
+Admins review the application,
 request information, or approve/reject it. Approval creates the stable reporter
 code and assignment but does not activate newsroom access. A finalized service
 agreement must be accepted before credentials can be issued; the reporter
@@ -189,7 +207,7 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0013 in order before deploying the expanded newsroom workspace. Migration 0008 adds
+0015 in order before deploying the expanded newsroom workspace. Migration 0008 adds
 legacy-compatible zone/district mapping and coverage. Migration 0007
 provisions public media reads and per-user upload ownership; it also schedules
 due-article processing when `pg_cron` is available. If the extension is

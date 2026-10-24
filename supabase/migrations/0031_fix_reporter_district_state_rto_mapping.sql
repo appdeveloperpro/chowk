@@ -253,12 +253,11 @@ begin
       district_record.normalized_rto_code,
       district_record.district_name,
       district_record.district_active,
-      district_record.district_id
+      null
     )
     on conflict (state_id, rto_code) do update
       set city_name = excluded.city_name,
-          is_active = excluded.is_active,
-          location_id = excluded.location_id
+          is_active = excluded.is_active
     returning id into canonical_office_id;
 
     for old_office in
@@ -294,6 +293,12 @@ begin
           location_id = null
       where id = old_office.id;
     end loop;
+
+    update public.rto_offices
+    set city_name = district_record.district_name,
+        is_active = district_record.district_active,
+        location_id = district_record.district_id
+    where id = canonical_office_id;
 
     update public.locations
     set rto_code = district_record.normalized_rto_code

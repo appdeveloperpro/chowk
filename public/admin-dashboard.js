@@ -179,7 +179,7 @@ const allowedLocationParents = {
   state: [],
   zone: ["state"],
   district: ["state"],
-  range: ["district"],
+  range: ["zone"],
   city: ["district"],
   coverage_area: ["district", "city"]
 };

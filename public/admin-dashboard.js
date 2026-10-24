@@ -99,7 +99,7 @@ const modules = {
   locations: {
     path: "admin/locations",
     related: [
-      { label: "Zone / district mapping history", path: "admin/zone-district-mappings" }
+      { label: "District / range mapping history", path: "admin/district-range-mappings" }
     ],
     description: "Maintain the state, zone, district, range, city, and coverage-area directory.",
     createPath: "admin/locations",
@@ -136,12 +136,12 @@ function renderLocationModule(root, results) {
   const addLocation = makeElement("button", "admin-primary-button admin-create-button", "Add location");
   addLocation.type = "button";
   addLocation.addEventListener("click", () => openConfiguredRecordDialog("locations", null));
-  const mapDistrict = makeElement("button", "admin-secondary-button admin-create-button", "Map district to zone");
+  const mapDistrict = makeElement("button", "admin-secondary-button admin-create-button", "Map district to range");
   mapDistrict.type = "button";
   mapDistrict.disabled = Boolean(results[1]?.error);
   mapDistrict.addEventListener("click", () => {
     if (Array.isArray(results[1]?.data)) {
-      openZoneDistrictDialog(locationRecords);
+      openDistrictRangeDialog(locationRecords);
     }
   });
   pageActions(root).append(addLocation, mapDistrict);
@@ -157,20 +157,21 @@ function renderLocationModule(root, results) {
   const mappingsResult = results[1];
   const mappingPanel = makeElement("section", "admin-panel");
   const mappingHeader = makeElement("div", "admin-panel-heading");
-  mappingHeader.append(makeElement("h2", "", "Zone / district mapping history"));
+  mappingHeader.append(makeElement("h2", "", "District / range mapping history"));
   if (mappingsResult?.error) {
     mappingPanel.append(mappingHeader, makeElement("p", "admin-empty admin-inline-error", mappingsResult.error));
   } else {
     const mappings = Array.isArray(mappingsResult?.data) ? mappingsResult.data : [];
     const rows = mappings.map((mapping) => ({
-      zone: byId.get(String(mapping.zone_id))?.name || "Unavailable zone",
+      range: byId.get(String(mapping.range_id))?.name || "Unavailable range",
       district: byId.get(String(mapping.district_id))?.name || "Unavailable district",
       valid_from: formatDate(mapping.valid_from),
       valid_to: mapping.valid_to ? formatDate(mapping.valid_to) : "Current",
       id: mapping.id,
+      _district_range_mapping: true,
       _active: !mapping.valid_to
     }));
-    mappingPanel.append(mappingHeader, buildTable(rows, "zone-district-mappings"));
+    mappingPanel.append(mappingHeader, buildTable(rows, "locations"));
   }
   root.append(mappingPanel);
 }
@@ -1048,37 +1049,40 @@ function replaceValueOptions(select, values, placeholder, labelFor) {
   }
 }
 
-function openZoneDistrictDialog(locations) {
-  const statesById = new Map(locations
-    .filter((location) => location.location_type === "state")
+function openDistrictRangeDialog(locations) {
+  const zonesById = new Map(locations
+    .filter((location) => location.location_type === "zone")
     .map((location) => [String(location.id), location]));
-  const zones = locations.filter((location) => location.location_type === "zone" && location.is_active);
+  const ranges = locations.filter((location) => location.location_type === "range" && location.is_active);
   const districts = locations.filter((location) => location.location_type === "district" && location.is_active);
-  if (!zones.length || !districts.length) {
-    window.alert("Create an active zone and district under the same state before mapping.");
+  if (!ranges.length || !districts.length) {
+    window.alert("Create an active range and district before mapping.");
     return;
   }
   openFormDialog(
-    "Map district to zone",
-    "A district can have one active zone mapping at a time. Reassigning it ends the previous mapping and keeps its history.",
+    "Map district to range",
+    "A district can have one active range mapping at a time. Reassigning it ends the previous mapping and keeps its history.",
     (form) => {
-      const zoneSelect = appendReporterSelect(form, "zone_id", "Zone / region", zones, (zone) =>
-        `${zone.name} · ${statesById.get(String(zone.parent_id))?.name || "State unavailable"}`
+      const rangeSelect = appendReporterSelect(form, "range_id", "Range", ranges, (range) => {
+        const zone = zonesById.get(String(range.parent_id));
+        return `${range.name} · ${zone?.name || "Zone unavailable"}`;
+      }
       );
       const districtSelect = appendReporterSelect(form, "district_id", "District", [], (district) => district.name);
       const populateDistricts = () => {
-        const zone = zones.find((item) => String(item.id) === zoneSelect.value);
+        const range = ranges.find((item) => String(item.id) === rangeSelect.value);
+        const zone = zonesById.get(String(range?.parent_id));
         const eligible = districts.filter((district) =>
           String(district.parent_id) === String(zone?.parent_id)
         );
         replaceValueOptions(districtSelect, eligible, "Choose a district", (district) => district.name);
       };
-      zoneSelect.addEventListener("change", populateDistricts);
+      rangeSelect.addEventListener("change", populateDistricts);
       populateDistricts();
     },
     async (values) => {
-      await apiRequest("admin/zone-district-mappings", "POST", {
-        zone_id: Number(values.get("zone_id")),
+      await apiRequest("admin/district-range-mappings", "POST", {
+        range_id: Number(values.get("range_id")),
         district_id: Number(values.get("district_id"))
       });
       await loadSection("locations");
@@ -1910,6 +1914,17 @@ function addRowActions(container, row, section) {
     return;
   }
 
+  if (section === "locations" && row._district_range_mapping) {
+    if (row._active) {
+      rowButton(container, "End mapping", () => {
+        if (window.confirm("End this district/range mapping now? Its history will be retained.")) {
+          void runAction(() => apiRequest(`admin/district-range-mappings/${id}/end`, "POST", {}), refresh);
+        }
+      }, "admin-row-button danger");
+    }
+    return;
+  }
+
   if (["locations", "live-streams", "media"].includes(section)) {
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, "Delete", () => {
@@ -1944,15 +1959,6 @@ function addRowActions(container, row, section) {
         "admin-row-button danger"
       );
     }
-    return;
-  }
-
-  if (section === "zone-district-mappings" && row._active) {
-    rowButton(container, "End mapping", () => {
-      if (window.confirm("End this zone/district mapping now? Its history will be retained.")) {
-        void runAction(() => apiRequest(`admin/zone-district-mappings/${id}/end`, "POST", {}), refresh);
-      }
-    }, "admin-row-button danger");
     return;
   }
 

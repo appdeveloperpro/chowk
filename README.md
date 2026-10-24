@@ -45,7 +45,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0016_required_reporter_coverage_locations.sql`, and
    `supabase/migrations/0017_reporter_application_admin_controls.sql`, and
    `supabase/migrations/0018_admin_location_range_level.sql`, and
-   `supabase/migrations/0019_range_locations_require_zone_parent.sql`. These add account email
+   `supabase/migrations/0019_range_locations_require_zone_parent.sql`, and
+   `supabase/migrations/0020_district_range_mappings.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -83,7 +84,9 @@ Requires Node.js 18 or newer.
    0018 adds Range as a parentable level in the admin newsroom location
    directory without changing the separate State and City/RTO reporter data.
    Migration 0019 requires new or updated range locations to have an active
-   zone as their parent.
+   zone as their parent. Migration 0020 adds audited district-to-range mapping
+   history and keeps zone coverage effective for districts mapped through a
+   range.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -221,7 +224,7 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0019 in order before deploying the expanded newsroom workspace. The public site,
+0020 in order before deploying the expanded newsroom workspace. The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
 Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007

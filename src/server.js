@@ -1302,46 +1302,46 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    if (pathname === "/api/admin/zone-district-mappings" && request.method === "GET") {
+    if (pathname === "/api/admin/district-range-mappings" && request.method === "GET") {
       const result = await supabaseRequest(
-        "/rest/v1/zone_districts?select=id,zone_id,district_id,valid_from,valid_to,assigned_by,created_at&order=valid_from.desc&limit=1000",
+        "/rest/v1/district_ranges?select=id,range_id,district_id,valid_from,valid_to,assigned_by,created_at&order=valid_from.desc&limit=1000",
         { token }
       );
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload || [] }
-        : { error: apiErrorMessage(result.payload, "Zone/district mapping history could not be loaded.") });
+        : { error: apiErrorMessage(result.payload, "District/range mapping history could not be loaded.") });
       return;
     }
 
-    if (pathname === "/api/admin/zone-district-mappings" && request.method === "POST") {
+    if (pathname === "/api/admin/district-range-mappings" && request.method === "POST") {
       const body = await readJsonBody(request);
-      const zoneId = Number(body.zone_id);
+      const rangeId = Number(body.range_id);
       const districtId = Number(body.district_id);
-      if (!Number.isSafeInteger(zoneId) || zoneId < 1 || !Number.isSafeInteger(districtId) || districtId < 1) {
-        sendJson(response, 400, { error: "Choose a zone and district to map." });
+      if (!Number.isSafeInteger(rangeId) || rangeId < 1 || !Number.isSafeInteger(districtId) || districtId < 1) {
+        sendJson(response, 400, { error: "Choose a range and district to map." });
         return;
       }
-      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_district_zone", {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_district_range", {
         method: "POST",
         token,
-        body: { target_zone: zoneId, target_district: districtId }
+        body: { target_range: rangeId, target_district: districtId }
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: { id: result.payload } }
-        : { error: apiErrorMessage(result.payload, "District could not be mapped to the zone.") });
+        : { error: apiErrorMessage(result.payload, "District could not be mapped to the range.") });
       return;
     }
 
-    const endZoneDistrictMapping = pathname.match(/^\/api\/admin\/zone-district-mappings\/(\d+)\/end$/);
-    if (endZoneDistrictMapping && request.method === "POST") {
-      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_end_district_zone", {
+    const endDistrictRangeMapping = pathname.match(/^\/api\/admin\/district-range-mappings\/(\d+)\/end$/);
+    if (endDistrictRangeMapping && request.method === "POST") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_end_district_range", {
         method: "POST",
         token,
-        body: { target_mapping: Number(endZoneDistrictMapping[1]) }
+        body: { target_mapping: Number(endDistrictRangeMapping[1]) }
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
-        : { error: apiErrorMessage(result.payload, "Zone/district mapping could not be ended.") });
+        : { error: apiErrorMessage(result.payload, "District/range mapping could not be ended.") });
       return;
     }
 

@@ -1982,6 +1982,11 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
         return;
       }
+      if (config.table === "locations" && record.location_type === "district" &&
+          (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) {
+        sendJson(response, 400, { error: "Enter a District RTO code containing 2-8 letters or numbers." });
+        return;
+      }
       if (config.table === "locations" && record.rto_code !== undefined &&
           record.rto_code !== null &&
           (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) {

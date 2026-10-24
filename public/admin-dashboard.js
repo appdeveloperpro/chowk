@@ -2171,7 +2171,7 @@ function openConfiguredRecordDialog(section, existing) {
           input.type = "text";
           input.maxLength = field.maxLength;
           input.pattern = "[A-Za-z0-9]{2,8}";
-          input.required = !isEditing && locationTypeSelect.value === "district";
+          input.required = locationTypeSelect.value === "district";
           if (value !== null && value !== undefined) input.value = String(value);
           label.append(input);
           form.append(label);
@@ -2179,7 +2179,7 @@ function openConfiguredRecordDialog(section, existing) {
             const isDistrict = locationTypeSelect.value === "district";
             label.hidden = !isDistrict;
             input.disabled = !isDistrict;
-            input.required = !isEditing && isDistrict;
+            input.required = isDistrict;
             if (!isDistrict) input.value = "";
           };
           locationTypeSelect.addEventListener("change", refreshRtoField);

@@ -409,6 +409,124 @@
   gap: 10px;
 }
 
+.admin-location-panel {
+  gap: 0;
+  overflow: hidden;
+}
+
+.admin-location-panel > .admin-panel-heading {
+  padding: 18px 20px;
+}
+
+.admin-location-groups {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.admin-location-group {
+  overflow: hidden;
+  border: 1px solid #e7eaf0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.admin-location-group[open] {
+  border-color: #edcbb8;
+  box-shadow: 0 4px 14px rgb(24 36 59 / 5%);
+}
+
+.admin-location-group-summary {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  color: #344158;
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-location-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-location-group-summary::before {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 2px solid #8993a4;
+  border-bottom: 2px solid #8993a4;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+}
+
+.admin-location-group[open] .admin-location-group-summary::before {
+  transform: rotate(45deg);
+}
+
+.admin-location-group-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-location-group-count {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f3f5f8;
+  color: #778196;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.admin-location-group[open] .admin-location-group-count {
+  background: #fff2e9;
+  color: #c95010;
+}
+
+.admin-location-group-summary:focus-visible {
+  outline: 2px solid #f36b21;
+  outline-offset: 2px;
+}
+
+.admin-location-group-content {
+  padding: 0 12px 12px;
+}
+
+.admin-location-group-content .admin-table-wrap {
+  border: 0;
+}
+
+.admin-confirm-dialog {
+  width: min(460px, calc(100% - 28px));
+}
+
+.admin-confirm-content h2 {
+  font-size: 18px;
+}
+
+.admin-confirm-content > .admin-dialog-help {
+  color: #667186;
+  font-size: 12px;
+}
+
+.admin-confirm-content .admin-dialog-actions {
+  margin-top: 8px;
+}
+
+.admin-confirm-danger {
+  border-color: #c03935;
+  background: #c03935;
+}
+
+.admin-confirm-danger:hover {
+  border-color: #a72d2a;
+  background: #a72d2a;
+}
+
 .admin-page-heading {
   display: flex;
   align-items: flex-end;

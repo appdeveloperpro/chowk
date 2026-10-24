@@ -49,7 +49,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0020_district_range_mappings.sql`,
    `supabase/migrations/0021_cascade_location_deactivation.sql`, and
    `supabase/migrations/0022_bidirectional_location_activation.sql`, and
-   `supabase/migrations/0023_sync_range_location_activation.sql`. These add account email
+   `supabase/migrations/0023_sync_range_location_activation.sql`, and
+   `supabase/migrations/0024_enforce_location_tree.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -97,6 +98,13 @@ Requires Node.js 18 or newer.
    during migration. Migration 0023 repairs range cascades by following the
    latest district mapping history even when a mapping was previously ended,
    and synchronizes mapping history with deactivation and reactivation.
+   Migration 0024 makes the physical location tree State > Zone > Range >
+   District > Coverage area, moves districts to their latest assigned range,
+   and makes parent activation cascades follow that tree directly. New city
+   location records are blocked; legacy city records are retained, as are
+   the separate state, RTO code, and city-name fields used for reporter IDs.
+   Districts without a saved range assignment remain visible in the admin
+   "Districts needing a range" tab until assigned.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -234,7 +242,7 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0023 in order before deploying the expanded newsroom workspace. The public site,
+0024 in order before deploying the expanded newsroom workspace. The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
 Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007

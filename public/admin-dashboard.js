@@ -98,16 +98,13 @@ const modules = {
   },
   locations: {
     path: "admin/locations",
-    related: [
-      { label: "District / range mapping history", path: "admin/district-range-mappings" }
-    ],
-    description: "Maintain the state, zone, district, range, city, and coverage-area directory. Deactivating a location immediately deactivates its physical descendants and mapped districts. Reactivating it immediately reactivates every descendant and restores its latest district mappings.",
+    description: "Manage the State > Zone > Range > District > Coverage area hierarchy. Activation changes cascade through descendants. Legacy city records remain stored, but new city locations are not allowed; use coverage areas instead.",
     createPath: "admin/locations",
     formFields: [
       { name: "name", label: "Location name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
-      { name: "location_type", label: "Location level", type: "select", options: ["state", "zone", "district", "range", "city", "coverage_area"] },
-      { name: "parent_id", label: "Parent location ID (optional)", type: "number", required: false },
+      { name: "location_type", label: "Location level", type: "select", options: ["state", "zone", "range", "district", "coverage_area"] },
+      { name: "parent_id", label: "Parent location", type: "number", required: false },
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
   },
@@ -136,53 +133,63 @@ function renderLocationModule(root, results) {
   const addLocation = makeElement("button", "admin-primary-button admin-create-button", "Add location");
   addLocation.type = "button";
   addLocation.addEventListener("click", () => openConfiguredRecordDialog("locations", null));
-  const mapDistrict = makeElement("button", "admin-secondary-button admin-create-button", "Map district to range");
-  mapDistrict.type = "button";
-  mapDistrict.disabled = Boolean(results[1]?.error);
-  mapDistrict.addEventListener("click", () => {
-    if (Array.isArray(results[1]?.data)) {
-      openDistrictRangeDialog(locationRecords);
-    }
-  });
-  pageActions(root).append(addLocation, mapDistrict);
+  const assignDistrict = makeElement("button", "admin-secondary-button admin-create-button", "Assign district to range");
+  assignDistrict.type = "button";
+  assignDistrict.addEventListener("click", () => openDistrictRangeDialog(locationRecords));
+  pageActions(root).append(addLocation, assignDistrict);
 
   const byId = new Map(locationRecords.map((item) => [String(item.id), item]));
   const locationRows = locationRecords.map((location) => ({
     ...location,
+    _source_type: location.location_type,
+    _parent_type: byId.get(String(location.parent_id))?.location_type || "",
+    location_type: location.location_type === "city" ? "Legacy city" : location.location_type,
     hierarchy: locationPath(location, byId),
     parent_location: byId.get(String(location.parent_id))?.name || "Top level"
   }));
-  reporterPanel(root, "Locations", locationRows, "locations");
-
-  const mappingsResult = results[1];
-  const mappingPanel = makeElement("section", "admin-panel");
-  const mappingHeader = makeElement("div", "admin-panel-heading");
-  mappingHeader.append(makeElement("h2", "", "District / range mapping history"));
-  if (mappingsResult?.error) {
-    mappingPanel.append(mappingHeader, makeElement("p", "admin-empty admin-inline-error", mappingsResult.error));
-  } else {
-    const mappings = Array.isArray(mappingsResult?.data) ? mappingsResult.data : [];
-    const rows = mappings.map((mapping) => ({
-      range: byId.get(String(mapping.range_id))?.name || "Unavailable range",
-      district: byId.get(String(mapping.district_id))?.name || "Unavailable district",
-      valid_from: formatDate(mapping.valid_from),
-      valid_to: mapping.valid_to ? formatDate(mapping.valid_to) : "Current",
-      id: mapping.id,
-      _district_range_mapping: true,
-      _active: !mapping.valid_to
-    }));
-    mappingPanel.append(mappingHeader, buildTable(rows, "locations"));
-  }
-  root.append(mappingPanel);
+  const groups = [
+    ["state", "States", (row) => row._source_type === "state"],
+    ["zone", "Zones", (row) => row._source_type === "zone"],
+    ["range", "Ranges", (row) => row._source_type === "range"],
+    ["district", "Districts", (row) =>
+      row._source_type === "district" && row._parent_type === "range"],
+    ["unassigned", "Districts needing a range", (row) =>
+      row._source_type === "district" && row._parent_type !== "range"],
+    ["coverage-area", "Coverage areas", (row) => row._source_type === "coverage_area"],
+    ["legacy-city", "Legacy cities", (row) => row._source_type === "city"]
+  ];
+  const panel = makeElement("section", "admin-panel admin-location-panel");
+  const panelHeader = makeElement("div", "admin-panel-heading");
+  panelHeader.append(makeElement("h2", "", "Locations"));
+  panelHeader.append(makeElement("span", "", `${locationRows.length} total records`));
+  const groupList = makeElement("div", "admin-location-groups");
+  groups.forEach(([key, label, matches]) => {
+    const rows = locationRows.filter(matches);
+    const details = makeElement("details", "admin-location-group");
+    details.dataset.locationGroup = key;
+    const summary = makeElement("summary", "admin-location-group-summary");
+    summary.append(makeElement("span", "admin-location-group-name", label));
+    summary.append(makeElement(
+      "span",
+      "admin-location-group-count",
+      `${rows.length} ${rows.length === 1 ? "record" : "records"}`
+    ));
+    const content = makeElement("div", "admin-location-group-content");
+    content.append(buildTable(rows, "locations"));
+    details.append(summary, content);
+    groupList.append(details);
+  });
+  panel.append(panelHeader, groupList);
+  root.append(panel);
 }
 
 const allowedLocationParents = {
   state: [],
   zone: ["state"],
-  district: ["state"],
   range: ["zone"],
   city: ["district"],
-  coverage_area: ["district", "city"]
+  district: ["range"],
+  coverage_area: ["district"]
 };
 
 let activeSection = "overview";
@@ -933,19 +940,16 @@ function openCoverageDialog(data) {
   const locations = data.locations || [];
   openFormDialog(
     "Assign newsroom coverage",
-    "Choose a zone, district, city, or division. Parent-child location assignments and their effective dates are retained in coverage history.",
+    "Choose a zone, district, or coverage area. Legacy city locations remain stored for existing records but are not offered for new assignments.",
     (form) => {
       appendReporterSelect(form, "user_id", "Newsroom staff", staff,
         (person) => `${person.full_name || person.email} · ${person.role}`);
       const typeSelect = appendValueSelect(form, "coverage_type", "Coverage level", [
         ["zone", "Zone / region"],
         ["district", "District"],
-        ["city", "City"],
-        ["coverage_area", "Division"]
+        ["coverage_area", "Coverage area"]
       ]);
       const stateSelect = appendReporterSelect(form, "state_id", "State / UT", [], (state) => state.name);
-      const districtSelect = appendReporterSelect(form, "district_id", "District", [], (district) => district.name);
-      const citySelect = appendReporterSelect(form, "city_id", "City (optional)", [], (city) => city.name, "No city — division belongs to the district");
       const targetSelect = appendReporterSelect(form, "location_id", "Coverage location", [], (location) => location.name);
 
       const byId = new Map(locations.map((location) => [String(location.id), location]));
@@ -960,47 +964,19 @@ function openCoverageDialog(data) {
       };
       const states = locations.filter((location) => location.location_type === "state" && location.is_active);
       replaceValueOptions(stateSelect, states, "Choose a state / UT", (state) => state.name);
-      const setDisabled = (select, disabled) => {
-        select.disabled = disabled;
-        select.required = !disabled && select.name !== "city_id";
-      };
       const refreshLocationChoices = () => {
         const selectedState = stateSelect.value;
         const selectedType = typeSelect.value;
-        const districts = locations.filter((location) =>
-          location.location_type === "district"
-          && location.is_active
+        const eligible = locations.filter((location) =>
+          location.is_active
+          && location.location_type === selectedType
           && getStateId(location) === selectedState
         );
-        replaceValueOptions(districtSelect, districts, "Choose a district", (district) => district.name);
-
-        const parentDistrictId = districtSelect.value;
-        const cities = locations.filter((location) =>
-          location.location_type === "city"
-          && location.is_active
-          && String(location.parent_id) === parentDistrictId
-        );
-        replaceValueOptions(citySelect, cities, "No city — division belongs to the district", (city) => city.name);
-
-        const eligible = locations.filter((location) => {
-          if (!location.is_active) return false;
-          if (selectedType === "zone" || selectedType === "district") {
-            return location.location_type === selectedType && getStateId(location) === selectedState;
-          }
-          if (selectedType === "city") {
-            return location.location_type === "city" && String(location.parent_id) === parentDistrictId;
-          }
-          const parentId = citySelect.value || parentDistrictId;
-          return location.location_type === "coverage_area" && String(location.parent_id) === parentId;
-        });
         replaceValueOptions(targetSelect, eligible, "Choose coverage location", (location) => location.name);
-        setDisabled(districtSelect, !selectedState || !["city", "coverage_area"].includes(selectedType));
-        setDisabled(citySelect, !selectedState || selectedType !== "coverage_area" || !parentDistrictId);
-        districtSelect.required = Boolean(selectedState && ["city", "coverage_area"].includes(selectedType));
-        citySelect.required = false;
-        setDisabled(targetSelect, !selectedState || (["city", "coverage_area"].includes(selectedType) && !parentDistrictId));
+        targetSelect.disabled = !selectedState;
+        targetSelect.required = Boolean(selectedState);
       };
-      [typeSelect, stateSelect, districtSelect, citySelect].forEach((select) =>
+      [typeSelect, stateSelect].forEach((select) =>
         select.addEventListener("change", refreshLocationChoices)
       );
       refreshLocationChoices();
@@ -1050,9 +1026,16 @@ function replaceValueOptions(select, values, placeholder, labelFor) {
 }
 
 function openDistrictRangeDialog(locations) {
-  const zonesById = new Map(locations
-    .filter((location) => location.location_type === "zone")
-    .map((location) => [String(location.id), location]));
+  const byId = new Map(locations.map((location) => [String(location.id), location]));
+  const stateIdFor = (location) => {
+    let current = location;
+    const visited = new Set();
+    while (current && current.location_type !== "state" && !visited.has(String(current.id))) {
+      visited.add(String(current.id));
+      current = byId.get(String(current.parent_id));
+    }
+    return current?.location_type === "state" ? String(current.id) : "";
+  };
   const ranges = locations.filter((location) => location.location_type === "range" && location.is_active);
   const districts = locations.filter((location) => location.location_type === "district" && location.is_active);
   if (!ranges.length || !districts.length) {
@@ -1060,20 +1043,20 @@ function openDistrictRangeDialog(locations) {
     return;
   }
   openFormDialog(
-    "Map district to range",
-    "A district can have one active range mapping at a time. Reassigning it ends the previous mapping and keeps its history.",
+    "Assign district to range",
+    "This changes the district's actual parent in the location tree. Previous range assignments remain in history.",
     (form) => {
       const rangeSelect = appendReporterSelect(form, "range_id", "Range", ranges, (range) => {
-        const zone = zonesById.get(String(range.parent_id));
+        const zone = byId.get(String(range.parent_id));
         return `${range.name} · ${zone?.name || "Zone unavailable"}`;
-      }
-      );
+      });
       const districtSelect = appendReporterSelect(form, "district_id", "District", [], (district) => district.name);
       const populateDistricts = () => {
         const range = ranges.find((item) => String(item.id) === rangeSelect.value);
-        const zone = zonesById.get(String(range?.parent_id));
+        const zone = byId.get(String(range?.parent_id));
+        const selectedStateId = stateIdFor(zone);
         const eligible = districts.filter((district) =>
-          String(district.parent_id) === String(zone?.parent_id)
+          selectedStateId && stateIdFor(district) === selectedStateId
         );
         replaceValueOptions(districtSelect, eligible, "Choose a district", (district) => district.name);
       };
@@ -1087,7 +1070,7 @@ function openDistrictRangeDialog(locations) {
       });
       await loadSection("locations");
     },
-    "Map district"
+    "Assign district"
   );
 }
 
@@ -1825,6 +1808,36 @@ function rowButton(container, label, handler, style = "admin-row-button") {
   container.append(button);
 }
 
+function confirmAdminAction(title, message, confirmLabel = "Delete") {
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "admin-json-dialog admin-confirm-dialog";
+    const body = makeElement("section", "admin-json-form admin-confirm-content");
+    body.append(
+      makeElement("span", "admin-eyebrow", "CONFIRM ACTION"),
+      makeElement("h2", "", title),
+      makeElement("p", "admin-dialog-help", message)
+    );
+    const actions = makeElement("div", "admin-dialog-actions");
+    const cancel = makeElement("button", "admin-secondary-button", "Cancel");
+    cancel.type = "button";
+    cancel.autofocus = true;
+    cancel.addEventListener("click", () => dialog.close("cancel"));
+    const confirm = makeElement("button", "admin-primary-button admin-confirm-danger", confirmLabel);
+    confirm.type = "button";
+    confirm.addEventListener("click", () => dialog.close("confirm"));
+    actions.append(cancel, confirm);
+    body.append(actions);
+    dialog.append(body);
+    document.body.append(dialog);
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      resolve(dialog.returnValue === "confirm");
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+
 function recordId(row) {
   const id = String(row.id ?? row.application_id ?? row.credential_id ?? row.user_id ?? "");
   return /^[1-9]\d*$/.test(id) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
@@ -1896,9 +1909,13 @@ function addRowActions(container, row, section) {
     }
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, "Delete", () => {
-      if (window.confirm(`Delete article ${row.title || id}? This cannot be undone.`)) {
+      void confirmAdminAction(
+        "Delete article?",
+        `Delete "${row.title || id}"? This cannot be undone.`
+      ).then((confirmed) => {
+        if (!confirmed) return;
         void runAction(() => apiRequest(`admin/articles/${id}`, "DELETE"), refresh);
-      }
+      });
     }, "admin-row-button danger");
     return;
   }
@@ -1907,10 +1924,19 @@ function addRowActions(container, row, section) {
     const route = `admin/categories/${id}`;
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, "Delete", () => {
-      if (window.confirm(`Delete this ${singular(sectionLabels[section]).toLowerCase()}?`)) {
+      void confirmAdminAction(
+        `Delete ${singular(sectionLabels[section]).toLowerCase()}?`,
+        "This action cannot be undone."
+      ).then((confirmed) => {
+        if (!confirmed) return;
         void runAction(() => apiRequest(route, "DELETE"), refresh);
-      }
+      });
     }, "admin-row-button danger");
+    return;
+  }
+
+  if (section === "locations" && row._source_type === "city") {
+    rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     return;
   }
 
@@ -1928,9 +1954,13 @@ function addRowActions(container, row, section) {
   if (["locations", "live-streams", "media"].includes(section)) {
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, "Delete", () => {
-      if (window.confirm(`Delete "${row.title || row.name || row.id}"? This cannot be undone.`)) {
+      void confirmAdminAction(
+        "Delete this record?",
+        `Delete "${row.title || row.name || row.id}"? This action cannot be undone.`
+      ).then((confirmed) => {
+        if (!confirmed) return;
         void runAction(() => apiRequest(`admin/${section}/${id}`, "DELETE"), refresh);
-      }
+      });
     }, "admin-row-button danger");
     return;
   }
@@ -1942,9 +1972,13 @@ function addRowActions(container, row, section) {
       );
     }
     rowButton(container, "Delete", () => {
-      if (window.confirm("Delete this comment? This cannot be undone.")) {
+      void confirmAdminAction(
+        "Delete this comment?",
+        "The comment will be permanently removed. This action cannot be undone."
+      ).then((confirmed) => {
+        if (!confirmed) return;
         void runAction(() => apiRequest(`admin/comments/${id}`, "DELETE"), refresh);
-      }
+      });
     }, "admin-row-button danger");
     return;
   }
@@ -1972,10 +2006,13 @@ function addRowActions(container, row, section) {
         const applicant = row.applicant_name && row.applicant_name !== "—"
           ? row.applicant_name
           : row.email || `application #${id}`;
-        if (!window.confirm(
-          `Permanently delete ${applicant}'s ${row.status.replace("_", " ")} application and its private documents? The account itself will remain unchanged. This cannot be undone.`
-        )) return;
-        void runAction(() => apiRequest(`admin/reporter-applications/${id}`, "DELETE"), refresh);
+        void confirmAdminAction(
+          "Delete reporter application?",
+          `Permanently delete ${applicant}'s ${row.status.replace("_", " ")} application and its private documents? The account itself will remain unchanged. This action cannot be undone.`
+        ).then((confirmed) => {
+          if (!confirmed) return;
+          void runAction(() => apiRequest(`admin/reporter-applications/${id}`, "DELETE"), refresh);
+        });
       }, "admin-row-button danger");
     } else {
       container.append(makeElement("small", "admin-row-note", "Deletion is disabled after approval to preserve reporter access and credential history."));
@@ -2126,7 +2163,12 @@ function openConfiguredRecordDialog(section, existing) {
         if (field.pattern) input.pattern = field.pattern;
         if (field.maxLength) input.maxLength = field.maxLength;
         if (field.type === "select") {
-          field.options.forEach((optionValue, index) => {
+          const options = section === "locations"
+            && field.name === "location_type"
+            && existing?.location_type === "city"
+            ? [...field.options, "city"]
+            : field.options;
+          options.forEach((optionValue, index) => {
             const option = makeElement("option", "", optionValue);
             option.value = optionValue;
             option.selected = value === optionValue || (value === undefined && index === 0);
@@ -2175,7 +2217,7 @@ function populateLocationParents(select, childType, selected, excludedId) {
   const types = allowedLocationParents[childType] || [];
   locationRecords
     .filter((location) => String(location.id) !== String(excludedId)
-      && location.is_active
+      && (location.is_active || String(location.id) === String(selected))
       && types.includes(location.location_type))
     .forEach((location) => {
       const option = new Option(

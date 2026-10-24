@@ -425,16 +425,6 @@ function renderApplicationForm(action, existing = null) {
     regionSelect.disabled = true;
     const rtoSelect = addSelectField(areaStep, "District", "rto_office_id", [], existing?.rto?.id || "", "Choose a region first");
     rtoSelect.disabled = true;
-    const rtoCodeInfo = element("p", "reporter-card-copy reporter-field-full");
-    rtoCodeInfo.hidden = true;
-    areaStep.append(rtoCodeInfo);
-    rtoSelect.addEventListener("change", () => {
-      const selectedDistrict = (options.rtos || []).find((district) => String(district.id) === rtoSelect.value);
-      rtoCodeInfo.hidden = !selectedDistrict;
-      rtoCodeInfo.textContent = selectedDistrict
-        ? `RTO code: ${selectedDistrict.rto_code}. It is used automatically when an admin approves your application and generates your reporter ID.`
-        : "";
-    });
     const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
     addSelectField(areaStep, "Reporter type", "reporter_type_id", types, existing?.reporter_type?.id || "", "Choose reporter type");
     const coverageNote = element(
@@ -475,7 +465,7 @@ function renderApplicationForm(action, existing = null) {
         && String(district.region_id) === String(selectedRegionId)
       );
       rtoSelect.replaceChildren();
-      const placeholder = element("option", "", eligibleDistricts.length ? "Choose a District and RTO code" : "No active Districts for this Region");
+      const placeholder = element("option", "", eligibleDistricts.length ? "Choose a District" : "No active Districts for this Region");
       placeholder.value = "";
       placeholder.disabled = true;
       placeholder.selected = true;

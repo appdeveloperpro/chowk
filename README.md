@@ -48,7 +48,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0019_range_locations_require_zone_parent.sql`, and
    `supabase/migrations/0020_district_range_mappings.sql`,
    `supabase/migrations/0021_cascade_location_deactivation.sql`, and
-   `supabase/migrations/0022_bidirectional_location_activation.sql`. These add account email
+   `supabase/migrations/0022_bidirectional_location_activation.sql`, and
+   `supabase/migrations/0023_sync_range_location_activation.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -93,7 +94,9 @@ Requires Node.js 18 or newer.
    updates all physical descendants and mapped districts; reactivation turns
    every descendant back on and restores the latest district mapping while
    preserving prior mapping history. It also restores inactive descendants
-   during migration.
+   during migration. Migration 0023 repairs range cascades by following the
+   latest district mapping history even when a mapping was previously ended,
+   and synchronizes mapping history with deactivation and reactivation.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -231,7 +234,7 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0022 in order before deploying the expanded newsroom workspace. The public site,
+0023 in order before deploying the expanded newsroom workspace. The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
 Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007

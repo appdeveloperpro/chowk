@@ -77,7 +77,7 @@ function addSelect(form, name, labelText, values, selected, placeholder) {
 
 function addAgreement(root, agreement, signerName) {
   const box = element("section", "reporter-agreement");
-  box.append(element("strong", "", `Reporter agreement · Version ${agreement.version}`));
+  box.append(element("strong", "", `Application agreement · Version ${agreement.version}`));
   const link = element("a", "", "Open the full agreement");
   link.href = agreement.document_url;
   link.target = "_blank";
@@ -95,33 +95,49 @@ function addAgreement(root, agreement, signerName) {
   checkbox.required = true;
   acceptance.append(
     checkbox,
-    element("span", "", "I have read this agreement, am eligible to apply, and accept its terms for this application.")
+    element("span", "", "I have read the application agreement, am eligible to apply, and accept its terms for this application. The separate service agreement comes after approval.")
   );
   box.append(acceptance);
   return box;
 }
 
-function renderApplicationForm(existing) {
+function renderApplicationForm(action, existing = null) {
+  const acceptingUpdatedAgreement = action === "updated-agreement";
+  const resubmitting = action === "resubmit";
   applicationPanel.replaceChildren();
   applicationPanel.hidden = false;
   applicationPanel.append(
-    element("h2", "", existing ? "Accept the current agreement" : "Apply to become a Chowk reporter"),
-    element("p", "reporter-card-copy", existing
-      ? "The published agreement has changed. Read and accept the current version to keep your pending application eligible for review."
-      : "Your account remains a subscriber while the application is pending. Admin review and approval are required before reporter access is granted.")
+    element("h2", "", acceptingUpdatedAgreement
+      ? "Review the updated application agreement"
+      : resubmitting
+        ? "Update and resubmit your application"
+        : "Apply to become a Chowk reporter"),
+    element("p", "reporter-card-copy", acceptingUpdatedAgreement
+      ? "The agreement version changed. Accept the current version before your pending application can continue to review."
+      : resubmitting
+        ? "Update the requested details, review the current agreement, and submit again. Your account remains a subscriber until onboarding is complete."
+        : "Create your application after account verification. Approval is not field authorization: you will receive an authority letter to review and acknowledge before reporter access is activated.")
   );
-  if (!options?.agreement) {
-    applicationPanel.append(element("p", "reporter-empty", "Reporter applications are temporarily closed because no agreement version is published. Please check back later."));
+  if (!options?.agreement || (!acceptingUpdatedAgreement && !options?.service_agreement)) {
+    applicationPanel.append(element("p", "reporter-empty", !options?.agreement
+      ? "Reporter applications are temporarily closed because no application agreement is published."
+      : "Reporter applications are temporarily closed because no service / appointment agreement is published. Please check back later."));
     return;
   }
 
   const form = element("form", "reporter-form-grid");
-  if (!existing) {
+  if (!acceptingUpdatedAgreement) {
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
-    const stateSelect = addSelect(form, "state_id", "State", states, "", "Choose a state");
-    const rtoSelect = addSelect(form, "rto_office_id", "RTO / reporting area", [], "", "Choose a state first");
+    const stateSelect = addSelect(form, "state_id", "State", states, existing?.state?.id || "", "Choose a state");
+    const rtoValues = (options.rtos || []).filter((rto) =>
+      String(rto.state_id) === String(existing?.state?.id || "")
+    ).map((rto) => ({
+      id: rto.id,
+      label: `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`
+    }));
+    const rtoSelect = addSelect(form, "rto_office_id", "RTO / reporting area", rtoValues, existing?.rto?.id || "", "Choose a state first");
     const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
-    addSelect(form, "reporter_type_id", "Reporter type", types, "", "Choose reporter type");
+    addSelect(form, "reporter_type_id", "Reporter type", types, existing?.reporter_type?.id || "", "Choose reporter type");
     stateSelect.addEventListener("change", () => {
       const eligible = (options.rtos || []).filter((rto) =>
         String(rto.state_id) === stateSelect.value
@@ -138,20 +154,48 @@ function renderApplicationForm(existing) {
         rtoSelect.append(option);
       });
     });
+    if (resubmitting && existing?.review_note) {
+      const note = element("p", "reporter-review-note", `Admin requested an update: ${existing.review_note}`);
+      form.prepend(note);
+    }
   }
 
   form.classList.add("reporter-form-grid");
   form.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name));
   const agreementBox = form.lastElementChild;
   agreementBox.classList.add("full-width");
-  const submit = element("button", "reporter-button", existing ? "Accept current agreement" : "Submit reporter application");
+  const submit = element("button", "reporter-button", acceptingUpdatedAgreement
+    ? "Accept current agreement"
+    : resubmitting
+      ? "Resubmit application"
+      : "Review and submit application");
   submit.type = "submit";
+  const summary = element("section", "reporter-application-review");
+  summary.hidden = true;
+  form.append(summary);
   form.append(submit);
   applicationPanel.append(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!form.reportValidity()) return;
+    if (!acceptingUpdatedAgreement && summary.hidden) {
+      const values = new FormData(form);
+      const selectedState = options.states.find((state) => String(state.id) === String(values.get("state_id")));
+      const selectedRto = options.rtos.find((rto) => String(rto.id) === String(values.get("rto_office_id")));
+      const selectedType = options.types.find((type) => String(type.id) === String(values.get("reporter_type_id")));
+      summary.replaceChildren(
+        element("strong", "", "Check your application before sending"),
+        element("span", "", `Reporting area: ${selectedState?.state_name || "—"} · ${selectedRto?.rto_code || "—"} ${selectedRto?.city_name || ""}`),
+        element("span", "", `Reporter type: ${selectedType?.name || "—"}`),
+        element("span", "", `Agreement version: ${options.agreement.version}`),
+        element("span", "", "Your account stays a subscriber until an authority letter is acknowledged.")
+      );
+      summary.hidden = false;
+      submit.textContent = "Confirm and submit";
+      summary.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     submit.disabled = true;
     submit.textContent = "Submitting…";
     const values = new FormData(form);
@@ -162,7 +206,7 @@ function renderApplicationForm(existing) {
       acceptance_statement: "I have read and accept the Chowk reporter agreement."
     };
     try {
-      if (existing) {
+      if (acceptingUpdatedAgreement) {
         await request("/api/reporter/agreement/accept", "POST", payload);
       } else {
         payload.state_id = values.get("state_id");
@@ -170,13 +214,17 @@ function renderApplicationForm(existing) {
         payload.reporter_type_id = values.get("reporter_type_id");
         await request("/api/reporter/applications", "POST", payload);
       }
-      showMessage(existing ? "Your agreement acceptance was recorded." : "Your reporter application was submitted.", true);
+      showMessage(acceptingUpdatedAgreement ? "Your updated agreement acceptance was recorded." : "Your reporter application was submitted.", true);
       await loadReporterDesk();
     } catch (error) {
       showMessage(error.message);
     } finally {
       submit.disabled = false;
-      submit.textContent = existing ? "Accept current agreement" : "Submit reporter application";
+      submit.textContent = acceptingUpdatedAgreement
+        ? "Accept current agreement"
+        : resubmitting
+          ? "Resubmit application"
+          : "Review and submit application";
     }
   });
 }
@@ -185,6 +233,91 @@ function dataItem(label, value, code = false) {
   const item = element("div", "reporter-data-item");
   item.append(element("span", "", label), element("strong", code ? "reporter-code" : "", value || "—"));
   return item;
+}
+
+function renderServiceAgreement(application) {
+  if (!["approved", "active"].includes(application.status)) return;
+  const activeReporter = application.status === "active";
+  const current = options.service_agreement;
+  const acceptedCurrent = current
+    && application.service_agreement_version === current.version
+    && application.service_agreement_sha256 === current.sha256
+    && application.service_agreement_accepted_at;
+  const panel = element("section", "reporter-onboarding-step");
+  panel.append(element("h3", "", activeReporter
+    ? "Service / appointment agreement"
+    : "Step 1 · Service / appointment agreement"));
+  if (acceptedCurrent) {
+    panel.append(
+      element("span", "reporter-status-pill active", `Accepted · v${current.version}`),
+      element("p", "reporter-card-copy", `Accepted by ${application.service_agreement_signer_name || identity.full_name} on ${formatDate(application.service_agreement_accepted_at)}.`)
+    );
+    const link = element("a", "", "View the accepted service agreement");
+    link.href = application.service_agreement_document_url || current.document_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    panel.append(link);
+    (application.service_acceptances || []).forEach((receipt) => {
+      panel.append(element(
+        "p",
+        "reporter-card-copy",
+        `Acceptance record · v${receipt.agreement_version} · ${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · SHA-256 ${receipt.agreement_sha256}`
+      ));
+    });
+    panel.append(element("p", "reporter-card-copy", activeReporter
+      ? "Your current service agreement is on file. Keep the issued authority letter current for your assigned area."
+      : "Next: Chowk issues an authority letter for your assigned reporting area. Reporter access activates only after you acknowledge that letter."));
+  } else if (!current) {
+    panel.append(element("p", "reporter-review-note", "Onboarding is waiting for Chowk to publish the service / appointment agreement. No action is required from you."));
+  } else {
+    panel.append(element("p", "reporter-card-copy", activeReporter
+      ? `Review the new service / appointment agreement, version ${current.version}. Accepting it records the current terms for any renewed authority.`
+      : `Review the separate service / appointment agreement, version ${current.version}. This is not the application agreement.`));
+    const link = element("a", "", "Open the full service agreement");
+    link.href = current.document_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    panel.append(link, element("span", "reporter-card-copy", `Document SHA-256: ${current.sha256}`));
+    const form = element("form", "reporter-service-agreement-form");
+    const signer = addField(form, "Type your account full name", "signer_name", "text", identity.full_name || identity.name);
+    signer.autocomplete = "name";
+    signer.minLength = 2;
+    const acceptance = document.createElement("label");
+    acceptance.className = "reporter-check";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.required = true;
+    acceptance.append(
+      checkbox,
+      element("span", "", "I have reviewed and accept this service / appointment agreement.")
+    );
+    form.append(acceptance);
+    const submit = element("button", "reporter-button", "Accept service agreement");
+    submit.type = "submit";
+    form.append(submit);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      submit.disabled = true;
+      try {
+        await request("/api/reporter/service-agreement/accept", "POST", {
+          agreement_version: current.version,
+          agreement_sha256: current.sha256,
+          signer_name: signer.value.trim(),
+          acceptance_statement: "I have reviewed and accept the Chowk reporter service agreement."
+        });
+        showMessage("Your service agreement acceptance was recorded. Chowk can now issue your authority letter.", true);
+        await loadReporterDesk();
+      } catch (error) {
+        showMessage(error.message);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    panel.append(form);
+  }
+  applicationPanel.hidden = false;
+  applicationPanel.append(panel);
 }
 
 function renderStatus() {
@@ -205,9 +338,42 @@ function renderStatus() {
     }
     return;
   }
-  statusPanel.append(element("h2", "", reporter ? "Reporter profile" : "Application status"));
+  statusPanel.append(element("h2", "", reporter ? "Reporter profile" : "Reporter application progress"));
   if (application) {
-    const status = element("span", `reporter-status-pill ${application.status}`, application.status);
+    const activeAuthority = reporterData.credentials?.some((credential) =>
+      credential.credential_type === "authority_letter" && credential.status === "active"
+        && credential.valid_from <= new Date().toISOString().slice(0, 10)
+        && credential.valid_until >= new Date().toISOString().slice(0, 10)
+    );
+    const currentServiceAgreement = options.service_agreement;
+    const acceptedCurrentServiceAgreement = currentServiceAgreement
+      && application.service_agreement_version === currentServiceAgreement.version
+      && application.service_agreement_sha256 === currentServiceAgreement.sha256
+      && Boolean(application.service_agreement_accepted_at);
+    const stages = [
+      ["Account", true],
+      ["Application", true],
+      ["Review", application.status !== "pending"],
+      ["Service terms", Boolean(acceptedCurrentServiceAgreement)],
+      ["Authority letter", Boolean(activeAuthority)],
+      ["Reporter access", identity.role === "reporter" && application.status === "active"]
+    ];
+    const timeline = element("ol", "reporter-timeline");
+    stages.forEach(([label, complete], index) => {
+      const item = element("li", complete ? "is-complete" : "", label);
+      item.append(element("span", "", complete ? "Complete" : "Next"));
+      if (index === 0) item.querySelector("span").textContent = "Complete";
+      timeline.append(item);
+    });
+    statusPanel.append(timeline);
+    const statusLabel = {
+      pending: "Under review",
+      needs_information: "Action needed",
+      approved: "Approved · onboarding required",
+      active: "Active reporter",
+      rejected: "Not approved"
+    }[application.status] || application.status;
+    const status = element("span", `reporter-status-pill ${application.status}`, statusLabel);
     statusPanel.append(status);
     const details = element("div", "reporter-data-grid");
     details.append(
@@ -219,12 +385,12 @@ function renderStatus() {
       dataItem("Agreement accepted", formatDate(application.agreement_accepted_at)),
       dataItem("Review completed", formatDate(application.reviewed_at)),
       dataItem("Reviewed by", application.reviewer_name || "—"),
-      dataItem("Company signer", application.company_signer_name || "—")
+      dataItem("Decision recorded", application.company_signer_name || "—")
     );
     statusPanel.append(details);
     const acceptances = Array.isArray(application.acceptances) ? application.acceptances : [];
     if (acceptances.length) {
-      statusPanel.append(element("h3", "", "Agreement acceptance history"));
+      statusPanel.append(element("h3", "", "Application agreement acceptance history"));
       const history = element("div", "reporter-data-grid");
       acceptances.forEach((receipt) => {
         history.append(dataItem(
@@ -235,8 +401,19 @@ function renderStatus() {
       statusPanel.append(history);
     }
     if (application.review_note) {
-      statusPanel.append(element("h3", "", application.status === "rejected" ? "Review reason" : "Review note"));
+      statusPanel.append(element("h3", "", application.status === "needs_information"
+        ? "What you need to do"
+        : application.status === "rejected"
+          ? "Decision reason"
+          : "Review note"));
       statusPanel.append(element("p", "reporter-card-copy", application.review_note));
+    }
+    if (application.status === "approved") {
+      statusPanel.append(element("p", "reporter-next-step", "Approved does not mean field-authorized yet. Accept the service agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."));
+    } else if (application.status === "active") {
+      statusPanel.append(element("p", "reporter-next-step success", "Your valid authority letter was acknowledged and reporter access is active."));
+    } else if (application.status === "pending") {
+      statusPanel.append(element("p", "reporter-next-step", "No action is needed now. Your account remains a subscriber while your application is reviewed."));
     }
   }
   if (reporter) {
@@ -255,13 +432,20 @@ function renderStatus() {
       statusPanel.append(history);
     }
   }
-  const needsAgreement = application?.status === "pending" &&
+  const needsAgreement = ["pending", "needs_information"].includes(application?.status) &&
     options.agreement &&
     (application.agreement_version !== options.agreement.version ||
       application.agreement_sha256 !== options.agreement.sha256);
-  if (needsAgreement) renderApplicationForm(application);
-  else if (application?.status === "rejected") renderApplicationForm(null);
-  else applicationPanel.hidden = true;
+  if (needsAgreement) renderApplicationForm("updated-agreement", application);
+  else if (application?.status === "needs_information" || application?.status === "rejected") {
+    renderApplicationForm("resubmit", application);
+  }
+  else if (!application && identity.role === "subscriber") renderApplicationForm("new");
+  else {
+    applicationPanel.replaceChildren();
+    applicationPanel.hidden = true;
+  }
+  if (["approved", "active"].includes(application?.status)) renderServiceAgreement(application);
 }
 
 function renderCredentials() {
@@ -283,15 +467,22 @@ function renderCredentials() {
       dataItem("Reference", credential.reference_code, true),
       dataItem("Valid from", formatDate(credential.valid_from)),
       dataItem("Valid until", formatDate(credential.valid_until)),
-      dataItem("Reporter ID", credential.scope?.reporter_type
-        ? reporterData.reporter?.reporter_code
-        : reporterData.reporter?.reporter_code || "—"),
+      dataItem("Reporter ID", reporterData.reporter?.reporter_code || credential.reporter_code),
       dataItem("Scope", [
         credential.scope?.state_name,
         credential.scope?.rto_code,
         credential.scope?.city_name
       ].filter(Boolean).join(" · ") || "—")
     );
+    if (credential.credential_type === "authority_letter") {
+      values.append(
+        dataItem("Service terms version", credential.service_agreement_version),
+        dataItem("Authorized by", [
+          credential.authorized_signer_name,
+          credential.authorized_signer_designation
+        ].filter(Boolean).join(" · "))
+      );
+    }
     card.append(values);
     const actions = element("div", "reporter-credential-actions");
     const verify = element("a", "", "Verify credential");
@@ -299,6 +490,13 @@ function renderCredentials() {
     verify.target = "_blank";
     verify.rel = "noopener noreferrer";
     actions.append(verify);
+    if (["active", "pending_acceptance"].includes(credential.status)) {
+      const print = element("a", "", "Print / Save PDF");
+      print.href = `/api/reporter/credentials/${encodeURIComponent(credential.id)}/print`;
+      print.target = "_blank";
+      print.rel = "noopener noreferrer";
+      actions.append(print);
+    }
     if (credential.credential_type === "authority_letter" && credential.status === "pending_acceptance") {
       const form = element("form", "reporter-credential-actions");
       const typedName = addField(form, "Type your account name to acknowledge", "typed_name", "text", "", true);
@@ -345,7 +543,7 @@ async function loadReporterDesk() {
     sessionPanel.className = "reporter-card";
     sessionPanel.replaceChildren(
       element("h2", "", `Welcome, ${identity.name || identity.email}`),
-      element("p", "reporter-card-copy", `Account role: ${identity.role}. Reporter applications are reviewed by Chowk administrators.`)
+      element("p", "reporter-card-copy", `Account role: ${identity.role}. Reporter access is activated only after application approval and required onboarding acknowledgements.`)
     );
     const [optionResult, statusResult] = await Promise.all([
       request("/api/reporter/options"),

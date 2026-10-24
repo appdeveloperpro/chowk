@@ -34,20 +34,23 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0005_reporter_lifecycle.sql` and
    `supabase/migrations/0006_editorial_workflow.sql` and
    `supabase/migrations/0007_newsroom_operations.sql` and
-   `supabase/migrations/0008_reporter_location_parity.sql` and
-   `supabase/migrations/0009_reporter_registration_workflow.sql`. These add account email
+   `supabase/migrations/0008_reporter_location_parity.sql`,
+   `supabase/migrations/0009_reporter_registration_workflow.sql`, and
+   `supabase/migrations/0010_reporter_onboarding.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
    validation, and scheduled publication processing. Migration 0008 separates
    zones and districts beneath each state, preserves zone/district mappings as
    dated history, treats coverage areas as divisions under districts or cities,
-   and connects admin reporter provisioning and staff coverage to that
+   and connects admin reporter assignment updates and staff coverage to that
    hierarchy. Migration 0009 seeds states, the legacy Uttar Pradesh RTO
-   reporting areas, and the Tehsil Reporter type, then records reporter
-   applications and agreement acceptance atomically during signup. Existing
-   installations must run all additive migrations in order before deploying
-   these features.
+   reporting areas, and the Tehsil Reporter type. Migration 0010 separates
+   account signup from reporter applications, adds applicant-visible
+   information requests, versioned service-agreement acceptance, and requires
+   authority-letter acknowledgement before an approved reporter receives the
+   reporter role. Existing installations must run all additive migrations in
+   order before deploying these features.
 4. Start the portal:
 
    ```powershell
@@ -117,9 +120,11 @@ key and authenticated user tokens.
   with actor snapshots, request context, reasons, before/after field diffs, and
   CSV export of up to 10,000 filtered events per export.
 - Reporter desk for signed-in applicants to submit and track applications,
-  accept updated agreement versions, view stable reporter IDs and assignment
-  history, and acknowledge authority letters. Public credential verification
-  exposes only the credential record, status, and limited identity/scope details.
+  accept updated application-agreement versions, review and accept a separate
+  published service/appointment agreement after approval, view stable reporter
+  IDs and assignment history, print their own credentials, and acknowledge
+  authority letters. Public credential verification exposes only the credential
+  record, status, and limited identity/scope details.
 - Reporter administration for application review, state/RTO/type-code setup,
   stable reporter ID allocation, assignment and coverage history, versioned
   agreement publication, staff ID/authority-letter issuance, revocation, and
@@ -143,15 +148,20 @@ key and authenticated user tokens.
 
 Before accepting reporter applications, review the seeded states, legacy
 Uttar Pradesh RTOs, and Tehsil Reporter type; add RTO/reporting areas for other
-states as needed. Add the reporter agreement document URL and its exact
-SHA-256, then publish that agreement in the admin console. The registration
-form collects the state, matching RTO, reporter type, and agreement acceptance
-before creating an account. Applications stay pending with subscriber access
-until admin approval. The reporter code is allocated on approval and remains
-stable across future assignments; admin-created reporters receive their code
-when their required assignment is provisioned. Coverage and reporter
+states as needed. Publish a reviewed application agreement and a separately
+reviewed service/appointment agreement, each with its document URL and exact
+SHA-256, in the admin console. Applicants first create and verify a subscriber
+account, then submit their reporting area and accept the application agreement
+from the reporter desk. Approval creates the stable reporter code and
+assignment but does not activate newsroom access. The applicant must accept
+the current service agreement before an admin can issue the ID card and scoped
+authority letter. The reporter acknowledges the valid authority letter before
+their account becomes a reporter. Admins cannot create or directly promote
+reporter accounts; they can update the assignment of a reporter who has
+completed onboarding. The recorded company approval checkbox is
+an audit attestation, not a digital signature. Coverage and reporter
 assignments are retained as dated history. Applying the SQL migrations is a
-manual Supabase dashboard step; run migrations 0001 through 0009 in order
+manual Supabase dashboard step; run migrations 0001 through 0010 in order
 before deploying the expanded newsroom workspace. Migration 0008 adds
 legacy-compatible zone/district mapping and coverage. Migration 0007
 provisions public media reads and per-user upload ownership; it also schedules

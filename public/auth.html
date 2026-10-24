@@ -39,17 +39,6 @@
         <p id="auth-description" class="auth-description">जारी रखने के लिए अपना ईमेल और पासवर्ड दर्ज करें।</p>
 
         <form id="auth-form" class="auth-form" novalidate>
-          <div id="account-types" class="account-types" hidden>
-            <button class="account-type is-selected" type="button" data-account-type="subscriber" aria-pressed="true">
-              Subscriber
-              <small>खबरें पढ़ें और सहेजें</small>
-            </button>
-            <button class="account-type" type="button" data-account-type="reporter" aria-pressed="false">
-              Reporter आवेदन
-              <small>क्षेत्र के लिए आवेदन करें</small>
-            </button>
-          </div>
-
           <label class="auth-field registration-field" hidden>
             पूरा नाम
             <input name="name" type="text" autocomplete="name" maxlength="120">
@@ -62,34 +51,6 @@
             मोबाइल नंबर
             <input name="phone" type="tel" autocomplete="tel" inputmode="tel" pattern="\+?[1-9][0-9]{6,14}" title="देश कोड सहित सही मोबाइल नंबर दर्ज करें" maxlength="16">
           </label>
-          <div id="reporter-registration" class="reporter-registration registration-field" hidden>
-            <label class="auth-field">
-              राज्य *
-              <select name="state_id" required disabled>
-                <option value="">राज्य चुनें</option>
-              </select>
-            </label>
-            <label class="auth-field">
-              RTO / रिपोर्टिंग क्षेत्र *
-              <select name="rto_office_id" required disabled>
-                <option value="">पहले राज्य चुनें</option>
-              </select>
-            </label>
-            <label class="auth-field">
-              Reporter प्रकार *
-              <select name="reporter_type_id" required disabled>
-                <option value="">Reporter प्रकार चुनें</option>
-              </select>
-            </label>
-            <div id="reporter-agreement" class="reporter-agreement" hidden>
-              <a id="reporter-agreement-link" href="#" target="_blank" rel="noopener noreferrer">Reporter agreement पढ़ें</a>
-              <label class="policy-label">
-                <input name="acceptedReporterAgreement" type="checkbox" disabled>
-                <span>मैंने ऊपर दिया गया Reporter agreement पढ़ा है और आवेदन के लिए स्वीकार करता/करती हूं।</span>
-              </label>
-            </div>
-            <p id="reporter-setup-message" class="reporter-setup-message" role="status" hidden></p>
-          </div>
           <label class="auth-field">
             पासवर्ड
             <input name="password" type="password" autocomplete="current-password" minlength="1" maxlength="72" required>
@@ -114,7 +75,7 @@
           <span id="switch-prompt">नया अकाउंट बनाना है?</span>
           <button id="switch-mode" type="button">रजिस्टर करें</button>
         </p>
-        <p id="reporter-note" class="reporter-note" hidden>Reporter आवेदन समीक्षा तक Subscriber रहेगा। Admin की मंजूरी के बाद ही Reporter access मिलेगा।</p>
+        <p class="reporter-note">Reporter बनना चाहते हैं? अकाउंट बनाकर ईमेल सत्यापित करें, फिर <a href="/reporter">Reporter Desk खोलें और आवेदन करें</a>।</p>
       </section>
       <a class="auth-home-link" href="/">← मुख्य पेज पर वापस जाएं</a>
     </main>

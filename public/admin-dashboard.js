@@ -34,7 +34,7 @@ const modules = {
   },
   "reporter-applications": {
     path: "admin/reporter-applications",
-    description: "Review the full application history, agreement acceptance, and company authorization."
+    description: "Review applications, request missing information, then approve before reporter onboarding."
   },
   "reporter-directory": {
     path: "admin/reporter-directory",
@@ -46,11 +46,15 @@ const modules = {
   },
   "reporter-credentials": {
     path: "admin/reporter-credentials",
-    description: "Issue and revoke staff ID cards and reporter authority letters."
+    description: "Issue ID cards and authority letters; reporter access starts only after the authority letter is acknowledged."
   },
   "reporter-agreements": {
     path: "admin/reporter-agreements",
-    description: "Publish immutable agreement versions and inspect their document hashes."
+    description: "Publish the immutable terms applicants accept when submitting an application."
+  },
+  "reporter-service-agreements": {
+    path: "admin/reporter-service-agreements",
+    description: "Publish the separate service and appointment terms approved reporters must accept before receiving an authority letter."
   },
   "reporter-options": {
     path: "admin/reporter-options",
@@ -652,6 +656,21 @@ function renderReporterAdminSection(section, root, data) {
     return;
   }
 
+  if (section === "reporter-service-agreements") {
+    const agreements = Array.isArray(data) ? data : [];
+    const rows = agreements.map((agreement) => ({
+      version: agreement.version,
+      sha256: agreement.sha256,
+      document_url: agreement.document_url,
+      status: agreement.status,
+      published_at: formatDate(agreement.published_at),
+      id: agreement.id
+    }));
+    reporterActionButton(root, "Add service agreement version", () => openServiceAgreementDialog());
+    reporterPanel(root, "Reporter service agreements", rows, section);
+    return;
+  }
+
   if (section === "reporter-options") {
     renderReporterSetup(root, data);
   }
@@ -665,6 +684,8 @@ function renderReporterSetup(root, data) {
   const types = data.reporter_types || [];
   const agreements = data.agreements || [];
   const publishedAgreement = agreements.find((agreement) => agreement.status === "published");
+  const serviceAgreements = data.service_agreements || [];
+  const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
   const setupSections = [
     {
       key: "states",
@@ -689,19 +710,26 @@ function renderReporterSetup(root, data) {
       title: "Application agreement",
       count: publishedAgreement ? "Ready" : "Required",
       detail: publishedAgreement?.version || "Publish an agreement to accept applications."
+    },
+    {
+      key: "service_agreement",
+      title: "Service agreement",
+      count: publishedServiceAgreement ? "Ready" : "Required",
+      detail: publishedServiceAgreement?.version || "Publish appointment terms before accepting applications."
     }
   ];
   const overview = makeElement("section", "reporter-setup-overview");
   const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
   overviewHeading.append(
-    makeElement("div", "", "REGISTRATION CONFIGURATION"),
-    makeElement("p", "", "Choose one setup area to manage. Reporter applicants can only select active options.")
+    makeElement("div", "", "REPORTER APPLICATION & ONBOARDING SETUP"),
+    makeElement("p", "", "Publish both required documents and configure active coverage choices before accepting applications.")
   );
   overview.append(overviewHeading);
 
   const cards = makeElement("div", "reporter-setup-cards");
   setupSections.forEach((item) => {
-    const needsAttention = item.key === "agreement" && !publishedAgreement;
+    const needsAttention = (item.key === "agreement" && !publishedAgreement)
+      || (item.key === "service_agreement" && !publishedServiceAgreement);
     const card = makeElement("button", `reporter-setup-card${needsAttention ? " needs-attention" : ""}`);
     card.type = "button";
     card.setAttribute("aria-pressed", String(reporterSetupView === item.key));
@@ -709,13 +737,17 @@ function renderReporterSetup(root, data) {
       makeElement("span", "reporter-setup-card-label", item.title),
       makeElement("strong", "reporter-setup-card-count", String(item.count)),
       makeElement("span", "reporter-setup-card-detail", item.detail),
-      makeElement("span", "reporter-setup-card-action", item.key === "agreement"
+      makeElement("span", "reporter-setup-card-action", ["agreement", "service_agreement"].includes(item.key)
         ? "Open agreements →"
         : reporterSetupView === item.key ? "Currently open" : "Manage →")
     );
     card.addEventListener("click", () => {
       if (item.key === "agreement") {
         void loadSection("reporter-agreements");
+        return;
+      }
+      if (item.key === "service_agreement") {
+        void loadSection("reporter-service-agreements");
         return;
       }
       reporterSetupView = item.key;
@@ -726,12 +758,13 @@ function renderReporterSetup(root, data) {
   overview.append(cards);
 
   if (reporterSetupView === "overview") {
-    const setupNote = makeElement("div", `reporter-setup-readiness${publishedAgreement ? " is-ready" : " is-incomplete"}`);
+    const reporterSetupReady = Boolean(publishedAgreement && publishedServiceAgreement);
+    const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
-      makeElement("strong", "", publishedAgreement ? "Agreement published" : "Applications are not ready"),
-      makeElement("span", "", publishedAgreement
-        ? "New reporter applications can accept the current agreement."
-        : "Publish a reporter agreement before accepting reporter applications.")
+      makeElement("strong", "", reporterSetupReady ? "Reporter documents published" : "Applications are not ready"),
+      makeElement("span", "", reporterSetupReady
+        ? "New applications can accept the application agreement; approved applicants can later accept the separate service agreement."
+        : "Publish both the application agreement and the separate service / appointment agreement before accepting reporter applications.")
     );
     overview.append(setupNote);
     root.append(overview);
@@ -988,13 +1021,18 @@ function openZoneDistrictDialog(locations) {
 }
 
 function openCredentialDialog(staff) {
-  const eligibleStaff = staff.filter((person) => ["reporter", "moderator", "editor"].includes(person.role));
+  const eligibleStaff = staff.filter((person) =>
+    ["reporter", "moderator", "editor"].includes(person.role)
+      || person.can_issue_id_card
+  );
   openFormDialog(
     "Issue staff credential",
-    "ID cards are active immediately; authority letters remain pending until the reporter acknowledges them.",
+    "Approved applicants can receive an ID card and authority letter only after accepting the current service agreement. Reporter access starts only after they acknowledge a valid authority letter.",
     (form) => {
       const userSelect = appendReporterSelect(form, "user_id", "Staff member", eligibleStaff,
-        (person) => `${person.full_name || person.email} · ${person.role}`);
+        (person) => `${person.full_name || person.email} · ${person.onboarding_status
+          ? `approved applicant · ${person.onboarding_status}`
+          : person.role}`);
       const type = document.createElement("select");
       type.name = "credential_type";
       type.required = true;
@@ -1017,7 +1055,9 @@ function openCredentialDialog(staff) {
       const address = addField(form, "Return address", "return_address", "text", "", { required: false, maxLength: 500 });
       const setKind = () => {
         const selectedStaff = eligibleStaff.find((person) => person.id === userSelect.value);
-        authorityOption.disabled = selectedStaff?.role !== "reporter";
+        authorityOption.disabled = selectedStaff?.onboarding_status
+          ? !selectedStaff.can_receive_authority_letter
+          : selectedStaff?.role !== "reporter";
         if (authorityOption.disabled && type.value === "authority_letter") type.value = "id_card";
         const authority = type.value === "authority_letter";
         signer.required = authority;
@@ -1061,6 +1101,24 @@ function openAgreementDialog() {
     async (values) => {
       await apiRequest("admin/reporter-agreements", "POST", Object.fromEntries(values.entries()));
       await loadSection("reporter-agreements");
+    },
+    "Add draft"
+  );
+}
+
+function openServiceAgreementDialog() {
+  openFormDialog(
+    "Add service agreement version",
+    "Publish only a reviewed and approved document. The reporter must accept its exact version and SHA-256 after application approval and before an authority letter can be issued.",
+    (form) => {
+      addField(form, "Version label", "version", "text", "", { maxLength: 40 });
+      const hash = addField(form, "Document SHA-256", "sha256", "text", "");
+      hash.pattern = "[a-fA-F0-9]{64}";
+      addField(form, "HTTPS document URL", "document_url", "url", "");
+    },
+    async (values) => {
+      await apiRequest("admin/reporter-service-agreements", "POST", Object.fromEntries(values.entries()));
+      await loadSection("reporter-service-agreements");
     },
     "Add draft"
   );
@@ -1146,6 +1204,8 @@ function renderAuditHistory(root, result) {
     ["rto_offices", "RTO offices"],
     ["reporter_agreement_versions", "Reporter agreements"],
     ["reporter_agreement_acceptances", "Agreement acceptances"],
+    ["reporter_service_agreement_versions", "Reporter service agreements"],
+    ["reporter_service_agreement_acceptances", "Service agreement acceptances"],
     ["reporter_profiles", "Reporter profiles"],
     ["reporter_assignments", "Reporter assignments"],
     ["user_coverage_assignments", "Coverage assignments"],
@@ -1532,7 +1592,7 @@ function addRowActions(container, row, section) {
     const roles = sessionIdentity?.role === "super_admin"
       ? ["subscriber", "reporter", "moderator", "editor", "publisher", "admin", "super_admin"]
       : ["subscriber", "reporter", "moderator", "editor", "publisher", "admin"];
-    roles.forEach((value) => {
+    roles.filter((value) => value !== "reporter" || row.role === "reporter").forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
       option.textContent = value.replace("_", " ");
@@ -1542,7 +1602,7 @@ function addRowActions(container, row, section) {
     role.addEventListener("change", async () => {
       if (role.value === "reporter" && row.role !== "reporter") {
         role.value = row.role;
-        await openReporterProvisioningDialog(row, refresh);
+        window.alert("Reporter access is granted only after the applicant completes the reporter onboarding steps.");
         return;
       }
       try {
@@ -1555,8 +1615,8 @@ function addRowActions(container, row, section) {
     });
     container.append(role);
     if (row.role === "reporter") {
-      rowButton(container, "Reporter assignment", () => {
-        void openReporterProvisioningDialog(row, refresh);
+      rowButton(container, "Update assignment", () => {
+        void openReporterAssignmentDialog(row, refresh);
       });
     }
     return;
@@ -1648,7 +1708,7 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (section === "reporter-applications" && row.status === "pending") {
+  if (section === "reporter-applications" && ["pending", "needs_information"].includes(row.status)) {
     rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
     return;
   }
@@ -1684,6 +1744,15 @@ function addRowActions(container, row, section) {
     rowButton(container, "Publish", () => {
       if (window.confirm(`Publish agreement version ${row.version}? New applicants must accept it.`)) {
         void runAction(() => apiRequest(`admin/reporter-agreements/${id}/publish`, "POST", {}), refresh);
+      }
+    });
+    return;
+  }
+
+  if (section === "reporter-service-agreements" && row.status !== "published") {
+    rowButton(container, "Publish", () => {
+      if (window.confirm(`Publish service agreement version ${row.version}? Approved reporters must accept it before authority letters can be issued.`)) {
+        void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/publish`, "POST", {}), refresh);
       }
     });
     return;
@@ -1818,13 +1887,13 @@ function populateLocationParents(select, childType, selected, excludedId) {
 function openReporterReviewDialog(application, refresh) {
   openFormDialog(
     "Review reporter application",
-    "Approval requires accepted agreement and company signatory details. Rejection requires a review note.",
+    "Choose a clear next step. Approval creates the reporter ID and assignment but does not activate newsroom access; issue an authority letter for the reporter to acknowledge.",
     (form) => {
       const decisionLabel = makeElement("label", "admin-form-field");
       decisionLabel.append(makeElement("span", "", "Decision"));
       const decision = document.createElement("select");
       decision.name = "decision";
-      [["approve", "Approve"], ["reject", "Reject"]].forEach(([value, text]) => {
+      [["needs_information", "Request more information"], ["approve", "Approve"], ["reject", "Reject"]].forEach(([value, text]) => {
         const option = makeElement("option", "", text);
         option.value = value;
         decision.append(option);
@@ -1838,7 +1907,7 @@ function openReporterReviewDialog(application, refresh) {
       const signature = document.createElement("input");
       signature.type = "checkbox";
       signature.name = "signature_accepted";
-      acceptLabel.append(signature, makeElement("span", "", "I accept the company signature"));
+      acceptLabel.append(signature, makeElement("span", "", "I confirm I am authorized to approve this application. This is an attestation, not a digital signature."));
       form.append(acceptLabel);
       const updateRequirements = () => {
         const approval = decision.value === "approve";
@@ -1846,6 +1915,11 @@ function openReporterReviewDialog(application, refresh) {
         form.elements.signer_name.required = approval;
         form.elements.signer_designation.required = approval;
         signature.required = approval;
+        form.elements.note.placeholder = decision.value === "needs_information"
+          ? "Tell the applicant exactly what to update or provide"
+          : decision.value === "reject"
+            ? "Explain the reason for rejection"
+            : "Optional applicant-facing note";
       };
       decision.addEventListener("change", updateRequirements);
       updateRequirements();
@@ -1861,8 +1935,8 @@ function openReporterReviewDialog(application, refresh) {
           application.rto?.city_name,
           application.reporter_type?.name
         ].filter(Boolean).join(" · ") || "—"],
-        ["Agreement", `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`],
-        ["Signer", `${application.agreement_signer_name || "—"} · accepted ${formatDate(application.agreement_accepted_at)}`],
+        ["Application agreement", `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`],
+        ["Applicant acceptance", `${application.agreement_signer_name || "—"} · ${formatDate(application.agreement_accepted_at)}`],
         ["Acceptance statement", application.agreement_acceptance_statement || "—"]
       ].forEach(([label, value]) => {
         details.append(makeElement("strong", "", label), makeElement("span", "", value));
@@ -1889,7 +1963,7 @@ function openReporterReviewDialog(application, refresh) {
       await apiRequest(`admin/reporter-applications/${application.id}/review`, "POST", payload);
       await refresh();
     },
-    "Submit review"
+    "Save decision"
   );
 }
 
@@ -1930,8 +2004,8 @@ function addRoleField(form, value = "subscriber") {
   const select = document.createElement("select");
   select.name = "role";
   const roles = sessionIdentity?.role === "super_admin"
-    ? ["subscriber", "reporter", "moderator", "editor", "publisher", "admin", "super_admin"]
-    : ["subscriber", "reporter", "moderator", "editor", "publisher", "admin"];
+    ? ["subscriber", "moderator", "editor", "publisher", "admin", "super_admin"]
+    : ["subscriber", "moderator", "editor", "publisher", "admin"];
   roles.forEach((role) => {
     const option = document.createElement("option");
     option.value = role;
@@ -1990,74 +2064,29 @@ function openFormDialog(title, helpText, fields, onSubmit, submitLabel = "Save c
 }
 
 async function openUserDialog() {
-  let reporterOptions;
-  try {
-    reporterOptions = unwrapData(await apiRequest("admin/reporter-options")) || {};
-  } catch (error) {
-    window.alert(`Reporter account options could not be loaded: ${error.message}`);
-    return;
-  }
-
   openFormDialog(
     "Create newsroom account",
-    "Reporter accounts require a state, RTO / reporting area, and reporter type. Their reporter ID is generated from that assignment. Other newsroom roles do not need these fields.",
+    "Create the applicant’s subscriber account first. Reporter access is granted only after the person submits an application and completes every onboarding step.",
     (form) => {
       addField(form, "Full name", "full_name", "text", "", { minLength: 2, maxLength: 120, autocomplete: "name" });
       addField(form, "Email address", "email", "email", "", { maxLength: 254, autocomplete: "email" });
       addField(form, "Phone (optional)", "phone", "tel", "", { required: false, autocomplete: "tel" });
-      const roleSelect = addRoleField(form);
-      const reporterFields = makeElement("div", "admin-reporter-fields");
-      reporterFields.hidden = roleSelect.value !== "reporter";
-      const states = (reporterOptions.states || []).filter((state) => state.is_active);
-      const rtos = (reporterOptions.rtos || []).filter((rto) => rto.is_active);
-      const types = (reporterOptions.reporter_types || []).filter((type) => type.is_active);
-      const stateSelect = appendReporterSelect(reporterFields, "state_id", "State / UT", states,
-        (state) => `${state.state_name} (${state.state_code})`);
-      const rtoSelect = appendReporterSelect(reporterFields, "rto_office_id", "RTO / reporting area", [],
-        (rto) => `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`);
-      const typeSelect = appendReporterSelect(reporterFields, "reporter_type_id", "Reporter type", types,
-        (type) => `${type.name} (${type.type_code})`);
-      const reporterInputs = [stateSelect, rtoSelect, typeSelect];
-      const updateReporterFields = () => {
-        const enabled = roleSelect.value === "reporter";
-        reporterFields.hidden = !enabled;
-        reporterInputs.forEach((input) => {
-          input.disabled = !enabled;
-          input.required = enabled;
-        });
-      };
-      const updateRtos = () => {
-        const stateId = stateSelect.value;
-        const eligibleRtos = rtos.filter((rto) => String(rto.state_id) === stateId);
-        replaceValueOptions(rtoSelect, eligibleRtos, "Choose an RTO / reporting area", (rto) =>
-          `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`
-        );
-      };
-      stateSelect.addEventListener("change", updateRtos);
-      roleSelect.addEventListener("change", updateReporterFields);
-      updateReporterFields();
-      reporterFields.append(makeElement("p", "admin-dialog-help", "The reporter ID is assigned after account creation and is retained when the reporter changes assignment."));
-      form.append(reporterFields);
+      addRoleField(form);
       addField(form, "Temporary password", "password", "password", "", { minLength: 8, maxLength: 72, autocomplete: "new-password" });
     },
     async (formData) => {
       const payload = Object.fromEntries(formData.entries());
-      if (payload.role === "reporter") {
-        ["state_id", "rto_office_id", "reporter_type_id"].forEach((field) => {
-          payload[field] = Number(payload[field]);
-        });
-      }
       const result = await apiRequest("admin/users", "POST", payload);
       await loadSection("users");
       window.alert(result.confirmation_required
-        ? `Account created. The user must confirm the email before signing in.${result.data?.reporter_code ? ` Reporter ID: ${result.data.reporter_code}` : ""}`
-        : `Account created successfully.${result.data?.reporter_code ? ` Reporter ID: ${result.data.reporter_code}` : ""}`);
+        ? "Account created. The user must confirm the email before signing in."
+        : "Account created successfully.");
     },
     "Create account"
   );
 }
 
-async function openReporterProvisioningDialog(user, refresh) {
+async function openReporterAssignmentDialog(user, refresh) {
   let options;
   try {
     options = unwrapData(await apiRequest("admin/reporter-options")) || {};
@@ -2069,8 +2098,8 @@ async function openReporterProvisioningDialog(user, refresh) {
   const rtos = (options.rtos || []).filter((rto) => rto.is_active);
   const types = (options.reporter_types || []).filter((type) => type.is_active);
   openFormDialog(
-    "Provision reporter account",
-    "A reporter role is granted only with an active state, matching RTO / reporting area, and reporter type. A stable reporter ID will be generated.",
+    "Update reporter assignment",
+    "This changes the RTO and reporter type for an already-onboarded reporter. It does not grant reporter access or bypass the reporter application, service agreement, ID card, or authority-letter steps.",
     (form) => {
       form.append(makeElement("p", "admin-dialog-help", `${user.full_name || user.email} · ${user.email}`));
       const stateSelect = appendReporterSelect(form, "state_id", "State / UT", states,
@@ -2089,15 +2118,15 @@ async function openReporterProvisioningDialog(user, refresh) {
       });
     },
     async (values) => {
-      const result = await apiRequest(`admin/users/${user.id}/reporter-provisioning`, "POST", {
+      const result = await apiRequest(`admin/users/${user.id}/reporter-assignment`, "POST", {
         state_id: Number(values.get("state_id")),
         rto_office_id: Number(values.get("rto_office_id")),
         reporter_type_id: Number(values.get("reporter_type_id"))
       });
       await refresh();
-      window.alert(`Reporter account provisioned. Reporter ID: ${result.data.reporter_code}`);
+      window.alert(`Reporter assignment updated. Reporter ID: ${result.data.reporter_code}`);
     },
-    "Provision reporter"
+    "Save assignment"
   );
 }
 

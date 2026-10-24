@@ -38,6 +38,54 @@ function escapeHtml(value) {
   })[character]);
 }
 
+function requestOrigin(request) {
+  return request.headers.origin
+    || `${request.headers["x-forwarded-proto"]?.split(",")[0].trim() || (request.socket.encrypted ? "https" : "http")}://${request.headers["x-forwarded-host"]?.split(",")[0].trim() || request.headers.host}`;
+}
+
+async function credentialPrintPage(credential, request) {
+  const verificationUrl = new URL("/credential", requestOrigin(request));
+  verificationUrl.searchParams.set("token", credential.verification_token);
+  const qrImage = await QRCode.toDataURL(verificationUrl.toString(), {
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width: 256
+  });
+  const scope = credential.scope || credential.scope_snapshot || {};
+  const scopeText = [
+    scope.state_name, scope.rto_code, scope.city_name,
+    scope.coverage_name, scope.reporter_type
+  ].filter(Boolean).join(" · ") || "Newsroom";
+  const isAuthorityLetter = credential.credential_type === "authority_letter";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHOWK credential ${escapeHtml(credential.reference_code)}</title>
+    <style>
+      *{box-sizing:border-box}body{margin:0;padding:32px;background:#f4f5f7;color:#26334b;font:14px Arial,sans-serif}
+      .card{width:min(760px,100%);min-height:420px;margin:24px auto;padding:32px;border:1px solid #e4e7ec;border-top:7px solid #ef6b2e;border-radius:16px;background:#fff;box-shadow:0 18px 48px #27334a18}
+      header{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e9ebef;padding-bottom:18px}
+      h1{margin:0;font-size:22px;letter-spacing:.04em}header p,.muted{color:#778196;font-size:11px}
+      .body{display:grid;grid-template-columns:1fr 190px;gap:28px;align-items:center;padding-top:24px}
+      dl{display:grid;grid-template-columns:120px 1fr;gap:13px;margin:0}dt{color:#7b8494;font-size:11px}dd{margin:0;font-weight:700}
+      .qr{width:180px;height:180px;padding:9px;border:1px solid #e7eaf0;border-radius:10px}
+      .footer{margin-top:26px;padding-top:16px;border-top:1px solid #e9ebef;color:#778196;font-size:10px;line-height:1.6}
+      .actions{display:flex;justify-content:center;margin:18px auto}.actions button{padding:12px 18px;border:0;border-radius:8px;background:#ed6b2e;color:#fff;font-weight:700;cursor:pointer}
+      @media(max-width:560px){body{padding:10px}.card{padding:22px}.body{grid-template-columns:1fr}.qr{grid-row:1;width:150px;height:150px}dl{grid-template-columns:100px 1fr}}
+      @media print{body{padding:0;background:#fff}.card{width:100%;margin:0;border:1px solid #ddd;border-top:6px solid #ed6b2e;border-radius:0;box-shadow:none}.actions{display:none}}
+    </style></head><body><article class="card">
+      <header><div><h1>CHOWK NEWSROOM</h1><p>OFFICIAL STAFF ${escapeHtml(credential.credential_type || "CREDENTIAL").replaceAll("_", " ").toUpperCase()}</p></div><strong>${escapeHtml(credential.reference_code)}</strong></header>
+      <section class="body"><dl>
+        <dt>Name</dt><dd>${escapeHtml(credential.name || credential.name_snapshot)}</dd>
+        <dt>Role</dt><dd>${escapeHtml(String(credential.role || credential.role_snapshot).replaceAll("_", " "))}</dd>
+        <dt>Reporter ID</dt><dd>${escapeHtml(credential.reporter_code || credential.reporter_code_snapshot || "—")}</dd>
+        <dt>Coverage</dt><dd>${escapeHtml(scopeText)}</dd>
+        <dt>Status</dt><dd>${escapeHtml(String(credential.status).replaceAll("_", " "))}</dd>
+        <dt>Valid</dt><dd>${escapeHtml(credential.valid_from)} – ${escapeHtml(credential.valid_until)}</dd>
+        ${isAuthorityLetter ? `<dt>Service terms</dt><dd>Version ${escapeHtml(credential.service_agreement_version || "—")}</dd><dt>Authorized by</dt><dd>${escapeHtml(credential.authorized_signer_name || "—")} · ${escapeHtml(credential.authorized_signer_designation || "—")}</dd><dt>Contact</dt><dd>${escapeHtml(credential.return_address || "—")}</dd>` : ""}
+        <dt>Issued by</dt><dd>${escapeHtml(credential.issued_by_name || credential.issued_by_name_snapshot || "CHOWK NEWSROOM")}</dd>
+      </dl><img class="qr" src="${qrImage}" alt="Credential verification QR code"></section>
+      <p class="footer">Scan the QR code to check current credential status. This ${isAuthorityLetter ? "authority letter" : "ID card"} does not by itself establish the identity of its holder. Confirm identity through an independently verified newsroom contact channel.</p>
+    </article><div class="actions"><button type="button" onclick="window.print()">Print / Save PDF</button></div></body></html>`;
+}
+
 function supabaseConfig() {
   const url = process.env.SUPABASE_URL?.trim().replace(/\/+$/, "");
   const key = (
@@ -372,66 +420,10 @@ async function handleAuth(request, response, registration) {
       sendJson(response, 400, { error: "Enter a valid phone number." });
       return;
     }
-    let reporterApplication = null;
     if (registration) {
-      const accountType = body.account_type === undefined ? "subscriber" : body.account_type;
-      if (!["subscriber", "reporter"].includes(accountType)) {
-        sendJson(response, 400, { error: "Choose a valid account type." });
-        return;
-      }
       if (body.accepted_policies !== true) {
         sendJson(response, 400, { error: "Accept the site policies before creating an account." });
         return;
-      }
-      if (accountType === "reporter") {
-        const stateId = Number(body.state_id);
-        const rtoId = Number(body.rto_office_id);
-        const reporterTypeId = Number(body.reporter_type_id);
-        if (![stateId, rtoId, reporterTypeId].every((id) => Number.isSafeInteger(id) && id > 0)) {
-          sendJson(response, 400, { error: "Choose a state, an RTO/reporting area, and a reporter type." });
-          return;
-        }
-        if (body.accepted_reporter_agreement !== true) {
-          sendJson(response, 400, { error: "Read and accept the current reporter agreement before applying." });
-          return;
-        }
-        const { response: optionsResponse, payload: options } = await supabaseRequest(
-          "/rest/v1/rpc/chowk_reporter_options"
-        );
-        if (!optionsResponse.ok) {
-          sendJson(response, optionsResponse.status, {
-            error: apiErrorMessage(options, "Reporter application setup could not be verified.")
-          });
-          return;
-        }
-        const state = (options.states || []).find((item) => Number(item.id) === stateId && item.is_active);
-        const rto = (options.rtos || []).find((item) =>
-          Number(item.id) === rtoId && Number(item.state_id) === stateId
-        );
-        const reporterType = (options.types || []).find((item) =>
-          Number(item.id) === reporterTypeId
-        );
-        const agreement = options.agreement;
-        if (!state || !rto || !reporterType) {
-          sendJson(response, 400, { error: "The selected state, RTO/reporting area, or reporter type is no longer active. Refresh the registration form." });
-          return;
-        }
-        if (!agreement
-            || body.agreement_version !== agreement.version
-            || body.agreement_sha256 !== agreement.sha256) {
-          sendJson(response, 409, { error: "The reporter agreement changed or is not published. Refresh and review the current agreement." });
-          return;
-        }
-        reporterApplication = {
-          state_id: stateId,
-          rto_office_id: rtoId,
-          reporter_type_id: reporterTypeId,
-          accepted_reporter_agreement: true,
-          agreement_version: agreement.version,
-          agreement_sha256: agreement.sha256,
-          signer_name: body.name.trim(),
-          acceptance_statement: "I have read and accept the Chowk reporter agreement."
-        };
       }
     }
 
@@ -445,11 +437,10 @@ async function handleAuth(request, response, registration) {
             email: body.email.trim(),
             password: body.password,
             data: {
-              account_type: reporterApplication ? "reporter" : "subscriber",
+              account_type: "subscriber",
               accepted_policies: body.accepted_policies === true,
               full_name: body.name.trim(),
-              phone: body.phone.trim(),
-              ...(reporterApplication ? { reporter_application: reporterApplication } : {})
+              phone: body.phone.trim()
             }
           }
         : { email: body.email.trim(), password: body.password }
@@ -664,13 +655,14 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-options" && request.method === "GET") {
-      const [states, rtos, types, agreements] = await Promise.all([
+      const [states, rtos, types, agreements, serviceAgreements] = await Promise.all([
         supabaseRequest("/rest/v1/states?select=id,state_code,state_name,is_active&order=state_name.asc&limit=500", { token }),
         supabaseRequest("/rest/v1/rto_offices?select=id,state_id,rto_code,city_name,is_active&order=rto_code.asc&limit=1000", { token }),
         supabaseRequest("/rest/v1/reporter_types?select=id,name,type_code,description,is_active&order=name.asc&limit=500", { token }),
-        supabaseRequest("/rest/v1/reporter_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token })
+        supabaseRequest("/rest/v1/reporter_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token }),
+        supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token })
       ]);
-      for (const result of [states, rtos, types, agreements]) {
+      for (const result of [states, rtos, types, agreements, serviceAgreements]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Reporter configuration could not be loaded.")
@@ -682,7 +674,8 @@ async function adminRoute(request, response, requestUrl, session) {
         states: states.payload || [],
         rtos: rtos.payload || [],
         reporter_types: types.payload || [],
-        agreements: agreements.payload || []
+        agreements: agreements.payload || [],
+        service_agreements: serviceAgreements.payload || []
       } });
       return;
     }
@@ -896,9 +889,51 @@ async function adminRoute(request, response, requestUrl, session) {
           return;
         }
       }
+      const [approvedApplicants, currentServiceAgreement, reporterProfiles] = await Promise.all([
+        supabaseRequest(
+          "/rest/v1/reporter_applications?select=user_id,status,service_agreement_version,service_agreement_sha256,service_agreement_accepted_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,role)&status=in.(approved,active)&order=created_at.asc&limit=500",
+          { token }
+        ),
+        supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256&status=eq.published&limit=1", { token }),
+        supabaseRequest("/rest/v1/reporter_profiles?select=user_id,reporter_code&limit=1000", { token })
+      ]);
+      if (!approvedApplicants.response.ok || !currentServiceAgreement.response.ok || !reporterProfiles.response.ok) {
+        const failure = !approvedApplicants.response.ok
+          ? approvedApplicants
+          : !currentServiceAgreement.response.ok
+            ? currentServiceAgreement
+            : reporterProfiles;
+        sendJson(response, failure.response.status, {
+          error: apiErrorMessage(failure.payload, "Approved reporter applicants could not be loaded.")
+        });
+        return;
+      }
+      const serviceAgreement = currentServiceAgreement.payload?.[0];
+      const reporterCodeByUser = new Map((reporterProfiles.payload || []).map((reporter) =>
+        [reporter.user_id, reporter.reporter_code]
+      ));
+      const staffById = new Map((staff.payload || []).map((person) => [person.id, person]));
+      (approvedApplicants.payload || []).forEach((application) => {
+        const person = application.user;
+        if (person?.id) {
+          const hasCurrentServiceAgreement = Boolean(
+            application.service_agreement_accepted_at
+              && application.service_agreement_version === serviceAgreement?.version
+              && application.service_agreement_sha256 === serviceAgreement?.sha256
+          );
+          staffById.set(person.id, {
+            ...staffById.get(person.id),
+            ...person,
+            onboarding_status: application.status,
+            can_issue_id_card: hasCurrentServiceAgreement,
+            can_receive_authority_letter: hasCurrentServiceAgreement,
+            reporter_code: reporterCodeByUser.get(application.user_id)
+          });
+        }
+      });
       sendJson(response, 200, { success: true, data: {
         credentials: credentials.payload || [],
-        staff: staff.payload || []
+        staff: [...staffById.values()]
       } });
       return;
     }
@@ -1056,6 +1091,57 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (pathname === "/api/admin/reporter-service-agreements" && request.method === "GET") {
+      const result = await supabaseRequest(
+        "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,created_by,published_by,published_at,created_at&order=created_at.desc",
+        { token }
+      );
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Reporter service agreements could not be loaded.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-service-agreements" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const version = typeof body.version === "string" ? body.version.trim() : "";
+      const sha256 = typeof body.sha256 === "string" ? body.sha256.trim().toLowerCase() : "";
+      const documentUrl = typeof body.document_url === "string" ? body.document_url.trim() : "";
+      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version) || !/^[a-f0-9]{64}$/.test(sha256)) {
+        sendJson(response, 400, { error: "Enter a valid version label and 64-character SHA-256." });
+        return;
+      }
+      try {
+        if (new URL(documentUrl).protocol !== "https:") throw new Error("invalid");
+      } catch {
+        sendJson(response, 400, { error: "Enter a valid HTTPS service agreement URL." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
+        method: "POST",
+        token,
+        body: { version, sha256, document_url: documentUrl, created_by: session.identity.id },
+        prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload?.[0] }
+        : { error: apiErrorMessage(result.payload, "Service agreement version could not be added.") });
+      return;
+    }
+
+    const publishServiceAgreement = pathname.match(/^\/api\/admin\/reporter-service-agreements\/(\d+)\/publish$/);
+    if (publishServiceAgreement && request.method === "POST") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_publish_reporter_service_agreement", {
+        method: "POST",
+        token,
+        body: { target_agreement: Number(publishServiceAgreement[1]) }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Service agreement could not be published.") });
+      return;
+    }
+
     const publishAgreement = pathname.match(/^\/api\/admin\/reporter-agreements\/(\d+)\/publish$/);
     if (publishAgreement && request.method === "POST") {
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_publish_reporter_agreement", {
@@ -1098,6 +1184,7 @@ async function adminRoute(request, response, requestUrl, session) {
         "profiles", "articles", "categories", "locations", "reporter_types",
         "reporter_applications", "live_streams", "article_reports", "comments", "media_catalog",
         "states", "rto_offices", "reporter_agreement_versions", "reporter_agreement_acceptances",
+        "reporter_service_agreement_versions", "reporter_service_agreement_acceptances",
         "reporter_profiles", "reporter_assignments", "user_coverage_assignments", "staff_credentials"
       ];
       if (table && !auditedTables.includes(table)) {
@@ -1226,7 +1313,10 @@ async function adminRoute(request, response, requestUrl, session) {
     const applicationReview = pathname.match(/^\/api\/admin\/reporter-applications\/(\d+)\/review$/);
     if (applicationReview && request.method === "POST") {
       const body = await readJsonBody(request);
-      const decision = body.decision === "approve" ? "approved" : body.decision === "reject" ? "rejected" : "";
+      const decision = body.decision === "approve" ? "approved"
+        : body.decision === "reject" ? "rejected"
+          : body.decision === "needs_information" ? "needs_information"
+            : "";
       if (!decision) {
         sendJson(response, 400, { error: "Choose approve or reject." });
         return;
@@ -1387,7 +1477,7 @@ async function adminRoute(request, response, requestUrl, session) {
     const articleItem = pathname.match(/^\/api\/admin\/articles\/(\d+)$/);
     const categoryItem = pathname.match(/^\/api\/admin\/categories\/(\d+)$/);
     const roleItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/role$/i);
-    const reporterProvisionItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reporter-provisioning$/i);
+    const reporterAssignmentItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reporter-assignment$/i);
     if (adminArticleTransition && request.method === "POST") {
       const body = await readJsonBody(request);
       if (body.action !== "reopen_rejected" || typeof body.note !== "string") {
@@ -1490,7 +1580,7 @@ async function adminRoute(request, response, requestUrl, session) {
     if (roleItem && request.method === "PATCH") {
       const body = await readJsonBody(request);
       if (body.role === "reporter") {
-        sendJson(response, 400, { error: "Reporter roles require a state, RTO, reporter type, and reporter ID. Use the reporter provisioning workflow." });
+        sendJson(response, 400, { error: "Reporter access is granted only after the applicant completes the reporter onboarding steps." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
@@ -1502,7 +1592,7 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    if (reporterProvisionItem && request.method === "POST") {
+    if (reporterAssignmentItem && request.method === "POST") {
       if (!isSameOrigin(request)) {
         sendJson(response, 403, { error: "Cross-origin request rejected." });
         return;
@@ -1516,7 +1606,7 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const [profile, state, rto, reporterType] = await Promise.all([
-        supabaseRequest(`/rest/v1/profiles?select=role&id=eq.${reporterProvisionItem[1]}&limit=1`, { token }),
+        supabaseRequest(`/rest/v1/profiles?select=role&id=eq.${reporterAssignmentItem[1]}&limit=1`, { token }),
         supabaseRequest(`/rest/v1/states?select=id&id=eq.${stateId}&is_active=eq.true&limit=1`, { token }),
         supabaseRequest(`/rest/v1/rto_offices?select=id,state_id&id=eq.${rtoId}&is_active=eq.true&limit=1`, { token }),
         supabaseRequest(`/rest/v1/reporter_types?select=id&id=eq.${reporterTypeId}&is_active=eq.true&limit=1`, { token })
@@ -1538,48 +1628,26 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state and an active reporter type." });
         return;
       }
-      const previousRole = profile.payload[0].role;
-      if (previousRole !== "reporter") {
-        const promoted = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
-          method: "POST",
-          token,
-          body: { target_user: reporterProvisionItem[1], new_role: "reporter" }
+      if (profile.payload[0].role !== "reporter") {
+        sendJson(response, 409, {
+          error: "Reporter access is granted only after the applicant completes the reporter onboarding steps."
         });
-        if (!promoted.response.ok) {
-          sendJson(response, promoted.response.status, {
-            error: apiErrorMessage(promoted.payload, "User could not be promoted to reporter.")
-          });
-          return;
-        }
+        return;
       }
       const assigned = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_reporter", {
         method: "POST",
         token,
-        body: { target_user: reporterProvisionItem[1], target_rto: rtoId, target_type: reporterTypeId }
+        body: { target_user: reporterAssignmentItem[1], target_rto: rtoId, target_type: reporterTypeId }
       });
       if (!assigned.response.ok) {
-        if (previousRole !== "reporter") {
-          const restored = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
-            method: "POST",
-            token,
-            body: { target_user: reporterProvisionItem[1], new_role: previousRole }
-          });
-          sendJson(response, 502, {
-            error: restored.response.ok
-              ? `Reporter provisioning failed and the previous account role was restored: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`
-              : `Reporter provisioning failed, and the previous role could not be restored: ${apiErrorMessage(restored.payload, "role restoration failed.")}`,
-            recovery_required: !restored.response.ok
-          });
-          return;
-        }
         sendJson(response, 502, {
-          error: `Reporter provisioning failed. The existing reporter role remains active; retry the assignment: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`,
+          error: `Reporter assignment could not be updated. The existing reporter access remains active: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`,
           recovery_required: true
         });
         return;
       }
       const reporterProfile = await supabaseRequest(
-        `/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${reporterProvisionItem[1]}&limit=1`,
+        `/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${reporterAssignmentItem[1]}&limit=1`,
         { token }
       );
       if (!reporterProfile.response.ok || !reporterProfile.payload?.[0]?.reporter_code) {
@@ -1607,6 +1675,12 @@ async function adminRoute(request, response, requestUrl, session) {
       const phone = typeof body.phone === "string" ? body.phone.trim() : "";
       const password = typeof body.password === "string" ? body.password : "";
       const role = typeof body.role === "string" ? body.role : "subscriber";
+      if (role === "reporter") {
+        sendJson(response, 400, {
+          error: "Reporter accounts must apply from a subscriber account and complete the reporter onboarding steps."
+        });
+        return;
+      }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         sendJson(response, 400, { error: "Enter a valid email address." });
         return;
@@ -1623,42 +1697,13 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Temporary password must be between 8 and 72 characters." });
         return;
       }
-      if (!["subscriber", "reporter", "moderator", "editor", "publisher", "admin", "super_admin"].includes(role)) {
+      if (!["subscriber", "moderator", "editor", "publisher", "admin", "super_admin"].includes(role)) {
         sendJson(response, 400, { error: "Select a valid account role." });
         return;
       }
       if (role === "super_admin" && session.identity.role !== "super_admin") {
         sendJson(response, 403, { error: "Only a super admin can create another super admin." });
         return;
-      }
-      let reporterAssignment;
-      if (role === "reporter") {
-        const stateId = Number(body.state_id);
-        const rtoId = Number(body.rto_office_id);
-        const reporterTypeId = Number(body.reporter_type_id);
-        if (![stateId, rtoId, reporterTypeId].every((value) => Number.isSafeInteger(value) && value > 0)) {
-          sendJson(response, 400, { error: "Reporter accounts require an active state, RTO/reporting area, and reporter type." });
-          return;
-        }
-        const [state, rto, reporterType] = await Promise.all([
-          supabaseRequest(`/rest/v1/states?select=id&id=eq.${stateId}&is_active=eq.true&limit=1`, { token }),
-          supabaseRequest(`/rest/v1/rto_offices?select=id,state_id&id=eq.${rtoId}&is_active=eq.true&limit=1`, { token }),
-          supabaseRequest(`/rest/v1/reporter_types?select=id&id=eq.${reporterTypeId}&is_active=eq.true&limit=1`, { token })
-        ]);
-        for (const result of [state, rto, reporterType]) {
-          if (!result.response.ok) {
-            sendJson(response, result.response.status, {
-              error: apiErrorMessage(result.payload, "Reporter account options could not be validated.")
-            });
-            return;
-          }
-        }
-        if (!state.payload?.[0] || !rto.payload?.[0] || !reporterType.payload?.[0]
-            || Number(rto.payload[0].state_id) !== stateId) {
-          sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state and an active reporter type." });
-          return;
-        }
-        reporterAssignment = { stateId, rtoId, reporterTypeId };
       }
       const created = await supabaseRequest("/auth/v1/signup", {
         method: "POST",
@@ -1684,39 +1729,6 @@ async function adminRoute(request, response, requestUrl, session) {
           return;
         }
       }
-      let reporterCode = null;
-      if (reporterAssignment) {
-        const assigned = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_reporter", {
-          method: "POST",
-          token,
-          body: {
-            target_user: createdUser.id,
-            target_rto: reporterAssignment.rtoId,
-            target_type: reporterAssignment.reporterTypeId
-          }
-        });
-        if (!assigned.response.ok) {
-          sendJson(response, 502, {
-            error: `The account was created and its reporter role was assigned, but reporter provisioning failed. Refresh Users, then use Reporter assignment on that account to retry: ${apiErrorMessage(assigned.payload, "reporter assignment failed.")}`,
-            data: { user_id: createdUser.id },
-            recovery_required: true
-          });
-          return;
-        }
-        const reporterProfile = await supabaseRequest(
-          `/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${createdUser.id}&limit=1`,
-          { token }
-        );
-        if (!reporterProfile.response.ok || !reporterProfile.payload?.[0]?.reporter_code) {
-          sendJson(response, 502, {
-            error: "The reporter was provisioned, but the generated reporter ID could not be loaded. Refresh the reporter directory.",
-            data: { user_id: createdUser.id },
-            recovery_required: true
-          });
-          return;
-        }
-        reporterCode = reporterProfile.payload[0].reporter_code;
-      }
       const profile = await supabaseRequest(
         `/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&id=eq.${createdUser.id}&limit=1`,
         { token }
@@ -1735,12 +1747,6 @@ async function adminRoute(request, response, requestUrl, session) {
           event_data: {
             email,
             role: profile.payload[0].role,
-            ...(reporterAssignment ? {
-              state_id: reporterAssignment.stateId,
-              rto_office_id: reporterAssignment.rtoId,
-              reporter_type_id: reporterAssignment.reporterTypeId,
-              reporter_code: reporterCode
-            } : {}),
             changed_fields: [
               { field: "email", before: null, after: email },
               { field: "role", before: null, after: profile.payload[0].role }
@@ -1757,7 +1763,7 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 201, {
         success: true,
         confirmation_required: !createdUser.email_confirmed_at,
-        data: { ...profile.payload[0], ...(reporterCode ? { reporter_code: reporterCode } : {}) }
+        data: profile.payload[0]
       });
       return;
     }
@@ -2297,6 +2303,36 @@ const server = http.createServer((request, response) => {
       }
       void (async () => {
         try {
+          const reporterPrint = requestUrl.pathname.match(/^\/api\/reporter\/credentials\/(\d+)\/print$/);
+          if (reporterPrint && request.method === "GET") {
+            const result = await supabaseRequest("/rest/v1/rpc/chowk_reporter_status", {
+              method: "POST",
+              token: session.token
+            });
+            if (!result.response.ok) {
+              sendJson(response, result.response.status, {
+                error: apiErrorMessage(result.payload, "Credential could not be loaded for printing.")
+              });
+              return;
+            }
+            const credential = (result.payload?.credentials || []).find((item) =>
+              String(item.id) === reporterPrint[1]
+                && ["active", "pending_acceptance"].includes(item.status)
+            );
+            if (!credential) {
+              sendJson(response, 404, { error: "An active or pending credential for this account was not found." });
+              return;
+            }
+            const html = await credentialPrintPage(credential, request);
+            response.writeHead(200, {
+              "Content-Type": "text/html; charset=utf-8",
+              "Cache-Control": "no-store",
+              "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+              "X-Content-Type-Options": "nosniff"
+            });
+            response.end(html);
+            return;
+          }
           if (requestUrl.pathname === "/api/reporter/status" && request.method === "GET") {
             const result = await supabaseRequest("/rest/v1/rpc/chowk_reporter_status", {
               method: "POST",
@@ -2352,6 +2388,23 @@ const server = http.createServer((request, response) => {
             sendJson(response, result.response.status, result.response.ok
               ? { success: true }
               : { error: apiErrorMessage(result.payload, "Agreement acceptance could not be recorded.") });
+            return;
+          }
+          if (requestUrl.pathname === "/api/reporter/service-agreement/accept" && request.method === "POST") {
+            const body = await readJsonBody(request);
+            const result = await supabaseRequest("/rest/v1/rpc/chowk_accept_current_reporter_service_agreement", {
+              method: "POST",
+              token: session.token,
+              body: {
+                accepted_version: body.agreement_version,
+                accepted_sha256: body.agreement_sha256,
+                signer_name: body.signer_name,
+                acceptance_statement: body.acceptance_statement
+              }
+            });
+            sendJson(response, result.response.status, result.response.ok
+              ? { success: true }
+              : { error: apiErrorMessage(result.payload, "Service agreement acceptance could not be recorded.") });
             return;
           }
           const acknowledgement = requestUrl.pathname.match(/^\/api\/reporter\/credentials\/(\d+)\/acknowledge$/);

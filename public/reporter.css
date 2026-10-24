@@ -82,6 +82,87 @@
   gap: 14px;
 }
 
+.reporter-application-review,
+.reporter-review-note,
+.reporter-next-step {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 7px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #f0dfd2;
+  border-radius: 8px;
+  background: #fffaf6;
+  color: #67574d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.reporter-application-review[hidden] {
+  display: none;
+}
+
+.reporter-next-step.success {
+  border-color: #cde9da;
+  background: #f0fbf5;
+  color: #208357;
+}
+
+.reporter-onboarding-step {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e7eaf0;
+  border-radius: 9px;
+  background: #fcfcfd;
+}
+
+.reporter-onboarding-step h3 {
+  margin: 0;
+}
+
+.reporter-onboarding-step > a {
+  width: fit-content;
+  color: #ba5b2c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reporter-service-agreement-form {
+  display: grid;
+  gap: 12px;
+}
+
+.reporter-timeline {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reporter-timeline li {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-top: 3px solid #e3e7ed;
+  color: #8993a4;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.reporter-timeline li.is-complete {
+  border-color: #4d9c70;
+  color: #27334a;
+}
+
+.reporter-timeline li span {
+  color: #8993a4;
+  font-size: 9px;
+  font-weight: 500;
+}
+
 .reporter-field {
   display: grid;
   gap: 6px;
@@ -207,9 +288,15 @@
 }
 
 .reporter-status-pill.approved,
-.reporter-status-pill.active {
+.reporter-status-pill.active,
+.reporter-status-pill.needs_information {
   background: #eaf8ef;
   color: #258552;
+}
+
+.reporter-status-pill.needs_information {
+  background: #fff4db;
+  color: #8b6417;
 }
 
 .reporter-status-pill.rejected,
@@ -301,6 +388,10 @@
 
   .reporter-form-grid,
   .reporter-data-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reporter-timeline {
     grid-template-columns: 1fr;
   }
 }

@@ -42,7 +42,9 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0013_reporter_agreement_admin_controls.sql`, and
    `supabase/migrations/0014_dynamic_reporter_agreements.sql`, and
    `supabase/migrations/0015_reporter_application_documents.sql`, and
-   `supabase/migrations/0016_required_reporter_coverage_locations.sql`. These add account email
+   `supabase/migrations/0016_required_reporter_coverage_locations.sql`, and
+   `supabase/migrations/0017_reporter_application_admin_controls.sql`, and
+   `supabase/migrations/0018_admin_location_range_level.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -73,6 +75,12 @@ Requires Node.js 18 or newer.
    for sensitive uploads. Applicants must upload a masked Aadhaar copy only;
    never accept an unmasked copy. Migration 0016 makes preferred reporting
    locations mandatory while leaving existing application records intact.
+   Migration 0017 adds audited admin deletion for applications that have not
+   been approved; deletion also removes their private uploads. Approved or
+   active reporters are not deletable from the application queue so their
+   access and credential history cannot be accidentally orphaned. Migration
+   0018 adds Range as a parentable level in the admin newsroom location
+   directory without changing the separate State and City/RTO reporter data.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -210,8 +218,10 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0016 in order before deploying the expanded newsroom workspace. Migration 0008 adds
-legacy-compatible zone/district mapping and coverage. Migration 0007
+0018 in order before deploying the expanded newsroom workspace. The public site,
+account, reporter, credential, and newsroom pages use one shared site header and
+footer; the admin console retains its dedicated management navigation.
+Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007
 provisions public media reads and per-user upload ownership; it also schedules
 due-article processing when `pg_cron` is available. If the extension is
 unavailable, enable it or schedule `public.chowk_process_due_articles()`

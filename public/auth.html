@@ -7,6 +7,7 @@
     <title>लॉगिन या रजिस्टर | CHOWK NEWS</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/auth.css">
+    <script src="/site-shell.js" defer></script>
     <script src="/auth.js" defer></script>
   </head>
   <body>
@@ -17,11 +18,7 @@
       </div>
     </div>
 
-    <header class="auth-header">
-      <a class="brand" href="/" aria-label="CHOWK NEWS होम">
-        <img class="brand-logo" src="/chowk-logo.png" alt="CHOWK NEWS — बात सीधी, चोट तीखी">
-      </a>
-    </header>
+    <div data-site-shell-header></div>
 
     <main class="auth-page">
       <section class="auth-card" aria-labelledby="auth-title">
@@ -80,12 +77,6 @@
       <a class="auth-home-link" href="/">← मुख्य पेज पर वापस जाएं</a>
     </main>
 
-    <footer class="site-footer">
-      <div class="page-width footer-inner">
-        <a class="footer-brand" href="/">CHOWK<span>.</span></a>
-        <p>बात सीधी, चोट तीखी</p>
-        <span>CHOWK NEWS · INDIA</span>
-      </div>
-    </footer>
+    <div data-site-shell-footer></div>
   </body>
 </html>

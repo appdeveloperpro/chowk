@@ -587,6 +587,12 @@
   background: #fff5f4;
 }
 
+.admin-row-note {
+  color: #778197;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .admin-role-select {
   max-width: 115px;
 }

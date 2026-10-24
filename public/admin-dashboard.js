@@ -101,12 +101,12 @@ const modules = {
     related: [
       { label: "Zone / district mapping history", path: "admin/zone-district-mappings" }
     ],
-    description: "Maintain the state, zone, district, city, and coverage-area directory.",
+    description: "Maintain the state, zone, district, range, city, and coverage-area directory.",
     createPath: "admin/locations",
     formFields: [
       { name: "name", label: "Location name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
-      { name: "location_type", label: "Location level", type: "select", options: ["state", "zone", "district", "city", "coverage_area"] },
+      { name: "location_type", label: "Location level", type: "select", options: ["state", "zone", "district", "range", "city", "coverage_area"] },
       { name: "parent_id", label: "Parent location ID (optional)", type: "number", required: false },
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
@@ -179,6 +179,7 @@ const allowedLocationParents = {
   state: [],
   zone: ["state"],
   district: ["state"],
+  range: ["district"],
   city: ["district"],
   coverage_area: ["district", "city"]
 };
@@ -565,7 +566,9 @@ function renderReporterAdminSection(section, root, data) {
       applicant_name: application.user?.full_name || "—",
       email: application.user?.email || "—",
       state_name: application.state?.state_name || "—",
-      city: application.rto?.city_name || application.rto?.rto_code || "—",
+      city: application.rto?.city_name && application.rto?.rto_code
+        ? `${application.rto.city_name} (${application.rto.rto_code})`
+        : application.rto?.city_name || application.rto?.rto_code || "—",
       area_coverage: application.reporter_type?.name || "—",
       details_confirmed: application.applicant_details_confirmed ? "Confirmed" : "Not recorded"
     }));
@@ -1953,13 +1956,24 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (section === "reporter-applications" && ["pending", "needs_information"].includes(row.status)) {
-    rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
-    rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
-    return;
-  }
   if (section === "reporter-applications") {
     rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
+    if (["pending", "needs_information"].includes(row.status)) {
+      rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
+    }
+    if (["pending", "needs_information", "rejected"].includes(row.status)) {
+      rowButton(container, "Delete application", () => {
+        const applicant = row.applicant_name && row.applicant_name !== "—"
+          ? row.applicant_name
+          : row.email || `application #${id}`;
+        if (!window.confirm(
+          `Permanently delete ${applicant}'s ${row.status.replace("_", " ")} application and its private documents? The account itself will remain unchanged. This cannot be undone.`
+        )) return;
+        void runAction(() => apiRequest(`admin/reporter-applications/${id}`, "DELETE"), refresh);
+      }, "admin-row-button danger");
+    } else {
+      container.append(makeElement("small", "admin-row-note", "Deletion is disabled after approval to preserve reporter access and credential history."));
+    }
     return;
   }
 
@@ -2309,7 +2323,9 @@ function openReporterReviewDialog(application, refresh) {
         ["Email / phone", [user.email, user.phone].filter(Boolean).join(" · ") || "—"],
         ["Requested State / City / Area Coverage", [
           application.state?.state_name,
-          application.rto?.city_name || application.rto?.rto_code,
+          application.rto?.city_name && application.rto?.rto_code
+            ? `${application.rto.city_name} (${application.rto.rto_code})`
+            : application.rto?.city_name || application.rto?.rto_code,
           application.reporter_type?.name
         ].filter(Boolean).join(" · ") || "—"],
         ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"],
@@ -2590,8 +2606,9 @@ function renderSettings() {
 
 async function runAction(action, reload) {
   try {
-    await action();
+    const result = await action();
     await reload();
+    if (result?.cleanup_warning) window.alert(result.cleanup_warning);
   } catch (error) {
     window.alert(error instanceof Error ? error.message : "The action could not be completed.");
   }

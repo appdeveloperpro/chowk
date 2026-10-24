@@ -1,5 +1,4 @@
 const feed = document.querySelector("#news-feed");
-const searchToggle = document.querySelector("#search-toggle");
 const searchForm = document.querySelector("#search-form");
 const searchInput = document.querySelector("#search-input");
 const chips = document.querySelector(".category-chips");
@@ -9,12 +8,6 @@ let articleRequestId = 0;
 
 feed.addEventListener("click", (event) => {
   if (event.target.closest("#retry-button")) void loadArticles();
-});
-
-searchToggle.addEventListener("click", () => {
-  searchForm.hidden = !searchForm.hidden;
-  searchToggle.setAttribute("aria-expanded", String(!searchForm.hidden));
-  if (!searchForm.hidden) searchInput.focus();
 });
 
 searchForm.addEventListener("submit", (event) => {
@@ -218,8 +211,7 @@ async function loadAccountActions() {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Account session could not be checked.");
     const actions = document.querySelector(".header-actions");
-    actions.querySelector(".login-button")?.remove();
-    actions.querySelector(".join-button")?.remove();
+    actions.querySelectorAll(".login-button, .join-button").forEach((item) => item.remove());
     const account = document.createElement("a");
     account.className = "login-button";
     account.href = ["reporter", "moderator", "editor", "publisher"].includes(result.identity?.role)
@@ -248,6 +240,7 @@ async function loadAccountActions() {
   }
 }
 
+searchInput.value ||= new URLSearchParams(window.location.search).get("q") || "";
 void loadAccountActions();
 void loadCategories();
 void loadArticles();

@@ -606,6 +606,7 @@ function renderApplicationForm(action, existing = null) {
         element("span", "", `State: ${selectedState?.state_name || "—"}`),
         element("span", "", `City: ${reporterCityLabel(selectedRto)}`),
         element("span", "", `Area coverage: ${selectedType?.name || "—"}`),
+        element("span", "", `Preferred locations to cover: ${String(values.get("coverage_localities") || "").trim() || "—"}`),
         element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
         element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 4`),
         element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),

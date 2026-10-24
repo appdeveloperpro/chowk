@@ -662,7 +662,7 @@ async function signedReporterApplicationDocumentUrl(objectPath, token) {
   return `${url}/storage/v1${payload.signedURL.startsWith("/") ? "" : "/"}${payload.signedURL}`;
 }
 
-async function removeReporterApplicationDocument(objectPath, userId, token) {
+async function removeReporterApplicationDocument(objectPath, userId, token, { allowMissing = false } = {}) {
   if (typeof objectPath !== "string"
       || !objectPath.startsWith(`applications/${userId}/`)
       || !/^applications\/[0-9a-f-]{36}\/(profile_photo|masked_aadhaar|pan_card|bank_proof)\/[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(objectPath)) {
@@ -677,7 +677,7 @@ async function removeReporterApplicationDocument(objectPath, userId, token) {
     cache: "no-store"
   });
   const payload = await result.json().catch(() => ({}));
-  if (!result.ok) {
+  if (!result.ok && !(allowMissing && result.status === 404)) {
     throw Object.assign(
       new Error(apiErrorMessage(payload, "The unsubmitted reporter document could not be removed.")),
       { statusCode: result.status }
@@ -1877,6 +1877,66 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload?.[0] }
         : { error: apiErrorMessage(result.payload, `The ${collection.table} record could not be created.`) });
+      return;
+    }
+
+    const applicationDelete = pathname.match(/^\/api\/admin\/reporter-applications\/(\d+)$/);
+    if (applicationDelete && request.method === "DELETE") {
+      const applicationId = Number(applicationDelete[1]);
+      if (!Number.isSafeInteger(applicationId) || applicationId < 1) {
+        sendJson(response, 400, { error: "Choose a valid reporter application." });
+        return;
+      }
+      const deletion = await supabaseRequest("/rest/v1/rpc/chowk_admin_delete_reporter_application", {
+        method: "POST",
+        token,
+        body: { target_application: applicationId }
+      });
+      if (!deletion.response.ok) {
+        sendJson(response, deletion.response.status, {
+          error: apiErrorMessage(deletion.payload, "Reporter application could not be deleted.")
+        });
+        return;
+      }
+
+      const deletedApplication = deletion.payload || {};
+      const userId = deletedApplication.user_id;
+      const applicationPaths = Array.isArray(deletedApplication.application_document_paths)
+        ? deletedApplication.application_document_paths
+        : [];
+      const agreementPaths = Array.isArray(deletedApplication.agreement_document_paths)
+        ? deletedApplication.agreement_document_paths
+        : [];
+      const cleanupErrors = [];
+      for (const objectPath of applicationPaths) {
+        try {
+          await removeReporterApplicationDocument(objectPath, userId, token, { allowMissing: true });
+        } catch (error) {
+          console.error(`Could not remove a private document for deleted reporter application ${applicationId}:`, error.message);
+          cleanupErrors.push(error);
+        }
+      }
+      for (const objectPath of agreementPaths) {
+        try {
+          if (typeof objectPath !== "string"
+              || !/^acceptance\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.pdf$/.test(objectPath)) {
+            throw new Error("The stored agreement document reference is invalid.");
+          }
+          await removeReporterAgreementPdf(objectPath, token);
+        } catch (error) {
+          console.error(`Could not remove an accepted agreement for deleted reporter application ${applicationId}:`, error.message);
+          cleanupErrors.push(error);
+        }
+      }
+      if (cleanupErrors.length) {
+        sendJson(response, 207, {
+          success: false,
+          application_deleted: true,
+          cleanup_warning: "The application was deleted, but one or more private files could not be removed from storage. Contact support for cleanup."
+        });
+        return;
+      }
+      sendJson(response, 200, { success: true });
       return;
     }
 

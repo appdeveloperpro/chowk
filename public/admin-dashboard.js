@@ -2189,7 +2189,7 @@ async function openReporterPrivateDetailsDialog(application) {
       ["Masked Aadhaar confirmed", details.masked_aadhaar_confirmed ? "Yes" : "No"],
       ["Document privacy consent", details.document_processing_consent ? "Recorded" : "Not recorded"],
       ["Preferred language", details.preferred_language],
-      ["Coverage localities", details.coverage_localities],
+      ["Preferred locations to cover", details.coverage_localities],
       ["Experience", details.experience_years == null ? "—" : `${details.experience_years} years`],
       ["Availability", details.availability],
       ["Bank account holder", details.bank_account_holder],

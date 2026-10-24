@@ -3101,6 +3101,13 @@ const server = http.createServer((request, response) => {
               return;
             }
             const privateDetails = body.private_details;
+            if (privateDetails && typeof privateDetails === "object" && !Array.isArray(privateDetails)
+                && (typeof privateDetails.coverage_localities !== "string"
+                  || privateDetails.coverage_localities.trim().length < 2
+                  || privateDetails.coverage_localities.trim().length > 1000)) {
+              sendJson(response, 400, { error: "Enter at least one preferred location to cover (2-1000 characters)." });
+              return;
+            }
             if (!privateDetails || typeof privateDetails !== "object" || Array.isArray(privateDetails)
                 || typeof privateDetails.emergency_contact_name !== "string"
                 || privateDetails.emergency_contact_name.trim().length < 2

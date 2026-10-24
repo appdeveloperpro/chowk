@@ -41,7 +41,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0012_reporter_organization_profile.sql`, and
    `supabase/migrations/0013_reporter_agreement_admin_controls.sql`, and
    `supabase/migrations/0014_dynamic_reporter_agreements.sql`, and
-   `supabase/migrations/0015_reporter_application_documents.sql`. These add account email
+   `supabase/migrations/0015_reporter_application_documents.sql`, and
+   `supabase/migrations/0016_required_reporter_coverage_locations.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -70,8 +71,10 @@ Requires Node.js 18 or newer.
    reporting-profile fields, masked-Aadhaar/PAN/bank-proof uploads, bank
    account details, and a private storage bucket with admin-only review access
    for sensitive uploads. Applicants must upload a masked Aadhaar copy only;
-   never accept an unmasked copy. Existing installations must run all additive
-   migrations in order before deploying these features.
+   never accept an unmasked copy. Migration 0016 makes preferred reporting
+   locations mandatory while leaving existing application records intact.
+   Existing installations must run all additive migrations in order before
+   deploying these features.
 4. Start the portal:
 
    ```powershell
@@ -207,7 +210,7 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0015 in order before deploying the expanded newsroom workspace. Migration 0008 adds
+0016 in order before deploying the expanded newsroom workspace. Migration 0008 adds
 legacy-compatible zone/district mapping and coverage. Migration 0007
 provisions public media reads and per-user upload ownership; it also schedules
 due-article processing when `pg_cron` is available. If the extension is

@@ -176,15 +176,17 @@ function addSelectField(form, labelText, name, values, selected = "", placeholde
   return select;
 }
 
-function addTextareaField(form, labelText, name, { required = false, maxLength = 1000, rows = 3, value = "" } = {}) {
+function addTextareaField(form, labelText, name, { required = false, minLength = 0, maxLength = 1000, rows = 3, value = "", placeholder = "" } = {}) {
   const label = element("label", "reporter-field reporter-field-full");
   label.append(element("span", "", labelText));
   const textarea = document.createElement("textarea");
   textarea.name = name;
   textarea.required = required;
+  textarea.minLength = minLength;
   textarea.maxLength = maxLength;
   textarea.rows = rows;
   textarea.value = value || "";
+  textarea.placeholder = placeholder;
   label.append(textarea);
   form.append(label);
   return textarea;
@@ -399,10 +401,9 @@ function renderApplicationForm(action, existing = null) {
     addField(profileStep, "Preferred reporting language (optional)", "preferred_language", "text", existing?.private_details?.preferred_language, { required: false, maxLength: 80 });
     addField(profileStep, "Reporting experience in years (optional)", "experience_years", "number", existing?.private_details?.experience_years, { required: false, min: 0, max: 80, step: 0.5 });
     addTextareaField(profileStep, "Journalism / community reporting experience (optional)", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
-    addTextareaField(profileStep, "Preferred localities or beat (optional)", "coverage_localities", { maxLength: 1000, value: existing?.private_details?.coverage_localities });
     addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
 
-    const areaStep = addStep("City & area coverage", "Choose the state, city and coverage type you are applying for.");
+    const areaStep = addStep("City & area coverage", "Choose your base city and coverage type, then tell us which locations you want to report from.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
     const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
     const rtoValues = (options.rtos || []).filter((rto) =>
@@ -414,6 +415,13 @@ function renderApplicationForm(action, existing = null) {
     const rtoSelect = addSelectField(areaStep, "City", "rto_office_id", rtoValues, existing?.rto?.id || "", "Choose a state first");
     const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
     addSelectField(areaStep, "Area Coverage", "reporter_type_id", types, existing?.reporter_type?.id || "", "Choose area coverage");
+    addTextareaField(areaStep, "Preferred locations to cover (required)", "coverage_localities", {
+      required: true,
+      minLength: 2,
+      maxLength: 1000,
+      value: existing?.private_details?.coverage_localities,
+      placeholder: "List the localities, neighborhoods, or nearby towns where you would like to cover news and assignments."
+    });
     stateSelect.addEventListener("change", () => {
       const eligible = (options.rtos || []).filter((rto) =>
         String(rto.state_id) === stateSelect.value

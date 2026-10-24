@@ -46,8 +46,9 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0017_reporter_application_admin_controls.sql`, and
    `supabase/migrations/0018_admin_location_range_level.sql`, and
    `supabase/migrations/0019_range_locations_require_zone_parent.sql`, and
-   `supabase/migrations/0020_district_range_mappings.sql`, and
-   `supabase/migrations/0021_cascade_location_deactivation.sql`. These add account email
+   `supabase/migrations/0020_district_range_mappings.sql`,
+   `supabase/migrations/0021_cascade_location_deactivation.sql`, and
+   `supabase/migrations/0022_bidirectional_location_activation.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -87,10 +88,12 @@ Requires Node.js 18 or newer.
    Migration 0019 requires new or updated range locations to have an active
    zone as their parent. Migration 0020 adds audited district-to-range mapping
    history and keeps zone coverage effective for districts mapped through a
-   range. Migration 0021 automatically deactivates a location's descendants
-   and currently mapped districts when it is deactivated, and ends affected
-   mapping records while preserving their history. Descendants remain inactive
-   when a parent is reactivated and must be reactivated individually.
+   range. Migration 0021 cascades deactivation to descendants. Migration 0022 makes
+   activation and deactivation bidirectional: changing a parent immediately
+   updates all physical descendants and mapped districts; reactivation turns
+   every descendant back on and restores the latest district mapping while
+   preserving prior mapping history. It also restores inactive descendants
+   during migration.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -228,7 +231,7 @@ update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0021 in order before deploying the expanded newsroom workspace. The public site,
+0022 in order before deploying the expanded newsroom workspace. The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
 Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007

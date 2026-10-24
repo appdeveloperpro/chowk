@@ -937,6 +937,10 @@
   font-weight: 700;
 }
 
+.admin-form-field[hidden] {
+  display: none !important;
+}
+
 .admin-form-field input,
 .admin-form-field select,
 .admin-form-field textarea {

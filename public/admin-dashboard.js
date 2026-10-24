@@ -2160,11 +2160,10 @@ function openConfiguredRecordDialog(section, existing) {
     `${isEditing ? "Edit" : "Add"} ${singular(sectionLabels[section])}`,
     config.description,
     (form) => {
-      let locationTypeSelect = null;
-      let rtoCodeInput = null;
       config.formFields.forEach((field) => {
         const value = existing?.[field.name];
         if (section === "locations" && field.name === "rto_code") {
+          const locationTypeSelect = form.elements.location_type;
           const label = makeElement("label", "admin-form-field");
           label.append(makeElement("span", "", field.label));
           const input = document.createElement("input");
@@ -2172,18 +2171,18 @@ function openConfiguredRecordDialog(section, existing) {
           input.type = "text";
           input.maxLength = field.maxLength;
           input.pattern = "[A-Za-z0-9]{2,8}";
-          input.required = !isEditing && locationTypeSelect?.value === "district";
+          input.required = !isEditing && locationTypeSelect.value === "district";
           if (value !== null && value !== undefined) input.value = String(value);
           label.append(input);
           form.append(label);
-          rtoCodeInput = input;
           const refreshRtoField = () => {
-            const isDistrict = locationTypeSelect?.value === "district";
+            const isDistrict = locationTypeSelect.value === "district";
             label.hidden = !isDistrict;
+            input.disabled = !isDistrict;
             input.required = !isEditing && isDistrict;
             if (!isDistrict) input.value = "";
           };
-          locationTypeSelect?.addEventListener("change", refreshRtoField);
+          locationTypeSelect.addEventListener("change", refreshRtoField);
           refreshRtoField();
           return;
         }
@@ -2241,12 +2240,6 @@ function openConfiguredRecordDialog(section, existing) {
           input.value = field.type === "datetime-local"
             ? String(value).slice(0, 16)
             : String(value);
-        }
-        if (section === "locations" && field.name === "location_type") {
-          locationTypeSelect = input;
-          if (rtoCodeInput) {
-            rtoCodeInput.required = !isEditing && input.value === "district";
-          }
         }
         label.append(input);
         form.append(label);

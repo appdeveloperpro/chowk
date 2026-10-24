@@ -23,6 +23,11 @@ function reporterCityLabel(rto) {
     : city;
 }
 
+function reporterDistrictLabel(district) {
+  if (!district) return "—";
+  return district.district_name;
+}
+
 function showMessage(text, success = false) {
   messagePanel.textContent = text;
   messagePanel.classList.toggle("success", success);
@@ -91,6 +96,7 @@ function reporterAgreementPreviewUrl(form, download = false) {
   const params = new URLSearchParams();
   const fields = [
     ["state_id", "state_id"],
+    ["region_id", "region_id"],
     ["rto_office_id", "rto_office_id"],
     ["reporter_type_id", "reporter_type_id"]
   ];
@@ -114,7 +120,7 @@ function addAgreement(root, agreement, signerName, form) {
   downloadLink.rel = "noopener noreferrer";
   const updateLinks = () => {
     const hasSelection = !form.elements.namedItem("state_id")
-      || ["state_id", "rto_office_id", "reporter_type_id"].every((name) =>
+      || ["state_id", "region_id", "rto_office_id", "reporter_type_id"].every((name) =>
         Boolean(form.elements.namedItem(name)?.value)
       );
     [previewLink, downloadLink].forEach((link) => {
@@ -130,7 +136,7 @@ function addAgreement(root, agreement, signerName, form) {
       downloadLink.removeAttribute("href");
     }
   };
-  ["state_id", "rto_office_id", "reporter_type_id"].forEach((name) => {
+  ["state_id", "region_id", "rto_office_id", "reporter_type_id"].forEach((name) => {
     form.elements.namedItem(name)?.addEventListener("change", updateLinks);
   });
   updateLinks();
@@ -411,42 +417,81 @@ function renderApplicationForm(action, existing = null) {
     addTextareaField(profileStep, "Journalism / community reporting experience (optional)", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
     addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
 
-    const areaStep = addStep("City & area coverage", "Choose your base city and coverage type, then tell us which locations you want to report from.");
+    const areaStep = addStep("Reporting location", "Choose an active State, Region, and District. The District's RTO code is shown for reference and used automatically when your reporter ID is issued after approval.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
     const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
-    const rtoValues = (options.rtos || []).filter((rto) =>
-      String(rto.state_id) === String(existing?.state?.id || "")
-    ).map((rto) => ({
-      id: rto.id,
-      label: reporterCityLabel(rto)
-    }));
-    const rtoSelect = addSelectField(areaStep, "City", "rto_office_id", rtoValues, existing?.rto?.id || "", "Choose a state first");
+    const existingRto = (options.rtos || []).find((rto) => String(rto.id) === String(existing?.rto?.id || ""));
+    const regionSelect = addSelectField(areaStep, "Region", "region_id", [], existingRto?.region_id || "", "Choose a state first");
+    regionSelect.disabled = true;
+    const rtoSelect = addSelectField(areaStep, "District", "rto_office_id", [], existing?.rto?.id || "", "Choose a region first");
+    rtoSelect.disabled = true;
+    const rtoCodeInfo = element("p", "reporter-card-copy reporter-field-full");
+    rtoCodeInfo.hidden = true;
+    areaStep.append(rtoCodeInfo);
+    rtoSelect.addEventListener("change", () => {
+      const selectedDistrict = (options.rtos || []).find((district) => String(district.id) === rtoSelect.value);
+      rtoCodeInfo.hidden = !selectedDistrict;
+      rtoCodeInfo.textContent = selectedDistrict
+        ? `RTO code: ${selectedDistrict.rto_code}. It is used automatically when an admin approves your application and generates your reporter ID.`
+        : "";
+    });
     const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
-    addSelectField(areaStep, "Area Coverage", "reporter_type_id", types, existing?.reporter_type?.id || "", "Choose area coverage");
-    addTextareaField(areaStep, "Preferred locations to cover (required)", "coverage_localities", {
+    addSelectField(areaStep, "Reporter type", "reporter_type_id", types, existing?.reporter_type?.id || "", "Choose reporter type");
+    const coverageNote = element(
+      "p",
+      "reporter-card-copy reporter-field-full",
+      "Tell us the localities you would like to cover. This is a request for review, not an active coverage assignment; an admin confirms your authorized coverage after approval."
+    );
+    areaStep.append(coverageNote);
+    addTextareaField(areaStep, "Requested coverage areas (required)", "coverage_localities", {
       required: true,
       minLength: 2,
       maxLength: 1000,
       value: existing?.private_details?.coverage_localities,
-      placeholder: "List the localities, neighborhoods, or nearby towns where you would like to cover news and assignments."
+      placeholder: "List the localities, neighborhoods, towns, or Coverage areas you would like to report from."
     });
-    stateSelect.addEventListener("change", () => {
-      const eligible = (options.rtos || []).filter((rto) =>
-        String(rto.state_id) === stateSelect.value
+    const refreshRegions = (selectedRegionId = "") => {
+      const eligibleRegions = (options.regions || []).filter((region) =>
+        String(region.state_id) === stateSelect.value
+      );
+      regionSelect.replaceChildren();
+      const regionPlaceholder = element("option", "", eligibleRegions.length ? "Choose a region" : "No active regions for this state");
+      regionPlaceholder.value = "";
+      regionPlaceholder.disabled = true;
+      regionPlaceholder.selected = true;
+      regionSelect.append(regionPlaceholder);
+      eligibleRegions.forEach((region) => {
+        const option = element("option", "", region.name);
+        option.value = String(region.id);
+        option.selected = String(region.id) === String(selectedRegionId);
+        regionSelect.append(option);
+      });
+      regionSelect.disabled = eligibleRegions.length === 0;
+      refreshDistricts(regionSelect.value, existingRto?.id || "");
+    };
+    const refreshDistricts = (selectedRegionId = "", selectedDistrictId = "") => {
+      const eligibleDistricts = (options.rtos || []).filter((district) =>
+        String(district.state_id) === stateSelect.value
+        && String(district.region_id) === String(selectedRegionId)
       );
       rtoSelect.replaceChildren();
-      const placeholder = element("option", "", eligible.length ? "Choose a city" : "No active cities for this state");
+      const placeholder = element("option", "", eligibleDistricts.length ? "Choose a District and RTO code" : "No active Districts for this Region");
       placeholder.value = "";
       placeholder.disabled = true;
       placeholder.selected = true;
       rtoSelect.append(placeholder);
-      eligible.forEach((rto) => {
-        const option = element("option", "", reporterCityLabel(rto));
-        option.value = String(rto.id);
+      eligibleDistricts.forEach((district) => {
+        const option = element("option", "", reporterDistrictLabel(district));
+        option.value = String(district.id);
+        option.selected = String(district.id) === String(selectedDistrictId);
         rtoSelect.append(option);
       });
+      rtoSelect.disabled = eligibleDistricts.length === 0;
       rtoSelect.dispatchEvent(new Event("change"));
-    });
+    };
+    stateSelect.addEventListener("change", () => refreshRegions());
+    regionSelect.addEventListener("change", () => refreshDistricts(regionSelect.value));
+    if (stateSelect.value) refreshRegions(existingRto?.region_id || "");
 
     const documentsStep = addStep("Identity & bank documents", "Upload clear, readable documents. These are stored privately and are visible only to authorized admins reviewing your application.");
     const privacyNote = element("p", "reporter-sensitive-data-note reporter-field-full",
@@ -599,14 +644,16 @@ function renderApplicationForm(action, existing = null) {
     if (!acceptingUpdatedAgreement && summary.hidden) {
       const values = new FormData(form);
       const selectedState = options.states.find((state) => String(state.id) === String(values.get("state_id")));
+      const selectedRegion = (options.regions || []).find((region) => String(region.id) === String(values.get("region_id")));
       const selectedRto = options.rtos.find((rto) => String(rto.id) === String(values.get("rto_office_id")));
       const selectedType = options.types.find((type) => String(type.id) === String(values.get("reporter_type_id")));
       summary.replaceChildren(
         element("strong", "", "Check your application before sending"),
         element("span", "", `State: ${selectedState?.state_name || "—"}`),
-        element("span", "", `City: ${reporterCityLabel(selectedRto)}`),
-        element("span", "", `Area coverage: ${selectedType?.name || "—"}`),
-        element("span", "", `Preferred locations to cover: ${String(values.get("coverage_localities") || "").trim() || "—"}`),
+        element("span", "", `Region: ${selectedRegion?.name || "—"}`),
+        element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
+        element("span", "", `Reporter type: ${selectedType?.name || "—"}`),
+        element("span", "", `Requested coverage areas (admin review required): ${String(values.get("coverage_localities") || "").trim() || "—"}`),
         element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
         element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 4`),
         element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
@@ -666,6 +713,7 @@ function renderApplicationForm(action, existing = null) {
             : null
         };
         payload.state_id = values.get("state_id");
+        payload.region_id = values.get("region_id");
         payload.rto_office_id = values.get("rto_office_id");
         payload.reporter_type_id = values.get("reporter_type_id");
         payload.private_details = {
@@ -871,8 +919,8 @@ function renderStatus() {
     details.append(
       dataItem("Submitted", formatDate(application.created_at)),
       dataItem("Requested state", `${application.state?.state_name || "—"} (${application.state?.state_code || ""})`),
-      dataItem("City", reporterCityLabel(application.rto)),
-      dataItem("Area coverage", `${application.reporter_type?.name || "—"} (${application.reporter_type?.type_code || ""})`),
+      dataItem("District / RTO code", reporterCityLabel(application.rto)),
+      dataItem("Reporter type", `${application.reporter_type?.name || "—"} (${application.reporter_type?.type_code || ""})`),
       dataItem("Agreement", application.agreement_version || "—"),
       dataItem("Agreement accepted", formatDate(application.agreement_accepted_at)),
       dataItem("Review completed", formatDate(application.reviewed_at)),

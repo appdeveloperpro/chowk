@@ -54,7 +54,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0025_enforce_zone_consistent_coverage.sql`, and
    `supabase/migrations/0026_allow_location_deactivation.sql`, and
    `supabase/migrations/0027_add_region_location_level.sql`, and
-   `supabase/migrations/0028_district_rto_codes.sql`. These add account email
+   `supabase/migrations/0028_district_rto_codes.sql`, and
+   `supabase/migrations/0029_reporter_region_district_application.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -134,6 +135,11 @@ Requires Node.js 18 or newer.
    reusing a matching State/code row or creating one when needed. The
    pre-seeded State and Uttar Pradesh RTO records from migration 0009 remain
    available; no separate RTO-code store is introduced.
+   Migration 0029 updates the reporter application location step to use active
+   State > named Region > District choices. The District's linked RTO code is
+   displayed and used automatically; applicants do not enter it. The database
+   and application API reject District selections outside the selected active
+   hierarchy. The reporter ID is still generated after admin approval.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

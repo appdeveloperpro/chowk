@@ -3236,19 +3236,34 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Upload the profile photo, masked Aadhaar, PAN card and bank proof." });
               return;
             }
-            const ids = [body.state_id, body.rto_office_id, body.reporter_type_id].map((value) =>
+            const ids = [body.state_id, body.region_id, body.rto_office_id, body.reporter_type_id].map((value) =>
               value === undefined || value === null || value === "" ? Number.NaN : Number(value)
             );
             if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
-              sendJson(response, 400, { error: "Choose a valid state, RTO and reporter type." });
+              sendJson(response, 400, { error: "Choose a valid state, region, District and reporter type." });
+              return;
+            }
+            const locationCheck = await supabaseRequest("/rest/v1/rpc/chowk_validate_reporter_location", {
+              method: "POST",
+              token: session.token,
+              body: {
+                target_state: ids[0],
+                target_region: ids[1],
+                target_rto: ids[2]
+              }
+            });
+            if (!locationCheck.response.ok) {
+              sendJson(response, locationCheck.response.status, {
+                error: apiErrorMessage(locationCheck.payload, "Choose an active District within the selected Region and State.")
+              });
               return;
             }
             let generatedDocument = null;
             if (body.agreement_version) {
               const context = await reporterAgreementContext(session, {
                 stateId: ids[0],
-                rtoId: ids[1],
-                typeId: ids[2]
+                rtoId: ids[2],
+                typeId: ids[3]
               });
               if (context.agreement.version !== body.agreement_version
                   || context.agreement.sha256 !== body.agreement_sha256) {
@@ -3273,8 +3288,8 @@ const server = http.createServer((request, response) => {
               token: session.token,
               body: {
                 target_state: ids[0],
-                target_rto: ids[1],
-                target_type: ids[2],
+                target_rto: ids[2],
+                target_type: ids[3],
                 accepted_version: body.agreement_version,
                 accepted_sha256: body.agreement_sha256,
                 signer_name: body.signer_name,

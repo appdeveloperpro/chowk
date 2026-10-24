@@ -101,7 +101,7 @@ const modules = {
     related: [
       { label: "District / range mapping history", path: "admin/district-range-mappings" }
     ],
-    description: "Maintain the state, zone, district, range, city, and coverage-area directory.",
+    description: "Maintain the state, zone, district, range, city, and coverage-area directory. Deactivating a location also deactivates its descendants and currently mapped districts. Reactivating a parent does not automatically reactivate its children.",
     createPath: "admin/locations",
     formFields: [
       { name: "name", label: "Location name", type: "text" },

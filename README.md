@@ -51,7 +51,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0022_bidirectional_location_activation.sql`, and
    `supabase/migrations/0023_sync_range_location_activation.sql`, and
    `supabase/migrations/0024_enforce_location_tree.sql`, and
-   `supabase/migrations/0025_enforce_zone_consistent_coverage.sql`. These add account email
+   `supabase/migrations/0025_enforce_zone_consistent_coverage.sql`, and
+   `supabase/migrations/0026_allow_location_deactivation.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -115,6 +116,10 @@ Requires Node.js 18 or newer.
    lack a range when their latest saved zone mapping identifies that zone,
    including descendant coverage areas. Districts with no zone mapping must be
    assigned to a range before they can inherit zone coverage.
+   Migration 0026 allows location deactivation cascades to close historical
+   district/range assignments even after the affected District or Range becomes
+   inactive. New assignments still require active locations and a valid
+   hierarchy.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

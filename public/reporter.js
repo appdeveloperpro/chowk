@@ -15,6 +15,14 @@ function element(tag, className, text) {
   return node;
 }
 
+function reporterCityLabel(rto) {
+  if (!rto) return "—";
+  const city = rto.city_name || rto.rto_code || "Reporting area";
+  return rto.rto_code && rto.city_name
+    ? `${city} (${rto.rto_code})`
+    : city;
+}
+
 function showMessage(text, success = false) {
   messagePanel.textContent = text;
   messagePanel.classList.toggle("success", success);
@@ -410,7 +418,7 @@ function renderApplicationForm(action, existing = null) {
       String(rto.state_id) === String(existing?.state?.id || "")
     ).map((rto) => ({
       id: rto.id,
-      label: rto.city_name || rto.rto_code
+      label: reporterCityLabel(rto)
     }));
     const rtoSelect = addSelectField(areaStep, "City", "rto_office_id", rtoValues, existing?.rto?.id || "", "Choose a state first");
     const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
@@ -433,7 +441,7 @@ function renderApplicationForm(action, existing = null) {
       placeholder.selected = true;
       rtoSelect.append(placeholder);
       eligible.forEach((rto) => {
-        const option = element("option", "", rto.city_name || rto.rto_code);
+        const option = element("option", "", reporterCityLabel(rto));
         option.value = String(rto.id);
         rtoSelect.append(option);
       });
@@ -596,7 +604,7 @@ function renderApplicationForm(action, existing = null) {
       summary.replaceChildren(
         element("strong", "", "Check your application before sending"),
         element("span", "", `State: ${selectedState?.state_name || "—"}`),
-        element("span", "", `City: ${selectedRto?.city_name || selectedRto?.rto_code || "—"}`),
+        element("span", "", `City: ${reporterCityLabel(selectedRto)}`),
         element("span", "", `Area coverage: ${selectedType?.name || "—"}`),
         element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
         element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 4`),
@@ -862,7 +870,7 @@ function renderStatus() {
     details.append(
       dataItem("Submitted", formatDate(application.created_at)),
       dataItem("Requested state", `${application.state?.state_name || "—"} (${application.state?.state_code || ""})`),
-      dataItem("City", application.rto?.city_name || application.rto?.rto_code || "—"),
+      dataItem("City", reporterCityLabel(application.rto)),
       dataItem("Area coverage", `${application.reporter_type?.name || "—"} (${application.reporter_type?.type_code || ""})`),
       dataItem("Agreement", application.agreement_version || "—"),
       dataItem("Agreement accepted", formatDate(application.agreement_accepted_at)),

@@ -1313,6 +1313,17 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (pathname === "/api/admin/district-zone-mappings" && request.method === "GET") {
+      const result = await supabaseRequest(
+        "/rest/v1/zone_districts?select=id,zone_id,district_id,valid_from,valid_to&order=valid_from.desc,id.desc&limit=1000",
+        { token }
+      );
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload || [] }
+        : { error: apiErrorMessage(result.payload, "District/zone mappings could not be loaded.") });
+      return;
+    }
+
     if (pathname === "/api/admin/district-range-mappings" && request.method === "POST") {
       const body = await readJsonBody(request);
       const rangeId = Number(body.range_id);
@@ -1324,7 +1335,11 @@ async function adminRoute(request, response, requestUrl, session) {
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_district_range", {
         method: "POST",
         token,
-        body: { target_range: rangeId, target_district: districtId }
+        body: {
+          target_range: rangeId,
+          target_district: districtId,
+          allow_zone_transfer: body.allow_zone_transfer === true
+        }
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: { id: result.payload } }

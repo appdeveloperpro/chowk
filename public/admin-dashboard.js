@@ -1025,8 +1025,21 @@ function replaceValueOptions(select, values, placeholder, labelFor) {
   }
 }
 
-function openDistrictRangeDialog(locations) {
+async function openDistrictRangeDialog(locations) {
+  let zoneMappings;
+  try {
+    zoneMappings = unwrapData(await apiRequest("admin/district-zone-mappings")) || [];
+  } catch (error) {
+    window.alert(`District/zone mappings could not be loaded: ${error.message}`);
+    return;
+  }
   const byId = new Map(locations.map((location) => [String(location.id), location]));
+  const latestZoneForDistrict = new Map();
+  zoneMappings.forEach((mapping) => {
+    if (!latestZoneForDistrict.has(String(mapping.district_id))) {
+      latestZoneForDistrict.set(String(mapping.district_id), String(mapping.zone_id));
+    }
+  });
   const stateIdFor = (location) => {
     let current = location;
     const visited = new Set();
@@ -1044,29 +1057,49 @@ function openDistrictRangeDialog(locations) {
   }
   openFormDialog(
     "Assign district to range",
-    "This changes the district's actual parent in the location tree. Previous range assignments remain in history.",
+    "Choose a range in the district's mapped zone. Districts without a saved zone mapping can be assigned to any range in their state. Confirm a zone transfer explicitly if the district must move to another zone; zone and range mapping histories will both be retained.",
     (form) => {
       const rangeSelect = appendReporterSelect(form, "range_id", "Range", ranges, (range) => {
         const zone = byId.get(String(range.parent_id));
         return `${range.name} · ${zone?.name || "Zone unavailable"}`;
       });
       const districtSelect = appendReporterSelect(form, "district_id", "District", [], (district) => district.name);
+      const transferLabel = makeElement("label", "admin-form-checkbox");
+      const allowZoneTransfer = document.createElement("input");
+      allowZoneTransfer.type = "checkbox";
+      allowZoneTransfer.name = "allow_zone_transfer";
+      transferLabel.append(
+        allowZoneTransfer,
+        makeElement("span", "", "Confirm transfer to the selected range's zone and record the zone mapping history")
+      );
+      form.append(transferLabel);
       const populateDistricts = () => {
         const range = ranges.find((item) => String(item.id) === rangeSelect.value);
         const zone = byId.get(String(range?.parent_id));
         const selectedStateId = stateIdFor(zone);
-        const eligible = districts.filter((district) =>
-          selectedStateId && stateIdFor(district) === selectedStateId
-        );
+        const eligible = districts.filter((district) => {
+          if (!selectedStateId || stateIdFor(district) !== selectedStateId) return false;
+          if (allowZoneTransfer.checked) return true;
+          const mappedZoneId = latestZoneForDistrict.get(String(district.id));
+          const parent = byId.get(String(district.parent_id));
+          const currentZoneId = parent?.location_type === "range"
+            ? String(parent.parent_id)
+            : "";
+          const expectedZoneId = mappedZoneId || currentZoneId;
+          return !expectedZoneId || expectedZoneId === String(zone?.id);
+        });
         replaceValueOptions(districtSelect, eligible, "Choose a district", (district) => district.name);
       };
-      rangeSelect.addEventListener("change", populateDistricts);
+      [rangeSelect, allowZoneTransfer].forEach((select) =>
+        select.addEventListener("change", populateDistricts)
+      );
       populateDistricts();
     },
     async (values) => {
       await apiRequest("admin/district-range-mappings", "POST", {
         range_id: Number(values.get("range_id")),
-        district_id: Number(values.get("district_id"))
+        district_id: Number(values.get("district_id")),
+        allow_zone_transfer: values.has("allow_zone_transfer")
       });
       await loadSection("locations");
     },

@@ -50,7 +50,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0021_cascade_location_deactivation.sql`, and
    `supabase/migrations/0022_bidirectional_location_activation.sql`, and
    `supabase/migrations/0023_sync_range_location_activation.sql`, and
-   `supabase/migrations/0024_enforce_location_tree.sql`. These add account email
+   `supabase/migrations/0024_enforce_location_tree.sql`, and
+   `supabase/migrations/0025_enforce_zone_consistent_coverage.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -105,6 +106,15 @@ Requires Node.js 18 or newer.
    the separate state, RTO code, and city-name fields used for reporter IDs.
    Districts without a saved range assignment remain visible in the admin
    "Districts needing a range" tab until assigned.
+   Migration 0025 requires district-to-range assignments to stay within the
+   district's latest mapped zone by default. An admin can explicitly confirm a
+   cross-zone transfer; both zone and range mapping histories are then retained.
+   The migration repairs mismatched parents when matching range history exists
+   and stops with affected district IDs if it cannot safely repair them.
+   Zone-level staff coverage also includes active legacy districts that still
+   lack a range when their latest saved zone mapping identifies that zone,
+   including descendant coverage areas. Districts with no zone mapping must be
+   assigned to a range before they can inherit zone coverage.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

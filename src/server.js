@@ -3,7 +3,7 @@ require("dotenv").config({ quiet: true });
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const QRCode = require("qrcode");
 
@@ -20,6 +20,7 @@ const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".pdf": "application/pdf",
   ".png": "image/png"
 };
 
@@ -350,9 +351,9 @@ function readRawBody(request, maxBytes = maxRequestBodyBytes) {
   });
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maxBytes = maxRequestBodyBytes) {
   try {
-    const text = (await readRawBody(request)).toString("utf8");
+    const text = (await readRawBody(request, maxBytes)).toString("utf8");
     const body = JSON.parse(text);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new Error("Request body must be a JSON object.");
@@ -363,6 +364,95 @@ async function readJsonBody(request) {
     throw Object.assign(new Error(error.message === "Request body must be a JSON object."
       ? error.message
       : "Request body must be valid JSON."), { statusCode: 400 });
+  }
+}
+
+async function uploadReporterAgreementPdf(fileBase64, kind, token) {
+  if (!["application", "service"].includes(kind)) {
+    throw Object.assign(new Error("Choose a valid reporter agreement type."), { statusCode: 400 });
+  }
+  if (typeof fileBase64 !== "string"
+      || fileBase64.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 + 4
+      || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(fileBase64)) {
+    throw Object.assign(new Error("Choose a PDF file no larger than 8 MB."), { statusCode: 400 });
+  }
+  const file = Buffer.from(fileBase64, "base64");
+  const pdfEnd = file.lastIndexOf(Buffer.from("%%EOF"));
+  if (file.length < 10 || file.length > 8 * 1024 * 1024
+      || file.subarray(0, 5).toString("ascii") !== "%PDF-"
+      || pdfEnd < Math.max(5, file.length - 2048)) {
+    throw Object.assign(new Error("The uploaded file is not a valid PDF document."), { statusCode: 400 });
+  }
+
+  const objectPath = `${kind}/${randomUUID()}.pdf`;
+  const { url, key } = supabaseConfig();
+  const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+  const result = await fetch(`${url}/storage/v1/object/chowk-reporter-agreements/${encodedPath}`, {
+    method: "POST",
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/pdf",
+      "x-upsert": "false"
+    },
+    body: file,
+    signal: AbortSignal.timeout(apiTimeoutMs),
+    cache: "no-store"
+  });
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(payload, "The agreement PDF could not be uploaded to Supabase Storage.")),
+      { statusCode: result.status }
+    );
+  }
+  return {
+    object_path: objectPath,
+    document_url: `/api/reporter/agreement-documents/${kind}/${objectPath.split("/")[1]}`,
+    sha256: createHash("sha256").update(file).digest("hex")
+  };
+}
+
+async function signedReporterAgreementPdfUrl(objectPath, token) {
+  if (typeof objectPath !== "string" || !/^(application|service)\/[0-9a-f-]{36}\.pdf$/.test(objectPath)) {
+    throw new Error("The agreement PDF reference is invalid.");
+  }
+  const { url, key } = supabaseConfig();
+  const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+  const result = await fetch(`${url}/storage/v1/object/sign/chowk-reporter-agreements/${encodedPath}`, {
+    method: "POST",
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${token || key}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ expiresIn: 600 }),
+    signal: AbortSignal.timeout(apiTimeoutMs),
+    cache: "no-store"
+  });
+  const payload = await result.json().catch(() => ({}));
+  if (!result.ok || typeof payload.signedURL !== "string") {
+    throw new Error(apiErrorMessage(payload, "The agreement PDF could not be authorized for preview."));
+  }
+  if (/^https?:\/\//i.test(payload.signedURL)) return payload.signedURL;
+  return `${url}/storage/v1${payload.signedURL.startsWith("/") ? "" : "/"}${payload.signedURL}`;
+}
+
+async function removeReporterAgreementPdf(objectPath, token) {
+  if (typeof objectPath !== "string" || !/^(application|service)\/[0-9a-f-]{36}\.pdf$/.test(objectPath)) {
+    return;
+  }
+  const { url, key } = supabaseConfig();
+  const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+  const result = await fetch(`${url}/storage/v1/object/chowk-reporter-agreements/${encodedPath}`, {
+    method: "DELETE",
+    headers: { apikey: key, Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(apiTimeoutMs),
+    cache: "no-store"
+  });
+  if (!result.ok && result.status !== 404) {
+    const payload = await result.json().catch(() => ({}));
+    throw new Error(apiErrorMessage(payload, "The uploaded agreement PDF could not be removed."));
   }
 }
 
@@ -592,7 +682,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
+        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -655,14 +745,15 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-options" && request.method === "GET") {
-      const [states, rtos, types, agreements, serviceAgreements] = await Promise.all([
+      const [states, rtos, types, agreements, serviceAgreements, organizationProfile] = await Promise.all([
         supabaseRequest("/rest/v1/states?select=id,state_code,state_name,is_active&order=state_name.asc&limit=500", { token }),
         supabaseRequest("/rest/v1/rto_offices?select=id,state_id,rto_code,city_name,is_active&order=rto_code.asc&limit=1000", { token }),
         supabaseRequest("/rest/v1/reporter_types?select=id,name,type_code,description,is_active&order=name.asc&limit=500", { token }),
         supabaseRequest("/rest/v1/reporter_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token }),
-        supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token })
+        supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token }),
+        supabaseRequest("/rest/v1/reporter_organization_profile?select=id,legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified,updated_at&limit=1", { token })
       ]);
-      for (const result of [states, rtos, types, agreements, serviceAgreements]) {
+      for (const result of [states, rtos, types, agreements, serviceAgreements, organizationProfile]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Reporter configuration could not be loaded.")
@@ -675,8 +766,68 @@ async function adminRoute(request, response, requestUrl, session) {
         rtos: rtos.payload || [],
         reporter_types: types.payload || [],
         agreements: agreements.payload || [],
-        service_agreements: serviceAgreements.payload || []
+        service_agreements: serviceAgreements.payload || [],
+        organization_profile: organizationProfile.payload?.[0] || null
       } });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-organization-profile" && request.method === "PATCH") {
+      const body = await readJsonBody(request);
+      if (typeof body.is_verified !== "boolean") {
+        sendJson(response, 400, { error: "Choose whether the organization legal profile is verified." });
+        return;
+      }
+      const stringField = (name) => typeof body[name] === "string" ? body[name].trim() : "";
+      const profile = {
+        legal_name: stringField("legal_name"),
+        trade_name: stringField("trade_name"),
+        entity_type: stringField("entity_type"),
+        registered_address: stringField("registered_address"),
+        registration_number: stringField("registration_number"),
+        official_email: stringField("official_email").toLowerCase(),
+        official_phone: stringField("official_phone"),
+        website_url: stringField("website_url"),
+        is_verified: body.is_verified === true,
+        updated_by: session.identity.id
+      };
+      if (profile.legal_name.length < 2 || profile.legal_name.length > 160
+          || profile.trade_name.length < 2 || profile.trade_name.length > 160
+          || profile.entity_type.length < 2 || profile.entity_type.length > 100
+          || profile.registered_address.length < 5 || profile.registered_address.length > 500
+          || profile.registration_number.length > 100
+          || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.official_email)
+          || profile.official_email.length > 254
+          || profile.official_phone.length < 7 || profile.official_phone.length > 40
+          || profile.website_url.length > 500) {
+        sendJson(response, 400, { error: "Complete the legal name, trading name, entity type, registered address, valid official email, and official phone." });
+        return;
+      }
+      if (profile.website_url) {
+        try {
+          if (new URL(profile.website_url).protocol !== "https:") throw new Error("invalid");
+        } catch {
+          sendJson(response, 400, { error: "The organization website must be a valid HTTPS URL." });
+          return;
+        }
+      }
+      if (profile.is_verified && (body.confirm_legal_details !== true
+          || /^DEMO ONLY/i.test(profile.legal_name)
+          || /^DEMO ONLY/i.test(profile.trade_name)
+          || /^DEMO ONLY/i.test(profile.entity_type)
+          || /^DEMO ONLY/i.test(profile.registered_address)
+          || profile.official_email.endsWith("@example.invalid")
+          || profile.official_phone === "+910000000000")) {
+        sendJson(response, 400, { error: "Replace the demo values and confirm that the legal details are verified before marking the profile verified." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/reporter_organization_profile?id=eq.true", {
+        method: "PATCH", token, body: profile,
+        prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok && result.payload?.[0]
+        ? { success: true, data: result.payload[0] }
+        : { error: apiErrorMessage(result.payload, "Organization legal profile could not be saved.") });
       return;
     }
 
@@ -1052,9 +1203,41 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    const agreementPreview = pathname.match(/^\/api\/admin\/reporter-(service-)?agreements\/(\d+)\/preview$/);
+    if (agreementPreview && request.method === "GET") {
+      const isService = Boolean(agreementPreview[1]);
+      const table = isService ? "reporter_service_agreement_versions" : "reporter_agreement_versions";
+      const result = await supabaseRequest(
+        `/rest/v1/${table}?select=document_url,storage_object_path&id=eq.${agreementPreview[2]}&limit=1`,
+        { token }
+      );
+      if (!result.response.ok || !result.payload?.[0]) {
+        sendJson(response, result.response.ok ? 404 : result.response.status, {
+          error: apiErrorMessage(result.payload, "Agreement version could not be loaded for preview.")
+        });
+        return;
+      }
+      const agreement = result.payload[0];
+      let previewUrl;
+      if (agreement.storage_object_path) {
+        previewUrl = await signedReporterAgreementPdfUrl(agreement.storage_object_path, token);
+      } else {
+        try {
+          previewUrl = new URL(agreement.document_url).toString();
+          if (new URL(previewUrl).protocol !== "https:") throw new Error("invalid");
+        } catch {
+          sendJson(response, 400, { error: "This agreement does not contain a valid HTTPS document URL." });
+          return;
+        }
+      }
+      response.writeHead(302, { Location: previewUrl, "Cache-Control": "no-store" });
+      response.end();
+      return;
+    }
+
     if (pathname === "/api/admin/reporter-agreements" && request.method === "GET") {
       const result = await supabaseRequest(
-        "/rest/v1/reporter_agreement_versions?select=id,version,sha256,document_url,status,created_by,published_by,published_at,created_at&order=created_at.desc",
+        "/rest/v1/reporter_agreement_versions?select=id,version,sha256,document_url,storage_object_path,status,created_by,published_by,published_at,created_at&order=created_at.desc",
         { token }
       );
       sendJson(response, result.response.status, result.response.ok
@@ -1064,27 +1247,32 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-agreements" && request.method === "POST") {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, 12 * 1024 * 1024);
       const version = typeof body.version === "string" ? body.version.trim() : "";
-      const sha256 = typeof body.sha256 === "string" ? body.sha256.trim().toLowerCase() : "";
-      const documentUrl = typeof body.document_url === "string" ? body.document_url.trim() : "";
-      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version) || !/^[a-f0-9]{64}$/.test(sha256)) {
-        sendJson(response, 400, { error: "Enter a short version label and a 64-character SHA-256 hash." });
+      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version)) {
+        sendJson(response, 400, { error: "Enter a short version label using letters, numbers, dots, underscores, or hyphens." });
         return;
       }
-      try {
-        const parsedUrl = new URL(documentUrl);
-        if (parsedUrl.protocol !== "https:") throw new Error("invalid");
-      } catch {
-        sendJson(response, 400, { error: "Enter a valid agreement document URL." });
-        return;
-      }
+      const uploaded = await uploadReporterAgreementPdf(body.file_base64, "application", token);
       const result = await supabaseRequest("/rest/v1/reporter_agreement_versions", {
         method: "POST",
         token,
-        body: { version, sha256, document_url: documentUrl, created_by: session.identity.id },
+        body: {
+          version,
+          sha256: uploaded.sha256,
+          document_url: uploaded.document_url,
+          storage_object_path: uploaded.object_path,
+          created_by: session.identity.id
+        },
         prefer: "return=representation"
       });
+      if (!result.response.ok) {
+        try {
+          await removeReporterAgreementPdf(uploaded.object_path, token);
+        } catch (error) {
+          console.error("Could not clean up unregistered reporter agreement PDF:", error.message);
+        }
+      }
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload?.[0] }
         : { error: apiErrorMessage(result.payload, "Agreement version could not be added.") });
@@ -1093,7 +1281,7 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/reporter-service-agreements" && request.method === "GET") {
       const result = await supabaseRequest(
-        "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,created_by,published_by,published_at,created_at&order=created_at.desc",
+        "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,storage_object_path,status,created_by,published_by,published_at,created_at&order=created_at.desc",
         { token }
       );
       sendJson(response, result.response.status, result.response.ok
@@ -1103,29 +1291,48 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-service-agreements" && request.method === "POST") {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, 12 * 1024 * 1024);
       const version = typeof body.version === "string" ? body.version.trim() : "";
-      const sha256 = typeof body.sha256 === "string" ? body.sha256.trim().toLowerCase() : "";
-      const documentUrl = typeof body.document_url === "string" ? body.document_url.trim() : "";
-      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version) || !/^[a-f0-9]{64}$/.test(sha256)) {
-        sendJson(response, 400, { error: "Enter a valid version label and 64-character SHA-256." });
+      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version)) {
+        sendJson(response, 400, { error: "Enter a short version label using letters, numbers, dots, underscores, or hyphens." });
         return;
       }
-      try {
-        if (new URL(documentUrl).protocol !== "https:") throw new Error("invalid");
-      } catch {
-        sendJson(response, 400, { error: "Enter a valid HTTPS service agreement URL." });
-        return;
-      }
+      const uploaded = await uploadReporterAgreementPdf(body.file_base64, "service", token);
       const result = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
         method: "POST",
         token,
-        body: { version, sha256, document_url: documentUrl, created_by: session.identity.id },
+        body: {
+          version,
+          sha256: uploaded.sha256,
+          document_url: uploaded.document_url,
+          storage_object_path: uploaded.object_path,
+          created_by: session.identity.id
+        },
         prefer: "return=representation"
       });
+      if (!result.response.ok) {
+        try {
+          await removeReporterAgreementPdf(uploaded.object_path, token);
+        } catch (error) {
+          console.error("Could not clean up unregistered reporter service agreement PDF:", error.message);
+        }
+      }
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload?.[0] }
         : { error: apiErrorMessage(result.payload, "Service agreement version could not be added.") });
+      return;
+    }
+
+    const archiveServiceAgreement = pathname.match(/^\/api\/admin\/reporter-service-agreements\/(\d+)\/archive$/);
+    if (archiveServiceAgreement && request.method === "POST") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_archive_reporter_service_agreement", {
+        method: "POST",
+        token,
+        body: { target_agreement: Number(archiveServiceAgreement[1]) }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Service agreement could not be archived.") });
       return;
     }
 
@@ -1139,6 +1346,19 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
         : { error: apiErrorMessage(result.payload, "Service agreement could not be published.") });
+      return;
+    }
+
+    const archiveAgreement = pathname.match(/^\/api\/admin\/reporter-agreements\/(\d+)\/archive$/);
+    if (archiveAgreement && request.method === "POST") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_archive_reporter_agreement", {
+        method: "POST",
+        token,
+        body: { target_agreement: Number(archiveAgreement[1]) }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Agreement could not be archived.") });
       return;
     }
 
@@ -2252,6 +2472,47 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  const publicAgreementDocument = requestUrl.pathname.match(
+    /^\/api\/reporter\/agreement-documents\/(application|service)\/([0-9a-f-]{36}\.pdf)$/
+  );
+  if (publicAgreementDocument && request.method === "GET") {
+    void (async () => {
+      try {
+        const kind = publicAgreementDocument[1];
+        const objectPath = `${kind}/${publicAgreementDocument[2]}`;
+        const agreementSession = await getSession(request, response, userCookie);
+        const table = kind === "application"
+          ? "reporter_agreement_versions"
+          : "reporter_service_agreement_versions";
+        const query = new URLSearchParams({
+          select: "storage_object_path",
+          storage_object_path: `eq.${objectPath}`,
+          limit: "1"
+        });
+        const result = await supabaseRequest(`/rest/v1/${table}?${query}`, {
+          token: agreementSession?.token
+        });
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "Agreement document could not be loaded.")
+          });
+          return;
+        }
+        if (result.payload?.[0]?.storage_object_path !== objectPath) {
+          sendJson(response, 404, { error: "This agreement document is not published or linked to an acceptance." });
+          return;
+        }
+        const signedUrl = await signedReporterAgreementPdfUrl(objectPath, agreementSession?.token);
+        response.writeHead(302, { Location: signedUrl, "Cache-Control": "no-store" });
+        response.end();
+      } catch (error) {
+        console.error("Reporter agreement document request failed:", error.message);
+        sendJson(response, 503, { error: "The reporter agreement document is temporarily unavailable." });
+      }
+    })();
+    return;
+  }
+
   if (requestUrl.pathname === "/api/reporter/options" && request.method === "GET") {
     void (async () => {
       try {
@@ -2345,12 +2606,13 @@ const server = http.createServer((request, response) => {
           }
           if (requestUrl.pathname === "/api/reporter/applications" && request.method === "POST") {
             const body = await readJsonBody(request);
-            const required = ["state_id", "rto_office_id", "reporter_type_id", "agreement_version", "agreement_sha256", "signer_name", "acceptance_statement"];
-            if (required.some((key) => body[key] === undefined || body[key] === null || String(body[key]).trim() === "")) {
-              sendJson(response, 400, { error: "Complete all reporter application and agreement fields." });
+            if (body.details_confirmed !== true) {
+              sendJson(response, 400, { error: "Confirm that your reporter application details are accurate." });
               return;
             }
-            const ids = [body.state_id, body.rto_office_id, body.reporter_type_id].map(Number);
+            const ids = [body.state_id, body.rto_office_id, body.reporter_type_id].map((value) =>
+              value === undefined || value === null || value === "" ? Number.NaN : Number(value)
+            );
             if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
               sendJson(response, 400, { error: "Choose a valid state, RTO and reporter type." });
               return;
@@ -2365,7 +2627,8 @@ const server = http.createServer((request, response) => {
                 accepted_version: body.agreement_version,
                 accepted_sha256: body.agreement_sha256,
                 signer_name: body.signer_name,
-                acceptance_statement: body.acceptance_statement
+                acceptance_statement: body.acceptance_statement,
+                details_confirmed: body.details_confirmed
               }
             });
             sendJson(response, result.response.status, result.response.ok

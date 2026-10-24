@@ -95,10 +95,24 @@ function addAgreement(root, agreement, signerName) {
   checkbox.required = true;
   acceptance.append(
     checkbox,
-    element("span", "", "I have read the application agreement, am eligible to apply, and accept its terms for this application. The separate service agreement comes after approval.")
+    element("span", "", "I have read and accept this published reporter application agreement.")
   );
   box.append(acceptance);
   return box;
+}
+
+function addDraftAgreementNotice(root) {
+  const notice = element("section", "reporter-agreement reporter-agreement-draft full-width");
+  notice.append(
+    element("strong", "", "Reporter engagement agreement · Draft preview"),
+    element("p", "reporter-card-copy", "This document is a draft for legal review and contains unfinished fields. It is provided for preview only; submitting your application does not accept or sign this draft.")
+  );
+  const link = element("a", "", "Open the draft agreement (PDF)");
+  link.href = "/documents/reporter-engagement-agreement-draft.pdf";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  notice.append(link);
+  root.append(notice);
 }
 
 function renderApplicationForm(action, existing = null) {
@@ -115,15 +129,9 @@ function renderApplicationForm(action, existing = null) {
     element("p", "reporter-card-copy", acceptingUpdatedAgreement
       ? "The agreement version changed. Accept the current version before your pending application can continue to review."
       : resubmitting
-        ? "Update the requested details, review the current agreement, and submit again. Your account remains a subscriber until onboarding is complete."
-        : "Create your application after account verification. Approval is not field authorization: you will receive an authority letter to review and acknowledge before reporter access is activated.")
+        ? "Update the requested details and resubmit for admin review. Your subscriber account remains available while the application is reviewed."
+        : "Complete your reporter application below. An admin reviews the application—not your account—and your account remains a subscriber until reporter onboarding is complete.")
   );
-  if (!options?.agreement || (!acceptingUpdatedAgreement && !options?.service_agreement)) {
-    applicationPanel.append(element("p", "reporter-empty", !options?.agreement
-      ? "Reporter applications are temporarily closed because no application agreement is published."
-      : "Reporter applications are temporarily closed because no service / appointment agreement is published. Please check back later."));
-    return;
-  }
 
   const form = element("form", "reporter-form-grid");
   if (!acceptingUpdatedAgreement) {
@@ -161,9 +169,25 @@ function renderApplicationForm(action, existing = null) {
   }
 
   form.classList.add("reporter-form-grid");
-  form.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name));
-  const agreementBox = form.lastElementChild;
-  agreementBox.classList.add("full-width");
+  if (options?.agreement) {
+    form.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name));
+    form.lastElementChild.classList.add("full-width");
+  } else if (!acceptingUpdatedAgreement) {
+    addDraftAgreementNotice(form);
+  }
+  if (!acceptingUpdatedAgreement) {
+    const declaration = document.createElement("label");
+    declaration.className = "reporter-check full-width";
+    const confirmed = document.createElement("input");
+    confirmed.type = "checkbox";
+    confirmed.name = "details_confirmed";
+    confirmed.required = true;
+    declaration.append(
+      confirmed,
+      element("span", "", "I confirm that the information in this reporter application is accurate.")
+    );
+    form.append(declaration);
+  }
   const submit = element("button", "reporter-button", acceptingUpdatedAgreement
     ? "Accept current agreement"
     : resubmitting
@@ -188,8 +212,10 @@ function renderApplicationForm(action, existing = null) {
         element("strong", "", "Check your application before sending"),
         element("span", "", `Reporting area: ${selectedState?.state_name || "—"} · ${selectedRto?.rto_code || "—"} ${selectedRto?.city_name || ""}`),
         element("span", "", `Reporter type: ${selectedType?.name || "—"}`),
-        element("span", "", `Agreement version: ${options.agreement.version}`),
-        element("span", "", "Your account stays a subscriber until an authority letter is acknowledged.")
+        element("span", "", options.agreement
+          ? `Application agreement: version ${options.agreement.version} accepted`
+          : "Application agreement: draft preview only; no legal agreement acceptance is recorded."),
+        element("span", "", "An admin reviews this application. Your account stays a subscriber until onboarding is complete.")
       );
       summary.hidden = false;
       submit.textContent = "Confirm and submit";
@@ -199,16 +225,25 @@ function renderApplicationForm(action, existing = null) {
     submit.disabled = true;
     submit.textContent = "Submitting…";
     const values = new FormData(form);
-    const payload = {
-      agreement_version: options.agreement.version,
-      agreement_sha256: options.agreement.sha256,
-      signer_name: String(values.get("signer_name") || "").trim(),
-      acceptance_statement: "I have read and accept the Chowk reporter agreement."
-    };
     try {
       if (acceptingUpdatedAgreement) {
+        const payload = {
+          agreement_version: options.agreement.version,
+          agreement_sha256: options.agreement.sha256,
+          signer_name: String(values.get("signer_name") || "").trim(),
+          acceptance_statement: "I have read and accept the Chowk reporter application agreement."
+        };
         await request("/api/reporter/agreement/accept", "POST", payload);
       } else {
+        const payload = {
+          details_confirmed: values.get("details_confirmed") === "on",
+          agreement_version: options.agreement?.version || null,
+          agreement_sha256: options.agreement?.sha256 || null,
+          signer_name: options.agreement ? String(values.get("signer_name") || "").trim() : null,
+          acceptance_statement: options.agreement
+            ? "I have read and accept the Chowk reporter application agreement."
+            : null
+        };
         payload.state_id = values.get("state_id");
         payload.rto_office_id = values.get("rto_office_id");
         payload.reporter_type_id = values.get("reporter_type_id");

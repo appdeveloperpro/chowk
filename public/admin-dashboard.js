@@ -34,7 +34,7 @@ const modules = {
   },
   "reporter-applications": {
     path: "admin/reporter-applications",
-    description: "Review applications, request missing information, then approve before reporter onboarding."
+    description: "Review each reporter application, request missing information, then approve or reject the application."
   },
   "reporter-directory": {
     path: "admin/reporter-directory",
@@ -50,11 +50,11 @@ const modules = {
   },
   "reporter-agreements": {
     path: "admin/reporter-agreements",
-    description: "Publish the immutable terms applicants accept when submitting an application."
+    description: "Upload immutable PDF versions, preview drafts, publish or archive application terms, and inspect the exact SHA-256 reporters accept."
   },
   "reporter-service-agreements": {
     path: "admin/reporter-service-agreements",
-    description: "Publish the separate service and appointment terms approved reporters must accept before receiving an authority letter."
+    description: "Upload immutable PDF versions, preview drafts, publish or archive service terms, and inspect the exact SHA-256 approved reporters accept."
   },
   "reporter-options": {
     path: "admin/reporter-options",
@@ -566,7 +566,8 @@ function renderReporterAdminSection(section, root, data) {
       email: application.user?.email || "—",
       state_name: application.state?.state_name || "—",
       reporting_area: [application.rto?.rto_code, application.rto?.city_name].filter(Boolean).join(" · ") || "—",
-      reporter_type_name: application.reporter_type?.name || "—"
+      reporter_type_name: application.reporter_type?.name || "—",
+      details_confirmed: application.applicant_details_confirmed ? "Confirmed" : "Not recorded"
     }));
     reporterPanel(root, "Reporter applications", rows, section);
     return;
@@ -643,30 +644,38 @@ function renderReporterAdminSection(section, root, data) {
 
   if (section === "reporter-agreements") {
     const agreements = Array.isArray(data) ? data : [];
+    const currentVersion = agreements.find((agreement) => agreement.status === "published")?.version || "";
     const rows = agreements.map((agreement) => ({
       version: agreement.version,
       sha256: agreement.sha256,
-      document_url: agreement.document_url,
+      document: agreement.document_url ? "PDF available" : "No document",
       status: agreement.status,
       published_at: formatDate(agreement.published_at),
+      document_url: agreement.document_url,
+      _storage_object_path: agreement.storage_object_path,
+      _published_version: currentVersion,
       id: agreement.id
     }));
-    reporterActionButton(root, "Add agreement version", () => openAgreementDialog());
+    reporterActionButton(root, "Upload new application agreement version", () => openAgreementDialog("application"));
     reporterPanel(root, "Versioned agreements", rows, section);
     return;
   }
 
   if (section === "reporter-service-agreements") {
     const agreements = Array.isArray(data) ? data : [];
+    const currentVersion = agreements.find((agreement) => agreement.status === "published")?.version || "";
     const rows = agreements.map((agreement) => ({
       version: agreement.version,
       sha256: agreement.sha256,
-      document_url: agreement.document_url,
+      document: agreement.document_url ? "PDF available" : "No document",
       status: agreement.status,
       published_at: formatDate(agreement.published_at),
+      document_url: agreement.document_url,
+      _storage_object_path: agreement.storage_object_path,
+      _published_version: currentVersion,
       id: agreement.id
     }));
-    reporterActionButton(root, "Add service agreement version", () => openServiceAgreementDialog());
+    reporterActionButton(root, "Upload new service agreement version", () => openAgreementDialog("service"));
     reporterPanel(root, "Reporter service agreements", rows, section);
     return;
   }
@@ -686,7 +695,14 @@ function renderReporterSetup(root, data) {
   const publishedAgreement = agreements.find((agreement) => agreement.status === "published");
   const serviceAgreements = data.service_agreements || [];
   const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
+  const organizationProfile = data.organization_profile;
   const setupSections = [
+    {
+      key: "organization_profile",
+      title: "Organization legal profile",
+      count: organizationProfile?.is_verified ? "Verified" : "Demo only",
+      detail: organizationProfile?.legal_name || "Add organization legal details before publishing agreements."
+    },
     {
       key: "states",
       title: "States & UTs",
@@ -708,28 +724,28 @@ function renderReporterSetup(root, data) {
     {
       key: "agreement",
       title: "Application agreement",
-      count: publishedAgreement ? "Ready" : "Required",
-      detail: publishedAgreement?.version || "Publish an agreement to accept applications."
+      count: publishedAgreement ? "Published" : "Optional",
+      detail: publishedAgreement?.version || "Applications stay open; publish finalized terms to collect acceptance."
     },
     {
       key: "service_agreement",
       title: "Service agreement",
-      count: publishedServiceAgreement ? "Ready" : "Required",
-      detail: publishedServiceAgreement?.version || "Publish appointment terms before accepting applications."
+      count: publishedServiceAgreement ? "Published" : "Needed for credentials",
+      detail: publishedServiceAgreement?.version || "Publish finalized service terms before issuing reporter credentials."
     }
   ];
   const overview = makeElement("section", "reporter-setup-overview");
   const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
   overviewHeading.append(
     makeElement("div", "", "REPORTER APPLICATION & ONBOARDING SETUP"),
-    makeElement("p", "", "Publish both required documents and configure active coverage choices before accepting applications.")
+    makeElement("p", "", "Applications stay open. Verify the organization profile and prepare approved agreements for onboarding, then configure active coverage choices.")
   );
   overview.append(overviewHeading);
 
   const cards = makeElement("div", "reporter-setup-cards");
   setupSections.forEach((item) => {
-    const needsAttention = (item.key === "agreement" && !publishedAgreement)
-      || (item.key === "service_agreement" && !publishedServiceAgreement);
+    const needsAttention = (item.key === "service_agreement" && !publishedServiceAgreement)
+      || (item.key === "organization_profile" && !organizationProfile?.is_verified);
     const card = makeElement("button", `reporter-setup-card${needsAttention ? " needs-attention" : ""}`);
     card.type = "button";
     card.setAttribute("aria-pressed", String(reporterSetupView === item.key));
@@ -758,13 +774,15 @@ function renderReporterSetup(root, data) {
   overview.append(cards);
 
   if (reporterSetupView === "overview") {
-    const reporterSetupReady = Boolean(publishedAgreement && publishedServiceAgreement);
+    const reporterSetupReady = Boolean(publishedAgreement && publishedServiceAgreement && organizationProfile?.is_verified);
     const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
-      makeElement("strong", "", reporterSetupReady ? "Reporter documents published" : "Applications are not ready"),
+      makeElement("strong", "", reporterSetupReady && organizationProfile?.is_verified
+        ? "Reporter documents published"
+        : "Applications open · onboarding agreements need setup"),
       makeElement("span", "", reporterSetupReady
-        ? "New applications can accept the application agreement; approved applicants can later accept the separate service agreement."
-        : "Publish both the application agreement and the separate service / appointment agreement before accepting reporter applications.")
+        ? "Applicants can accept the current application agreement; approved applicants can later accept the separate service agreement before receiving credentials."
+        : "Reporter applications can be submitted and reviewed without a published application agreement. Verify the organization profile and publish finalized service terms before issuing reporter credentials.")
     );
     overview.append(setupNote);
     root.append(overview);
@@ -792,8 +810,53 @@ function renderReporterSetup(root, data) {
     rowButton(actions, "Add RTO / area", () => openRtoDialog(states), "admin-primary-button reporter-setup-add");
   } else if (reporterSetupView === "types") {
     rowButton(actions, "Add reporter type", () => openConfiguredRecordDialog("reporter-types", null), "admin-primary-button reporter-setup-add");
+  } else if (reporterSetupView === "organization_profile") {
+    rowButton(
+      actions,
+      organizationProfile ? "Edit legal profile" : "Set up legal profile",
+      () => openReporterOrganizationProfileDialog(organizationProfile),
+      "admin-primary-button reporter-setup-add"
+    );
   }
   header.append(actions);
+
+  if (reporterSetupView === "organization_profile") {
+    const profileCard = makeElement("div", "reporter-organization-profile");
+    const verified = organizationProfile?.is_verified === true;
+    profileCard.append(
+      makeElement(
+        "div",
+        `reporter-organization-status${verified ? " is-verified" : " is-demo"}`,
+        verified ? "Legal profile verified" : "DEMO PLACEHOLDERS · NOT FOR LEGAL USE"
+      ),
+      makeElement(
+        "p",
+        "reporter-organization-help",
+        "These details are stored for admin setup only; they are not automatically inserted into PDFs. Replace them with verified company details, then host the finalized, lawyer-reviewed PDF and register its HTTPS URL, version, and exact SHA-256 in the agreement manager."
+      )
+    );
+    const profileFields = [
+      ["Legal name", organizationProfile?.legal_name],
+      ["Trading name", organizationProfile?.trade_name],
+      ["Entity type", organizationProfile?.entity_type],
+      ["Registered address", organizationProfile?.registered_address],
+      ["Registration number", organizationProfile?.registration_number || "Not provided"],
+      ["Official email", organizationProfile?.official_email],
+      ["Official phone", organizationProfile?.official_phone],
+      ["Website", organizationProfile?.website_url || "Not provided"]
+    ];
+    const details = makeElement("dl", "reporter-organization-fields");
+    profileFields.forEach(([label, value]) => {
+      details.append(
+        makeElement("dt", "", label),
+        makeElement("dd", "", value || "Not configured")
+      );
+    });
+    profileCard.append(details);
+    section.append(header, profileCard);
+    root.append(overview, section);
+    return;
+  }
 
   let rows = [];
   let tableSection = "reporter-options";
@@ -1088,39 +1151,132 @@ function openCredentialDialog(staff) {
   );
 }
 
-function openAgreementDialog() {
-  openFormDialog(
-    "Add agreement version",
-    "The SHA-256 must match the published document exactly. Publishing archives the previous current version; applicants must accept the new version.",
+function openAgreementDialog(kind) {
+  const isService = kind === "service";
+  const path = isService ? "admin/reporter-service-agreements" : "admin/reporter-agreements";
+  const section = isService ? "reporter-service-agreements" : "reporter-agreements";
+  let selectedFile = null;
+  let previewUrl = "";
+  const dialog = openFormDialog(
+    `Upload new ${isService ? "service" : "application"} agreement version`,
+    "Upload the complete, lawyer-reviewed PDF. The server calculates and records the exact SHA-256. Published versions cannot be edited; publish a replacement version to supersede one.",
     (form) => {
-      addField(form, "Version label", "version", "text", "", { maxLength: 40 });
-      const hash = addField(form, "Document SHA-256", "sha256", "text", "");
-      hash.pattern = "[a-fA-F0-9]{64}";
-      addField(form, "HTTPS document URL", "document_url", "url", "");
+      const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
+      version.pattern = "[a-zA-Z0-9._-]{1,40}";
+      const fileLabel = makeElement("label", "admin-form-field");
+      fileLabel.append(makeElement("span", "", "Finalized agreement PDF (maximum 8 MB)"));
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.name = "agreement_pdf";
+      fileInput.accept = "application/pdf,.pdf";
+      fileInput.required = true;
+      fileLabel.append(fileInput);
+      form.append(fileLabel);
+      const fileStatus = makeElement("p", "admin-dialog-help", "Only a PDF is accepted. Its SHA-256 is calculated on the server and bound to this immutable version.");
+      fileStatus.setAttribute("aria-live", "polite");
+      form.append(fileStatus);
+      const preview = makeElement("button", "admin-secondary-button", "Preview selected PDF");
+      preview.type = "button";
+      preview.disabled = true;
+      preview.addEventListener("click", () => {
+        if (!previewUrl) return;
+        const previewWindow = window.open(previewUrl, "_blank");
+        if (previewWindow) previewWindow.opener = null;
+        else window.alert("Allow pop-ups to preview the selected agreement PDF.");
+      });
+      form.append(preview);
+      fileInput.addEventListener("change", () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        selectedFile = fileInput.files?.[0] || null;
+        previewUrl = selectedFile ? URL.createObjectURL(selectedFile) : "";
+        preview.disabled = !selectedFile;
+        if (!selectedFile) {
+          fileInput.setCustomValidity("");
+          fileStatus.textContent = "Only a PDF is accepted. Its SHA-256 is calculated on the server and bound to this immutable version.";
+        } else if (selectedFile.size > 8 * 1024 * 1024) {
+          fileStatus.textContent = "This file exceeds the 8 MB limit.";
+          fileInput.setCustomValidity("Choose a PDF no larger than 8 MB.");
+        } else {
+          fileStatus.textContent = `Selected: ${selectedFile.name} · ${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB`;
+          fileInput.setCustomValidity("");
+        }
+      });
     },
     async (values) => {
-      await apiRequest("admin/reporter-agreements", "POST", Object.fromEntries(values.entries()));
-      await loadSection("reporter-agreements");
+      if (!selectedFile || selectedFile.size > 8 * 1024 * 1024) {
+        throw new Error("Choose a PDF file no larger than 8 MB.");
+      }
+      const bytes = new Uint8Array(await selectedFile.arrayBuffer());
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      await apiRequest(path, "POST", {
+        version: values.get("version"),
+        file_base64: btoa(binary)
+      });
+      await loadSection(section);
     },
-    "Add draft"
+    "Save draft"
   );
+  dialog.addEventListener("close", () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, { once: true });
 }
 
-function openServiceAgreementDialog() {
+function openReporterOrganizationProfileDialog(profile) {
   openFormDialog(
-    "Add service agreement version",
-    "Publish only a reviewed and approved document. The reporter must accept its exact version and SHA-256 after application approval and before an authority letter can be issued.",
+    "Organization legal profile",
+    "Use the registered legal identity and official contact details that appear on finalized agreement PDFs. Demo values can be saved for setup, but agreements cannot be published until the profile is verified.",
     (form) => {
-      addField(form, "Version label", "version", "text", "", { maxLength: 40 });
-      const hash = addField(form, "Document SHA-256", "sha256", "text", "");
-      hash.pattern = "[a-fA-F0-9]{64}";
-      addField(form, "HTTPS document URL", "document_url", "url", "");
+      addField(form, "Registered legal name", "legal_name", "text", profile?.legal_name, { maxLength: 160 });
+      addField(form, "Trading name", "trade_name", "text", profile?.trade_name, { maxLength: 160 });
+      addField(form, "Entity type", "entity_type", "text", profile?.entity_type, { maxLength: 100 });
+      addField(form, "Registered office address", "registered_address", "text", profile?.registered_address, { maxLength: 500 });
+      addField(form, "Registration number (if applicable)", "registration_number", "text", profile?.registration_number, { required: false, maxLength: 100 });
+      addField(form, "Official email", "official_email", "email", profile?.official_email, { maxLength: 254 });
+      addField(form, "Official phone", "official_phone", "tel", profile?.official_phone, { maxLength: 40 });
+      addField(form, "Official website (optional)", "website_url", "url", profile?.website_url, { required: false, maxLength: 500 });
+
+      const verifiedLabel = makeElement("label", "admin-form-checkbox");
+      const verified = document.createElement("input");
+      verified.type = "checkbox";
+      verified.name = "is_verified";
+      verified.checked = profile?.is_verified === true;
+      verifiedLabel.append(verified, makeElement("span", "", "Mark this organization profile as verified"));
+      form.append(verifiedLabel);
+
+      const confirmationLabel = makeElement("label", "admin-form-checkbox");
+      const confirmation = document.createElement("input");
+      confirmation.type = "checkbox";
+      confirmation.name = "confirm_legal_details";
+      confirmation.required = verified.checked;
+      confirmationLabel.append(
+        confirmation,
+        makeElement("span", "", "I confirmed these legal identity details and that the finalized agreement PDFs match them.")
+      );
+      form.append(confirmationLabel);
+      verified.addEventListener("change", () => {
+        confirmation.required = verified.checked;
+        if (!verified.checked) confirmation.checked = false;
+      });
     },
     async (values) => {
-      await apiRequest("admin/reporter-service-agreements", "POST", Object.fromEntries(values.entries()));
-      await loadSection("reporter-service-agreements");
+      await apiRequest("admin/reporter-organization-profile", "PATCH", {
+        legal_name: values.get("legal_name"),
+        trade_name: values.get("trade_name"),
+        entity_type: values.get("entity_type"),
+        registered_address: values.get("registered_address"),
+        registration_number: values.get("registration_number") || "",
+        official_email: values.get("official_email"),
+        official_phone: values.get("official_phone"),
+        website_url: values.get("website_url") || "",
+        is_verified: values.get("is_verified") === "on",
+        confirm_legal_details: values.get("confirm_legal_details") === "on"
+      });
+      await loadSection("reporter-options");
     },
-    "Add draft"
+    "Save profile"
   );
 }
 
@@ -1527,9 +1683,11 @@ function buildTable(rows, section) {
     : section === "users"
     ? ["full_name", "email", "phone", "role", "created_at"]
     : section === "reporter-applications"
-      ? ["applicant_name", "email", "state_name", "reporting_area", "reporter_type_name", "status", "agreement_version"]
+      ? ["applicant_name", "email", "state_name", "reporting_area", "reporter_type_name", "status", "details_confirmed"]
       : section === "reporter-credentials"
         ? ["name", "role", "type", "reference", "status", "scope", "valid_until"]
+        : ["reporter-agreements", "reporter-service-agreements"].includes(section)
+          ? ["version", "status", "document", "sha256", "published_at"]
           : section === "reporter-directory"
             ? ["full_name", "email", "reporter_code", "current_assignment", "assignment_history"]
           : [];
@@ -1537,7 +1695,7 @@ function buildTable(rows, section) {
     ...preferredColumns.filter((key) => rows.some((row) => Object.hasOwn(row, key))),
     ...rows.flatMap((row) => Object.keys(row))
   ])]
-    .filter((key) => !key.startsWith("_") && !excluded.has(key) && !internalColumns.has(key))
+    .filter((key) => !key.startsWith("_") && !excluded.has(key) && !internalColumns.has(key) && key !== "document_url")
     .slice(0, section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" ? 6 : 5);
   const wrapper = makeElement("div", "admin-table-wrap");
   const table = document.createElement("table");
@@ -1740,21 +1898,54 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (section === "reporter-agreements" && row.status !== "published") {
-    rowButton(container, "Publish", () => {
-      if (window.confirm(`Publish agreement version ${row.version}? New applicants must accept it.`)) {
-        void runAction(() => apiRequest(`admin/reporter-agreements/${id}/publish`, "POST", {}), refresh);
-      }
-    });
-    return;
-  }
-
-  if (section === "reporter-service-agreements" && row.status !== "published") {
-    rowButton(container, "Publish", () => {
-      if (window.confirm(`Publish service agreement version ${row.version}? Approved reporters must accept it before authority letters can be issued.`)) {
-        void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/publish`, "POST", {}), refresh);
-      }
-    });
+  if (["reporter-agreements", "reporter-service-agreements"].includes(section)) {
+    if (row.document_url) {
+      rowButton(container, "Preview PDF", () => {
+        const endpoint = section === "reporter-service-agreements"
+          ? "reporter-service-agreements"
+          : "reporter-agreements";
+        const previewUrl = row._storage_object_path
+          ? proxyUrl(`admin/${endpoint}/${id}/preview`)
+          : new URL(row.document_url, window.location.origin).toString();
+        const parsedUrl = new URL(previewUrl, window.location.origin);
+        if (parsedUrl.protocol !== "https:" && parsedUrl.origin !== window.location.origin) {
+          window.alert("Agreement documents must use HTTPS.");
+          return;
+        }
+        const previewWindow = window.open(parsedUrl.toString(), "_blank");
+        if (previewWindow) previewWindow.opener = null;
+        else window.alert("Allow pop-ups to preview the agreement PDF.");
+      });
+    }
+    if (row.status === "draft") {
+      const isService = section === "reporter-service-agreements";
+      rowButton(container, "Publish", () => {
+        const replacesPublished = row._published_version;
+        const message = isService
+          ? `Publish service agreement version ${row.version}? Approved reporters must accept this exact PDF before receiving credentials. The current published version will be archived.`
+          : `Publish application agreement version ${row.version}? New applicants must accept this exact PDF. The current published version will be archived.`;
+        if (window.confirm(replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message)) {
+          const endpoint = isService ? "reporter-service-agreements" : "reporter-agreements";
+          void runAction(() => apiRequest(`admin/${endpoint}/${id}/publish`, "POST", {}), refresh);
+        }
+      });
+    }
+    if (row.status === "draft" || row.status === "published") {
+      const isPublished = row.status === "published";
+      rowButton(container, isPublished ? "Archive current" : "Archive draft", () => {
+        const isService = section === "reporter-service-agreements";
+        const effect = isService
+          ? "Reporters will not be able to accept a service agreement until another version is published. This does not revoke access already granted."
+          : "New applicants will not be asked to accept an application agreement until another version is published.";
+        const message = isPublished
+          ? `Archive current version ${row.version}? ${effect} Historical acceptance records remain unchanged.`
+          : `Archive draft version ${row.version}? The record and document will be retained in history.`;
+        if (window.confirm(message)) {
+          const endpoint = isService ? "reporter-service-agreements" : "reporter-agreements";
+          void runAction(() => apiRequest(`admin/${endpoint}/${id}/archive`, "POST", {}), refresh);
+        }
+      }, "admin-row-button danger");
+    }
     return;
   }
 
@@ -1887,7 +2078,7 @@ function populateLocationParents(select, childType, selected, excludedId) {
 function openReporterReviewDialog(application, refresh) {
   openFormDialog(
     "Review reporter application",
-    "Choose a clear next step. Approval creates the reporter ID and assignment but does not activate newsroom access; issue an authority letter for the reporter to acknowledge.",
+    "Choose a clear next step for this application. Approval creates a reporter ID and assignment; credentials and access remain subject to the approved engagement terms and authority-letter process.",
     (form) => {
       const decisionLabel = makeElement("label", "admin-form-field");
       decisionLabel.append(makeElement("span", "", "Decision"));
@@ -1935,7 +2126,10 @@ function openReporterReviewDialog(application, refresh) {
           application.rto?.city_name,
           application.reporter_type?.name
         ].filter(Boolean).join(" · ") || "—"],
-        ["Application agreement", `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`],
+        ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"],
+        ["Application agreement", application.agreement_accepted
+          ? `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`
+          : "No published application agreement was accepted at submission"],
         ["Applicant acceptance", `${application.agreement_signer_name || "—"} · ${formatDate(application.agreement_accepted_at)}`],
         ["Acceptance statement", application.agreement_acceptance_statement || "—"]
       ].forEach(([label, value]) => {

@@ -102,6 +102,10 @@
   display: none;
 }
 
+.reporter-form-grid > .full-width {
+  grid-column: 1 / -1;
+}
+
 .reporter-next-step.success {
   border-color: #cde9da;
   background: #f0fbf5;
@@ -215,6 +219,15 @@
 
 .reporter-agreement a {
   overflow-wrap: anywhere;
+}
+
+.reporter-agreement-draft {
+  border-color: #ead6a8;
+  background: #fff9e9;
+}
+
+.reporter-agreement-draft strong {
+  color: #8a5a13;
 }
 
 .reporter-check {

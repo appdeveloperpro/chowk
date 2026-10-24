@@ -104,7 +104,7 @@ const modules = {
       { name: "name", label: "Location name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
       { name: "location_type", label: "Location level", type: "select", options: ["state", "region", "zone", "range", "district", "coverage_area"] },
-      { name: "rto_code", label: "RTO code (2-8 letters or numbers)", type: "text", required: false, maxLength: 8 },
+      { name: "rto_code", label: "RTO code (without State prefix; e.g. 80)", type: "text", required: false, maxLength: 8 },
       { name: "parent_id", label: "Parent location", type: "number", required: false },
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
@@ -1415,7 +1415,7 @@ function openStateDialog() {
 function openRtoDialog(states) {
   openFormDialog(
     "Add RTO / reporting area",
-    "RTO codes are 2-8 alphanumeric characters and combine with the state and reporter type codes for reporter IDs.",
+    "Enter the RTO code without the State prefix (for example, 80); the system combines the State, RTO, and reporter type codes for reporter IDs.",
     (form) => {
       appendReporterSelect(form, "state_id", "State", states.filter((state) => state.is_active),
         (state) => `${state.state_name} (${state.state_code})`);

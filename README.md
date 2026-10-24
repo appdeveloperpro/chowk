@@ -55,7 +55,8 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0026_allow_location_deactivation.sql`, and
    `supabase/migrations/0027_add_region_location_level.sql`, and
    `supabase/migrations/0028_district_rto_codes.sql`, and
-   `supabase/migrations/0029_reporter_region_district_application.sql`. These add account email
+   `supabase/migrations/0029_reporter_region_district_application.sql`, and
+   `supabase/migrations/0030_backfill_reporter_district_rto_links.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -140,6 +141,9 @@ Requires Node.js 18 or newer.
    displayed and used automatically; applicants do not enter it. The database
    and application API reject District selections outside the selected active
    hierarchy. The reporter ID is still generated after admin approval.
+   Migration 0030 safely links existing Districts to existing active RTO offices
+   only when their State and District/city names match uniquely. Ambiguous or
+   unmatched records are left unchanged for administrator review.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

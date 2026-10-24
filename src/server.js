@@ -918,9 +918,9 @@ async function adminRoute(request, response, requestUrl, session) {
     const collections = {
       locations: {
         table: "locations",
-        select: "id,name,slug,location_type,parent_id,is_active,created_at",
+        select: "id,name,slug,location_type,rto_code,parent_id,is_active,created_at",
         order: "location_type.asc,name.asc",
-        fields: ["name", "slug", "location_type", "parent_id", "is_active"]
+        fields: ["name", "slug", "location_type", "rto_code", "parent_id", "is_active"]
       },
       "reporter-types": {
         table: "reporter_types",
@@ -1258,9 +1258,9 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/reporter-coverage" && request.method === "GET") {
       const [assignments, profiles, locations] = await Promise.all([
-        supabaseRequest("/rest/v1/user_coverage_assignments?select=id,user_id,zone_id,district_id,city_id,coverage_area_id,include_descendants,valid_from,valid_to,assigned_by,created_at&order=valid_from.desc&limit=500", { token }),
+        supabaseRequest("/rest/v1/user_coverage_assignments?select=id,user_id,region_id,zone_id,district_id,city_id,coverage_area_id,include_descendants,valid_from,valid_to,assigned_by,created_at&order=valid_from.desc&limit=500", { token }),
         supabaseRequest("/rest/v1/profiles?select=id,email,full_name,role&role=in.(reporter,moderator,editor)&order=full_name.asc&limit=500", { token }),
-        supabaseRequest("/rest/v1/locations?select=id,name,location_type,parent_id,is_active&is_active=eq.true&order=location_type.asc,name.asc&limit=1000", { token })
+        supabaseRequest("/rest/v1/locations?select=id,name,slug,location_type,parent_id,is_active&is_active=eq.true&order=location_type.asc,name.asc&limit=1000", { token })
       ]);
       for (const result of [assignments, profiles, locations]) {
         if (!result.response.ok) {
@@ -1881,6 +1881,17 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
         return;
       }
+      if (collection.table === "locations" && (
+        (record.location_type === "district" && (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) ||
+        (record.rto_code != null && (
+          record.location_type !== "district" ||
+          typeof record.rto_code !== "string" ||
+          !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code)
+        ))
+      )) {
+        sendJson(response, 400, { error: "District RTO codes must contain 2-8 letters or numbers." });
+        return;
+      }
       if (collection.table === "live_streams") record.created_by = session.identity.id;
       if (collection.table === "media_catalog") {
         record.created_by = session.identity.id;
@@ -1969,6 +1980,12 @@ async function adminRoute(request, response, requestUrl, session) {
       if (config.table === "reporter_types" && record.type_code !== undefined &&
           (typeof record.type_code !== "string" || !/^\d{2}$/.test(record.type_code))) {
         sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
+        return;
+      }
+      if (config.table === "locations" && record.rto_code !== undefined &&
+          record.rto_code !== null &&
+          (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) {
+        sendJson(response, 400, { error: "District RTO codes must contain 2-8 letters or numbers." });
         return;
       }
       if (config.table === "media_catalog" && record.status === "published" && !record.published_at) {

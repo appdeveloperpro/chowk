@@ -98,12 +98,13 @@ const modules = {
   },
   locations: {
     path: "admin/locations",
-    description: "Manage the State > Zone > Range > District > Coverage area hierarchy. Activation changes cascade through descendants. Legacy city records remain stored, but new city locations are not allowed; use coverage areas instead.",
+    description: "Manage the State > Region > Zone > Range > District > Coverage area hierarchy. Enter an RTO code when creating a District; it is added to the existing State/RTO records used for reporter IDs. Existing Zones migrated under an 'Unassigned Region' must be moved into the correct Region.",
     createPath: "admin/locations",
     formFields: [
       { name: "name", label: "Location name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
-      { name: "location_type", label: "Location level", type: "select", options: ["state", "zone", "range", "district", "coverage_area"] },
+      { name: "location_type", label: "Location level", type: "select", options: ["state", "region", "zone", "range", "district", "coverage_area"] },
+      { name: "rto_code", label: "RTO code (2-8 letters or numbers)", type: "text", required: false, maxLength: 8 },
       { name: "parent_id", label: "Parent location", type: "number", required: false },
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
@@ -143,28 +144,29 @@ function renderLocationModule(root, results) {
     ...location,
     _source_type: location.location_type,
     _parent_type: byId.get(String(location.parent_id))?.location_type || "",
-    location_type: location.location_type === "city" ? "Legacy city" : location.location_type,
+    rto_code: location.location_type === "district" ? location.rto_code || "—" : "—",
     hierarchy: locationPath(location, byId),
     parent_location: byId.get(String(location.parent_id))?.name || "Top level"
   }));
+  const managedLocationRows = locationRows.filter((row) => row._source_type !== "city");
   const groups = [
     ["state", "States", (row) => row._source_type === "state"],
+    ["region", "Regions", (row) => row._source_type === "region"],
     ["zone", "Zones", (row) => row._source_type === "zone"],
     ["range", "Ranges", (row) => row._source_type === "range"],
     ["district", "Districts", (row) =>
       row._source_type === "district" && row._parent_type === "range"],
     ["unassigned", "Districts needing a range", (row) =>
       row._source_type === "district" && row._parent_type !== "range"],
-    ["coverage-area", "Coverage areas", (row) => row._source_type === "coverage_area"],
-    ["legacy-city", "Legacy cities", (row) => row._source_type === "city"]
+    ["coverage-area", "Coverage areas", (row) => row._source_type === "coverage_area"]
   ];
   const panel = makeElement("section", "admin-panel admin-location-panel");
   const panelHeader = makeElement("div", "admin-panel-heading");
   panelHeader.append(makeElement("h2", "", "Locations"));
-  panelHeader.append(makeElement("span", "", `${locationRows.length} total records`));
+  panelHeader.append(makeElement("span", "", `${managedLocationRows.length} managed locations`));
   const groupList = makeElement("div", "admin-location-groups");
   groups.forEach(([key, label, matches]) => {
-    const rows = locationRows.filter(matches);
+    const rows = managedLocationRows.filter(matches);
     const details = makeElement("details", "admin-location-group");
     details.dataset.locationGroup = key;
     const summary = makeElement("summary", "admin-location-group-summary");
@@ -185,7 +187,8 @@ function renderLocationModule(root, results) {
 
 const allowedLocationParents = {
   state: [],
-  zone: ["state"],
+  region: ["state"],
+  zone: ["region"],
   range: ["zone"],
   city: ["district"],
   district: ["range"],
@@ -612,7 +615,7 @@ function renderReporterAdminSection(section, root, data) {
     const locationsById = new Map((data.locations || []).map((location) => [String(location.id), location]));
     const staffById = new Map((data.staff || []).map((staff) => [staff.id, staff]));
     const rows = (data.assignments || []).map((assignment) => {
-      const locationId = assignment.zone_id || assignment.district_id || assignment.city_id || assignment.coverage_area_id;
+      const locationId = assignment.region_id || assignment.zone_id || assignment.district_id || assignment.city_id || assignment.coverage_area_id;
       const location = locationsById.get(String(locationId));
       const staff = staffById.get(assignment.user_id);
       return {
@@ -940,12 +943,13 @@ function openCoverageDialog(data) {
   const locations = data.locations || [];
   openFormDialog(
     "Assign newsroom coverage",
-    "Choose a zone, district, or coverage area. Legacy city locations remain stored for existing records but are not offered for new assignments.",
+    "Choose a region, zone, district, or coverage area. Legacy city locations remain stored for existing records but are not offered for new assignments.",
     (form) => {
       appendReporterSelect(form, "user_id", "Newsroom staff", staff,
         (person) => `${person.full_name || person.email} · ${person.role}`);
       const typeSelect = appendValueSelect(form, "coverage_type", "Coverage level", [
-        ["zone", "Zone / region"],
+        ["region", "Region"],
+        ["zone", "Zone"],
         ["district", "District"],
         ["coverage_area", "Coverage area"]
       ]);
@@ -970,6 +974,7 @@ function openCoverageDialog(data) {
         const eligible = locations.filter((location) =>
           location.is_active
           && location.location_type === selectedType
+          && !(selectedType === "region" && location.slug?.startsWith("unassigned-region-"))
           && getStateId(location) === selectedState
         );
         replaceValueOptions(targetSelect, eligible, "Choose coverage location", (location) => location.name);
@@ -2155,8 +2160,33 @@ function openConfiguredRecordDialog(section, existing) {
     `${isEditing ? "Edit" : "Add"} ${singular(sectionLabels[section])}`,
     config.description,
     (form) => {
+      let locationTypeSelect = null;
+      let rtoCodeInput = null;
       config.formFields.forEach((field) => {
         const value = existing?.[field.name];
+        if (section === "locations" && field.name === "rto_code") {
+          const label = makeElement("label", "admin-form-field");
+          label.append(makeElement("span", "", field.label));
+          const input = document.createElement("input");
+          input.name = field.name;
+          input.type = "text";
+          input.maxLength = field.maxLength;
+          input.pattern = "[A-Za-z0-9]{2,8}";
+          input.required = !isEditing && locationTypeSelect?.value === "district";
+          if (value !== null && value !== undefined) input.value = String(value);
+          label.append(input);
+          form.append(label);
+          rtoCodeInput = input;
+          const refreshRtoField = () => {
+            const isDistrict = locationTypeSelect?.value === "district";
+            label.hidden = !isDistrict;
+            input.required = !isEditing && isDistrict;
+            if (!isDistrict) input.value = "";
+          };
+          locationTypeSelect?.addEventListener("change", refreshRtoField);
+          refreshRtoField();
+          return;
+        }
         if (section === "locations" && field.name === "parent_id") {
           const label = makeElement("label", "admin-form-field");
           label.append(makeElement("span", "", "Parent location"));
@@ -2212,6 +2242,12 @@ function openConfiguredRecordDialog(section, existing) {
             ? String(value).slice(0, 16)
             : String(value);
         }
+        if (section === "locations" && field.name === "location_type") {
+          locationTypeSelect = input;
+          if (rtoCodeInput) {
+            rtoCodeInput.required = !isEditing && input.value === "district";
+          }
+        }
         label.append(input);
         form.append(label);
       });
@@ -2236,6 +2272,9 @@ function openConfiguredRecordDialog(section, existing) {
       });
       if (section === "locations") {
         payload.parent_id = payload.parent_id ? Number(payload.parent_id) : null;
+        payload.rto_code = payload.location_type === "district" && payload.rto_code
+          ? payload.rto_code.trim().toUpperCase()
+          : null;
       }
       const path = isEditing ? `admin/${section}/${recordId(existing)}` : config.createPath;
       await apiRequest(path, isEditing ? "PATCH" : "POST", payload);

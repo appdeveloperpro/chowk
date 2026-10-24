@@ -52,7 +52,9 @@ Requires Node.js 18 or newer.
    `supabase/migrations/0023_sync_range_location_activation.sql`, and
    `supabase/migrations/0024_enforce_location_tree.sql`, and
    `supabase/migrations/0025_enforce_zone_consistent_coverage.sql`, and
-   `supabase/migrations/0026_allow_location_deactivation.sql`. These add account email
+   `supabase/migrations/0026_allow_location_deactivation.sql`, and
+   `supabase/migrations/0027_add_region_location_level.sql`, and
+   `supabase/migrations/0028_district_rto_codes.sql`. These add account email
    and role support, admin account settings, newsroom management tables, RLS
    policies, detailed audit history, the reporter lifecycle, editorial
    workflow, staff notifications, secured media storage, location hierarchy
@@ -119,7 +121,19 @@ Requires Node.js 18 or newer.
    Migration 0026 allows location deactivation cascades to close historical
    district/range assignments even after the affected District or Range becomes
    inactive. New assignments still require active locations and a valid
-   hierarchy.
+   hierarchy. Migration 0027 adds Region between State and Zone, reparents
+   existing Zones under an explicitly named "Unassigned Region" for each State
+   that has direct-child Zones, and adds Region-level newsroom coverage.
+   Administrators should move Zones into correctly named Regions as regional
+   boundaries are confirmed; the migration does not guess real-world groupings.
+   Region coverage can include its descendant Zones, Ranges, Districts,
+   Coverage areas, and mapped legacy Districts when descendant coverage is
+   enabled. State/RTO/city-name records used to generate reporter IDs are
+   unchanged. Migration 0028 adds an RTO-code field to Districts and
+   automatically links that code to the existing `rto_offices` table,
+   reusing a matching State/code row or creating one when needed. The
+   pre-seeded State and Uttar Pradesh RTO records from migration 0009 remain
+   available; no separate RTO-code store is introduced.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

@@ -9,7 +9,11 @@ const QRCode = require("qrcode");
 const {
   createReporterAgreementPdf,
   defaultReporterAgreementTemplate,
-  unknownTemplateTokens
+  reporterAgreementTemplateFields,
+  reporterServiceAgreementTemplateFields,
+  reporterServiceAgreementTokens,
+  unknownTemplateTokens,
+  unknownServiceTemplateTokens
 } = require("./reporter-agreement");
 
 const host = process.env.HOST || "0.0.0.0";
@@ -626,6 +630,107 @@ async function reporterAgreementContext(session, requested = {}) {
   return { agreement: currentAgreement, tokens };
 }
 
+async function reporterServiceAgreementContext(session) {
+  const status = await supabaseRequest("/rest/v1/rpc/chowk_reporter_status", {
+    method: "POST",
+    token: session.token
+  });
+  if (!status.response.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(status.payload, "Reporter application details could not be loaded.")),
+      { statusCode: status.response.status }
+    );
+  }
+  const application = status.payload?.application;
+  if (!application || !["approved", "active"].includes(application.status)) {
+    throw Object.assign(new Error("Only an approved reporter can review the service agreement."), { statusCode: 403 });
+  }
+
+  const [agreement, organization, profile, privateDetails, state, rto, reporterType, reporterProfile] = await Promise.all([
+    supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256,template_content&status=eq.published&limit=1", { token: session.token }),
+    supabaseRequest("/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified&id=eq.true&limit=1", { token: session.token }),
+    supabaseRequest(`/rest/v1/profiles?select=full_name,phone&id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/reporter_application_private_details?select=father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,mobile_number,date_of_birth&application_id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/states?select=id,state_name,state_code&id=eq.${application.state?.id}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/rto_offices?select=id,state_id,rto_code,city_name&id=eq.${application.rto?.id}&state_id=eq.${application.state?.id}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/reporter_types?select=id,name,type_code&id=eq.${application.reporter_type?.id}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token })
+  ]);
+  for (const result of [agreement, organization, profile, privateDetails, state, rto, reporterType, reporterProfile]) {
+    if (!result.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(result.payload, "Personalized reporter service agreement details could not be loaded.")),
+        { statusCode: result.response.status }
+      );
+    }
+  }
+  const currentAgreement = agreement.payload?.[0];
+  if (!currentAgreement) {
+    throw Object.assign(new Error("No reporter service agreement is published yet."), { statusCode: 404 });
+  }
+  if (!currentAgreement.template_content) {
+    return {
+      agreement: currentAgreement,
+      tokens: null,
+      application,
+      reporterName: profile.payload?.[0]?.full_name || session.identity.name || ""
+    };
+  }
+  const company = organization.payload?.[0];
+  const reporter = profile.payload?.[0];
+  const details = privateDetails.payload?.[0];
+  const selectedState = state.payload?.[0];
+  const selectedRto = rto.payload?.[0];
+  const selectedType = reporterType.payload?.[0];
+  if (!company?.is_verified || !reporter || !details || !selectedState || !selectedRto || !selectedType) {
+    throw Object.assign(
+      new Error("Verified organization details and complete reporter application details are required to generate the service agreement."),
+      { statusCode: 409 }
+    );
+  }
+  const address = [
+    details.permanent_address_line1,
+    details.permanent_address_line2,
+    details.permanent_address_city,
+    details.permanent_address_district,
+    details.permanent_address_state,
+    details.permanent_address_postal_code
+  ].filter(Boolean).join(", ");
+  const tokens = {
+    "agreement.date": new Intl.DateTimeFormat("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      timeZone: "Asia/Kolkata"
+    }).format(new Date()),
+    "company.entity_type": company.entity_type,
+    "company.legal_name": company.legal_name,
+    "company.registered_address": company.registered_address,
+    "company.registration_number": company.registration_number || "Not provided",
+    "company.trade_name": company.trade_name,
+    "reporter.city": selectedRto.city_name || selectedState.state_name,
+    "reporter.email": session.identity.email || "Not provided",
+    "reporter.full_name": reporter.full_name || session.identity.name || "Name not provided",
+    "reporter.phone": reporter.phone || "Not provided",
+    "reporter.reporter_code": reporterProfile.payload?.[0]?.reporter_code || "Assigned after onboarding",
+    "reporter.rto": selectedRto.rto_code,
+    "reporter.state": selectedState.state_name,
+    "reporter.type": selectedType.name,
+    "reporter.father_first_name": details.father_first_name || "Not provided",
+    "reporter.father_last_name": details.father_last_name || "Not provided",
+    "reporter.permanent_address": address || "Not provided",
+    "reporter.permanent_address_line1": details.permanent_address_line1 || "Not provided",
+    "reporter.permanent_address_line2": details.permanent_address_line2 || "Not provided",
+    "reporter.permanent_address_city": details.permanent_address_city || "Not provided",
+    "reporter.permanent_address_district": details.permanent_address_district || "Not provided",
+    "reporter.permanent_address_state": details.permanent_address_state || "Not provided",
+    "reporter.permanent_address_postal_code": details.permanent_address_postal_code || "Not provided",
+    "reporter.date_of_birth": details.date_of_birth || "Not provided",
+    "reporter.mobile_number": details.mobile_number || "Not provided"
+  };
+  return { agreement: currentAgreement, tokens, application, reporterName: tokens["reporter.full_name"] };
+}
+
 async function signedReporterAgreementPdfUrl(objectPath, token, download = false) {
   if (typeof objectPath !== "string"
       || !/^(?:(?:application|service)\/[0-9a-f-]{36}\.pdf|acceptance\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.pdf)$/.test(objectPath)) {
@@ -1125,6 +1230,126 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (pathname === "/api/admin/reporter-service-agreement-template" && request.method === "GET") {
+      const result = await supabaseRequest(
+        "/rest/v1/reporter_service_agreement_versions?select=id,version,template_content&template_content=not.is.null&order=created_at.desc&limit=1",
+        { token }
+      );
+      if (!result.response.ok) {
+        sendJson(response, result.response.status, {
+          error: apiErrorMessage(result.payload, "The service agreement template could not be loaded.")
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          template_content: result.payload?.[0]?.template_content || "",
+          based_on_version: result.payload?.[0]?.version || null,
+          supported_fields: reporterServiceAgreementTemplateFields
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-service-agreement-template/preview" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      if (typeof body.template_content !== "string"
+          || body.template_content.trim().length < 1000
+          || body.template_content.length > 50000) {
+        sendJson(response, 400, { error: "The service agreement template must contain between 1,000 and 50,000 characters." });
+        return;
+      }
+      const unknownTokens = unknownServiceTemplateTokens(body.template_content);
+      if (unknownTokens.length) {
+        sendJson(response, 400, { error: `Unknown dynamic agreement fields: ${unknownTokens.join(", ")}` });
+        return;
+      }
+      const organizationResult = await supabaseRequest(
+        "/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number&id=eq.true&limit=1",
+        { token }
+      );
+      if (!organizationResult.response.ok || !organizationResult.payload?.[0]) {
+        sendJson(response, organizationResult.response.ok ? 404 : organizationResult.response.status, {
+          error: apiErrorMessage(organizationResult.payload, "Organization legal details could not be loaded for preview.")
+        });
+        return;
+      }
+      const company = organizationResult.payload[0];
+      const sampleTokens = {
+        "agreement.date": new Intl.DateTimeFormat("en-IN", {
+          day: "2-digit", month: "long", year: "numeric", timeZone: "Asia/Kolkata"
+        }).format(new Date()),
+        "company.entity_type": company.entity_type,
+        "company.legal_name": company.legal_name,
+        "company.registered_address": company.registered_address,
+        "company.registration_number": company.registration_number || "Not provided",
+        "company.trade_name": company.trade_name,
+        "reporter.city": "Sample City",
+        "reporter.email": "sample.reporter@example.invalid",
+        "reporter.full_name": "Sample Reporter",
+        "reporter.phone": "0000000000",
+        "reporter.reporter_code": "Assigned after onboarding",
+        "reporter.rto": "Sample reporting area",
+        "reporter.state": "Sample State",
+        "reporter.type": "Sample reporter type",
+        "reporter.father_first_name": "Sample",
+        "reporter.father_last_name": "Parent",
+        "reporter.permanent_address": "12 Sample Road, Sample Locality, Sample City, Sample District, Sample State, 123456",
+        "reporter.permanent_address_line1": "12 Sample Road",
+        "reporter.permanent_address_line2": "Sample Locality",
+        "reporter.permanent_address_city": "Sample City",
+        "reporter.permanent_address_district": "Sample District",
+        "reporter.permanent_address_state": "Sample State",
+        "reporter.permanent_address_postal_code": "123456",
+        "reporter.date_of_birth": "1990-01-01",
+        "reporter.mobile_number": "0000000000"
+      };
+      const pdf = await createReporterAgreementPdf(body.template_content, sampleTokens, {
+        preview: true,
+        allowedTokens: reporterServiceAgreementTokens
+      });
+      sendPdf(response, pdf, "reporter-service-agreement-admin-preview.pdf");
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-service-agreements/template" && request.method === "POST") {
+      const body = await readJsonBody(request, 1024 * 1024);
+      const version = typeof body.version === "string" ? body.version.trim() : "";
+      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version)) {
+        sendJson(response, 400, { error: "Enter a short version label using letters, numbers, dots, underscores, or hyphens." });
+        return;
+      }
+      if (typeof body.template_content !== "string"
+          || body.template_content.trim().length < 1000
+          || body.template_content.length > 50000) {
+        sendJson(response, 400, { error: "The service agreement template must contain between 1,000 and 50,000 characters." });
+        return;
+      }
+      const unknownTokens = unknownServiceTemplateTokens(body.template_content);
+      if (unknownTokens.length) {
+        sendJson(response, 400, { error: `Unknown dynamic agreement fields: ${unknownTokens.join(", ")}` });
+        return;
+      }
+      const template = body.template_content.trim();
+      const result = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
+        method: "POST",
+        token,
+        body: {
+          version,
+          sha256: createHash("sha256").update(template, "utf8").digest("hex"),
+          document_url: "/api/reporter/service-agreement-preview",
+          template_content: template,
+          created_by: session.identity.id
+        },
+        prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload?.[0] }
+        : { error: apiErrorMessage(result.payload, "Service agreement template version could not be saved.") });
+      return;
+    }
+
     if (pathname === "/api/admin/reporter-organization-profile" && request.method === "PATCH") {
       const body = await readJsonBody(request);
       if (typeof body.is_verified !== "boolean") {
@@ -1586,7 +1811,7 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const agreement = result.payload[0];
-      if (!isService && agreement.template_content) {
+      if (agreement.template_content) {
         const organizationResult = await supabaseRequest(
           "/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number&id=eq.true&limit=1",
           { token }
@@ -1614,10 +1839,24 @@ async function adminRoute(request, response, requestUrl, session) {
           "reporter.reporter_code": "Assigned after approval",
           "reporter.rto": "Sample reporting area",
           "reporter.state": "Sample State",
-          "reporter.type": "Sample reporter type"
+          "reporter.type": "Sample reporter type",
+          "reporter.father_first_name": "Sample",
+          "reporter.father_last_name": "Parent",
+          "reporter.permanent_address": "12 Sample Road, Sample Locality, Sample City, Sample District, Sample State, 123456",
+          "reporter.permanent_address_line1": "12 Sample Road",
+          "reporter.permanent_address_line2": "Sample Locality",
+          "reporter.permanent_address_city": "Sample City",
+          "reporter.permanent_address_district": "Sample District",
+          "reporter.permanent_address_state": "Sample State",
+          "reporter.permanent_address_postal_code": "123456",
+          "reporter.date_of_birth": "1990-01-01",
+          "reporter.mobile_number": "0000000000"
         };
         try {
-          const pdf = await createReporterAgreementPdf(agreement.template_content, sampleData, { preview: true });
+          const pdf = await createReporterAgreementPdf(agreement.template_content, sampleData, {
+            preview: true,
+            allowedTokens: isService ? reporterServiceAgreementTokens : undefined
+          });
           sendPdf(
             response,
             pdf,
@@ -1698,7 +1937,7 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/reporter-service-agreements" && request.method === "GET") {
       const result = await supabaseRequest(
-        "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,storage_object_path,status,created_by,published_by,published_at,created_at&order=created_at.desc",
+        "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,storage_object_path,template_content,status,created_by,published_by,published_at,created_at&order=created_at.desc",
         { token }
       );
       sendJson(response, result.response.status, result.response.ok
@@ -3158,11 +3397,12 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname === "/api/reporter/options" && request.method === "GET") {
     void (async () => {
       try {
-        const [result, coverageAreas] = await Promise.all([
+        const [result, coverageAreas, serviceAgreement] = await Promise.all([
           supabaseRequest("/rest/v1/rpc/chowk_reporter_options"),
-          supabaseRequest("/rest/v1/locations?select=id,name,parent_id&location_type=eq.coverage_area&is_active=eq.true&order=name.asc&limit=5000")
+          supabaseRequest("/rest/v1/locations?select=id,name,parent_id&location_type=eq.coverage_area&is_active=eq.true&order=name.asc&limit=5000"),
+          supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256,document_url,template_content&status=eq.published&limit=1")
         ]);
-        for (const optionResult of [result, coverageAreas]) {
+        for (const optionResult of [result, coverageAreas, serviceAgreement]) {
           if (!optionResult.response.ok) {
             sendJson(response, optionResult.response.status, {
               error: apiErrorMessage(optionResult.payload, "Reporter options could not be loaded.")
@@ -3172,7 +3412,11 @@ const server = http.createServer((request, response) => {
         }
         sendJson(response, 200, {
           success: true,
-          data: { ...result.payload, coverage_areas: coverageAreas.payload || [] }
+          data: {
+            ...result.payload,
+            coverage_areas: coverageAreas.payload || [],
+            service_agreement: serviceAgreement.payload?.[0] || result.payload?.service_agreement
+          }
         });
       } catch (error) {
         console.error("Reporter options request failed:", error.message);
@@ -3262,7 +3506,7 @@ const server = http.createServer((request, response) => {
             let data = result.payload;
             const applicationId = data?.application?.id;
             if (applicationId) {
-              const [privateDetails, documents, reviewRequests] = await Promise.all([
+              const [privateDetails, documents, reviewRequests, serviceAcceptances] = await Promise.all([
                 supabaseRequest(
                   `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${encodeURIComponent(applicationId)}&limit=1`,
                   { token: session.token }
@@ -3274,9 +3518,13 @@ const server = http.createServer((request, response) => {
                 supabaseRequest(
                   `/rest/v1/reporter_applications?select=review_requests&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
                   { token: session.token }
+                ),
+                supabaseRequest(
+                  `/rest/v1/reporter_service_agreement_acceptances?select=id,agreement_version,agreement_sha256,generated_document_sha256,document_storage_path,signer_name,acceptance_statement,accepted_at&application_id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}&order=accepted_at.desc`,
+                  { token: session.token }
                 )
               ]);
-              for (const result of [privateDetails, documents, reviewRequests]) {
+              for (const result of [privateDetails, documents, reviewRequests, serviceAcceptances]) {
                 if (!result.response.ok) {
                   sendJson(response, result.response.status, {
                     error: apiErrorMessage(result.payload, "Reporter application details could not be loaded.")
@@ -3295,7 +3543,8 @@ const server = http.createServer((request, response) => {
                   ...data.application,
                   private_details: privateDetails.payload?.[0] || {},
                   documents: documents.payload || [],
-                  review_requests: reviewRequests.payload[0].review_requests
+                  review_requests: reviewRequests.payload[0].review_requests,
+                  service_acceptances: serviceAcceptances.payload || []
                 }
               };
             }
@@ -3339,6 +3588,25 @@ const server = http.createServer((request, response) => {
             );
             return;
           }
+          if (requestUrl.pathname === "/api/reporter/service-agreement-preview" && request.method === "GET") {
+            const context = await reporterServiceAgreementContext(session);
+            if (!context.tokens) {
+              sendJson(response, 409, { error: "This legacy service agreement is not a personalized template." });
+              return;
+            }
+            const pdf = await createReporterAgreementPdf(
+              context.agreement.template_content,
+              context.tokens,
+              { allowedTokens: reporterServiceAgreementTokens }
+            );
+            sendPdf(
+              response,
+              pdf,
+              `reporter-service-agreement-${context.agreement.version}.pdf`,
+              requestUrl.searchParams.get("download") === "1"
+            );
+            return;
+          }
           if (requestUrl.pathname === "/api/reporter/agreement-accepted-document" && request.method === "GET") {
             const acceptanceId = requestUrl.searchParams.get("acceptance_id");
             if (acceptanceId !== null && !/^\d+$/.test(acceptanceId)) {
@@ -3366,6 +3634,44 @@ const server = http.createServer((request, response) => {
             const documentPath = receipt.payload?.[0]?.document_storage_path;
             if (!documentPath) {
               sendJson(response, 404, { error: "No generated agreement copy is recorded for this account." });
+              return;
+            }
+            const signedUrl = await signedReporterAgreementPdfUrl(
+              documentPath,
+              session.token,
+              requestUrl.searchParams.get("download") === "1"
+            );
+            response.writeHead(302, { Location: signedUrl, "Cache-Control": "no-store" });
+            response.end();
+            return;
+          }
+          if (requestUrl.pathname === "/api/reporter/service-agreement-accepted-document"
+              && request.method === "GET") {
+            const acceptanceId = requestUrl.searchParams.get("acceptance_id");
+            if (!acceptanceId || !/^\d+$/.test(acceptanceId)) {
+              sendJson(response, 400, { error: "The accepted service agreement reference is invalid." });
+              return;
+            }
+            const query = new URLSearchParams({
+              select: "document_storage_path",
+              user_id: `eq.${session.identity.id}`,
+              id: `eq.${acceptanceId}`,
+              document_storage_path: "not.is.null",
+              limit: "1"
+            });
+            const receipt = await supabaseRequest(
+              `/rest/v1/reporter_service_agreement_acceptances?${query}`,
+              { token: session.token }
+            );
+            if (!receipt.response.ok) {
+              sendJson(response, receipt.response.status, {
+                error: apiErrorMessage(receipt.payload, "Accepted service agreement document could not be loaded.")
+              });
+              return;
+            }
+            const documentPath = receipt.payload?.[0]?.document_storage_path;
+            if (!documentPath) {
+              sendJson(response, 404, { error: "No personalized accepted service agreement copy is recorded for this account." });
               return;
             }
             const signedUrl = await signedReporterAgreementPdfUrl(
@@ -3766,16 +4072,63 @@ const server = http.createServer((request, response) => {
           }
           if (requestUrl.pathname === "/api/reporter/service-agreement/accept" && request.method === "POST") {
             const body = await readJsonBody(request);
-            const result = await supabaseRequest("/rest/v1/rpc/chowk_accept_current_reporter_service_agreement", {
-              method: "POST",
-              token: session.token,
-              body: {
-                accepted_version: body.agreement_version,
-                accepted_sha256: body.agreement_sha256,
-                signer_name: body.signer_name,
-                acceptance_statement: body.acceptance_statement
+            const context = await reporterServiceAgreementContext(session);
+            if (context.agreement.version !== body.agreement_version
+                || context.agreement.sha256 !== body.agreement_sha256) {
+              sendJson(response, 409, { error: "The service agreement changed. Review and accept the current version." });
+              return;
+            }
+            const signerName = typeof body.signer_name === "string" ? body.signer_name.trim() : "";
+            if (signerName.length < 2
+                || signerName.toLocaleLowerCase() !== context.reporterName.trim().toLocaleLowerCase()) {
+              sendJson(response, 400, { error: "Enter your account full name as the agreement signer." });
+              return;
+            }
+            let generatedDocument = null;
+            let result;
+            const acceptance = {
+              accepted_version: body.agreement_version,
+              accepted_sha256: body.agreement_sha256,
+              signer_name: signerName,
+              acceptance_statement: body.acceptance_statement
+            };
+            if (context.tokens) {
+              const pdf = await createReporterAgreementPdf(
+                context.agreement.template_content,
+                context.tokens,
+                { allowedTokens: reporterServiceAgreementTokens }
+              );
+              generatedDocument = await uploadReporterAgreementAcceptancePdf(
+                pdf,
+                session.identity.id,
+                session.token
+              );
+              result = await supabaseRequest(
+                "/rest/v1/rpc/chowk_accept_current_reporter_service_agreement_with_document",
+                {
+                  method: "POST",
+                  token: session.token,
+                  body: {
+                    ...acceptance,
+                    target_document_sha256: generatedDocument.sha256,
+                    target_document_path: generatedDocument.object_path
+                  }
+                }
+              );
+              if (!result.response.ok) {
+                try {
+                  await removeReporterAgreementPdf(generatedDocument.object_path, session.token);
+                } catch (error) {
+                  console.error("Could not remove an unrecorded generated service agreement:", error.message);
+                }
               }
-            });
+            } else {
+              result = await supabaseRequest("/rest/v1/rpc/chowk_accept_current_reporter_service_agreement", {
+                method: "POST",
+                token: session.token,
+                body: acceptance
+              });
+            }
             sendJson(response, result.response.status, result.response.ok
               ? { success: true }
               : { error: apiErrorMessage(result.payload, "Service agreement acceptance could not be recorded.") });

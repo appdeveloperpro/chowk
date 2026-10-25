@@ -228,7 +228,8 @@ key and authenticated user tokens.
 - Reporter administration for application review, state/RTO/type-code setup,
   stable reporter ID allocation, assignment and coverage history, versioned
   application-agreement template editing and generated-PDF previews,
-  uploaded service-agreement PDF management, immutable versioning,
+  personalized service-agreement template editing and generated-PDF previews,
+  legacy service-agreement PDF management, immutable versioning,
   publish/archive controls, organization-profile verification, restricted
   review of applicant identity and bank documents, staff ID/authority-letter
   issuance, revocation, and expanded audit filtering.
@@ -251,16 +252,18 @@ key and authenticated user tokens.
 
 Reporter applications remain open while legal documents are being finalized.
 In Admin → Reporter setup, replace and verify the organization legal profile
-before publishing new application or service agreements. In each agreement
-manager, upload the signed-off PDF; the server calculates its SHA-256 and stores
-the document. The supplied draft PDF remains preview-only. Verify the contents
-of any agreements already published before migration 0012 separately.
-In the application and service agreement screens, upload and preview finalized
-PDF drafts, publish the version reporters should accept, and archive outdated
-versions. Published documents and their SHA-256 values are immutable; upload a
-new version to make corrections or replace an agreement. Archiving the current
-version stops new acceptances but does not erase historical acceptance records
-or revoke existing reporter access.
+before publishing new application or service agreements. Publish only
+finalized, lawyer-reviewed terms. Application agreements use immutable text
+templates to generate applicant-specific PDFs. Service agreements can use
+immutable text templates to generate a reporter-specific PDF at acceptance,
+including the approved reporter and organization details; the generated PDF
+and its hash are retained with the acceptance receipt. The service template
+editor inserts data into terms supplied by the administrator and does not draft
+legal terms. Legacy uploaded service-agreement PDFs remain supported. Preview
+drafts before publishing; published versions cannot be edited, so create a
+replacement version for corrections. Archiving the current version stops new
+acceptances but does not erase historical receipts or revoke existing reporter
+access.
 Review the seeded states, legacy Uttar Pradesh RTOs, and Tehsil Reporter type;
 add RTO/reporting areas for other states as needed. Applicants create and
 verify a subscriber account, then complete the four-step reporter application:
@@ -278,7 +281,7 @@ organization details. Admins can open a restricted private-details view from
 each application to review the submitted details and short-lived document links.
 Admins review the application,
 request information, or approve/reject it. Approval creates the stable reporter
-code and assignment but does not activate newsroom access. A finalized service
+code and assignment but does not activate newsroom access. A current service
 agreement must be accepted before credentials can be issued; the reporter
 acknowledges the valid authority letter before their account becomes a
 reporter. Admins cannot create or directly promote reporter accounts; they can

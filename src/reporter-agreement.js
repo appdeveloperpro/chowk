@@ -16,7 +16,32 @@ const tokenValues = new Set([
   "reporter.reporter_code",
   "reporter.rto",
   "reporter.state",
-  "reporter.type"
+  "reporter.type",
+  "reporter.father_first_name",
+  "reporter.father_last_name",
+  "reporter.permanent_address",
+  "reporter.permanent_address_line1",
+  "reporter.permanent_address_line2",
+  "reporter.permanent_address_city",
+  "reporter.permanent_address_district",
+  "reporter.permanent_address_state",
+  "reporter.permanent_address_postal_code",
+  "reporter.date_of_birth",
+  "reporter.mobile_number"
+]);
+const serviceTokenValues = new Set([
+  ...tokenValues,
+  "reporter.father_first_name",
+  "reporter.father_last_name",
+  "reporter.permanent_address",
+  "reporter.permanent_address_line1",
+  "reporter.permanent_address_line2",
+  "reporter.permanent_address_city",
+  "reporter.permanent_address_district",
+  "reporter.permanent_address_state",
+  "reporter.permanent_address_postal_code",
+  "reporter.date_of_birth",
+  "reporter.mobile_number"
 ]);
 const templatePath = path.join(__dirname, "reporter-agreement-template.txt");
 const fontDirectory = path.resolve(__dirname, "../node_modules/@fontsource/noto-sans-devanagari/files");
@@ -29,14 +54,14 @@ function defaultReporterAgreementTemplate() {
   return fs.readFileSync(templatePath, "utf8");
 }
 
-function unknownTemplateTokens(template) {
+function unknownTemplateTokens(template, allowedTokens = tokenValues) {
   return [...new Set([...template.matchAll(/\{\{([^}]+)\}\}/g)]
     .map((match) => match[1].trim())
-    .filter((token) => !tokenValues.has(token)))];
+    .filter((token) => !allowedTokens.has(token)))];
 }
 
-function renderReporterAgreementTemplate(template, data) {
-  const unknown = unknownTemplateTokens(template);
+function renderReporterAgreementTemplate(template, data, allowedTokens = tokenValues) {
+  const unknown = unknownTemplateTokens(template, allowedTokens);
   if (unknown.length) {
     throw new Error(`Unknown agreement template field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`);
   }
@@ -78,8 +103,8 @@ function addMixedScriptText(document, text, bold = false) {
   });
 }
 
-function createReporterAgreementPdf(template, data, { preview = false } = {}) {
-  const rendered = renderReporterAgreementTemplate(template, data);
+function createReporterAgreementPdf(template, data, { preview = false, allowedTokens = tokenValues } = {}) {
+  const rendered = renderReporterAgreementTemplate(template, data, allowedTokens);
   const document = new PDFDocument({
     size: "A4",
     margins: { top: 54, bottom: 54, left: 58, right: 58 },
@@ -130,6 +155,10 @@ function createReporterAgreementPdf(template, data, { preview = false } = {}) {
 module.exports = {
   createReporterAgreementPdf,
   defaultReporterAgreementTemplate,
+  reporterAgreementTemplateFields: [...tokenValues].map((token) => `{{${token}}}`),
+  reporterServiceAgreementTemplateFields: [...serviceTokenValues].map((token) => `{{${token}}}`),
   renderReporterAgreementTemplate,
-  unknownTemplateTokens
+  unknownTemplateTokens,
+  unknownServiceTemplateTokens: (template) => unknownTemplateTokens(template, serviceTokenValues),
+  reporterServiceAgreementTokens: serviceTokenValues
 };

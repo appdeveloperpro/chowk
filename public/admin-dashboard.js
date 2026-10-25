@@ -55,7 +55,7 @@ const modules = {
   },
   "reporter-service-agreements": {
     path: "admin/reporter-service-agreements",
-    description: "Upload immutable PDF versions, preview drafts, publish or archive service terms, and inspect the exact SHA-256 approved reporters accept."
+    description: "Create lawyer-reviewed personalized service agreement templates, preview drafts, publish or archive versions, and inspect accepted document receipts."
   },
   "reporter-options": {
     path: "admin/reporter-options",
@@ -683,15 +683,17 @@ function renderReporterAdminSection(section, root, data) {
     const rows = agreements.map((agreement) => ({
       version: agreement.version,
       sha256: agreement.sha256,
-      document: agreement.document_url ? "PDF available" : "No document",
+      document: agreement.template_content ? "Personalized PDF template" : agreement.document_url ? "Legacy PDF available" : "No document",
       status: agreement.status,
       published_at: formatDate(agreement.published_at),
       document_url: agreement.document_url,
+      _dynamic_template: Boolean(agreement.template_content),
       _storage_object_path: agreement.storage_object_path,
       _published_version: currentVersion,
       id: agreement.id
     }));
-    reporterActionButton(root, "Upload new service agreement version", () => openAgreementDialog("service"));
+    reporterActionButton(root, "Create personalized service agreement", () => void openReporterServiceAgreementTemplateDialog());
+    reporterActionButton(root, "Upload legacy static PDF", () => openAgreementDialog("service"));
     reporterPanel(root, "Reporter service agreements", rows, section);
     return;
   }
@@ -1329,6 +1331,86 @@ async function openReporterAgreementTemplateDialog() {
           template_content: values.get("template_content")
         });
         await loadSection("reporter-agreements");
+      },
+      "Save draft version"
+    );
+    dialog.addEventListener("close", () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    }, { once: true });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function openReporterServiceAgreementTemplateDialog() {
+  let previewUrl = "";
+  try {
+    const templateResult = await apiRequest("admin/reporter-service-agreement-template");
+    const template = templateResult.data || {};
+    const dialog = openFormDialog(
+      "Create personalized service agreement template version",
+      "Use finalized legal terms reviewed by counsel. This editor only inserts reporter and organization details into text you provide; it does not create legal terms. Save creates an immutable draft. Replace all placeholders before publishing.",
+      (form) => {
+        const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
+        version.pattern = "[a-zA-Z0-9._-]{1,40}";
+
+        const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
+        contentLabel.append(makeElement("span", "", "Lawyer-reviewed service agreement text"));
+        const content = document.createElement("textarea");
+        content.name = "template_content";
+        content.required = true;
+        content.minLength = 1000;
+        content.maxLength = 50000;
+        content.rows = 28;
+        content.spellcheck = false;
+        content.value = template.template_content || "";
+        contentLabel.append(content);
+        form.append(contentLabel);
+
+        const fields = makeElement("details", "admin-agreement-template-fields");
+        fields.append(makeElement("summary", "", "Available personalization fields"));
+        fields.append(makeElement("p", "admin-dialog-help", (template.supported_fields || []).join("  ·  ")));
+        form.append(fields);
+
+        const preview = makeElement("button", "admin-secondary-button", "Preview generated PDF");
+        preview.type = "button";
+        preview.addEventListener("click", async () => {
+          const previewWindow = window.open("about:blank", "_blank");
+          if (!previewWindow) {
+            window.alert("Allow pop-ups to open the generated PDF preview.");
+            return;
+          }
+          previewWindow.opener = null;
+          preview.disabled = true;
+          try {
+            const response = await fetch(proxyUrl("admin/reporter-service-agreement-template/preview"), {
+              method: "POST",
+              cache: "no-store",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ template_content: content.value })
+            });
+            if (!response.ok) {
+              const result = await response.json().catch(() => ({}));
+              throw new Error(responseMessage(result));
+            }
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            previewUrl = URL.createObjectURL(await response.blob());
+            previewWindow.location.replace(previewUrl);
+          } catch (error) {
+            previewWindow.close();
+            window.alert(error.message);
+          } finally {
+            preview.disabled = false;
+          }
+        });
+        form.append(preview);
+      },
+      async (values) => {
+        await apiRequest("admin/reporter-service-agreements/template", "POST", {
+          version: values.get("version"),
+          template_content: values.get("template_content")
+        });
+        await loadSection("reporter-service-agreements");
       },
       "Save draft version"
     );
@@ -2110,7 +2192,7 @@ function addRowActions(container, row, section) {
       rowButton(container, "Publish", () => {
         const replacesPublished = row._published_version;
         const message = isService
-          ? `Publish service agreement version ${row.version}? Approved reporters must accept this exact PDF before receiving credentials. The current published version will be archived.`
+          ? `Publish service agreement version ${row.version}? Approved reporters must accept this version before credentials can be issued. Personalized templates generate a reporter-specific PDF at acceptance. The current published version will be archived.`
           : `Publish application agreement template version ${row.version}? New applicants will receive a personalized PDF generated from the verified company details and their application. The exact accepted PDF will be retained. The current published version will be archived.`;
         if (window.confirm(replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message)) {
           const endpoint = isService ? "reporter-service-agreements" : "reporter-agreements";

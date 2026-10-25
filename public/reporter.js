@@ -1491,13 +1491,6 @@ function renderServiceAgreement(application) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     panel.append(link);
-    (application.service_acceptances || []).forEach((receipt) => {
-      panel.append(element(
-        "p",
-        "reporter-card-copy",
-        `Acceptance record · v${receipt.agreement_version} · ${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · SHA-256 ${receipt.agreement_sha256}`
-      ));
-    });
     panel.append(element("p", "reporter-card-copy", activeReporter
       ? "Your current service agreement is on file. Keep the issued authority letter current for your assigned area."
       : "Next: Chowk issues an authority letter for your assigned reporting area. Reporter access activates only after you acknowledge that letter."));
@@ -1549,6 +1542,24 @@ function renderServiceAgreement(application) {
       }
     });
     panel.append(form);
+  }
+  const acceptanceReceipts = application.service_acceptances || [];
+  if (acceptanceReceipts.length) {
+    panel.append(element("h4", "", "Service agreement acceptance history"));
+    acceptanceReceipts.forEach((receipt) => {
+      panel.append(element(
+        "p",
+        "reporter-card-copy",
+        `Acceptance record · v${receipt.agreement_version} · ${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · SHA-256 ${receipt.agreement_sha256}`
+      ));
+      if (receipt.document_storage_path && receipt.id) {
+        const receiptLink = element("a", "", `View accepted copy · v${receipt.agreement_version}`);
+        receiptLink.href = `/api/reporter/service-agreement-accepted-document?acceptance_id=${encodeURIComponent(receipt.id)}`;
+        receiptLink.target = "_blank";
+        receiptLink.rel = "noopener noreferrer";
+        panel.append(receiptLink);
+      }
+    });
   }
   applicationPanel.hidden = false;
   applicationPanel.append(panel);

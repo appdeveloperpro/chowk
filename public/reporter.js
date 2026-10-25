@@ -416,6 +416,10 @@ function readFileAsBase64(file) {
 function renderApplicationForm(action, existing = null) {
   const acceptingUpdatedAgreement = action === "updated-agreement";
   const resubmitting = action === "resubmit";
+  if (resubmitting && existing?.status === "needs_information") {
+    renderTargetedReporterResubmission(existing);
+    return;
+  }
   applicationPanel.replaceChildren();
   applicationPanel.hidden = false;
   applicationPanel.append(
@@ -1032,6 +1036,362 @@ function renderApplicationForm(action, existing = null) {
     if (invalidField) invalidField.reportValidity();
     return !invalidField;
   }
+}
+
+function renderTargetedReporterResubmission(application) {
+  applicationPanel.replaceChildren();
+  applicationPanel.hidden = false;
+  applicationPanel.append(
+    element("h2", "", "Update requested information"),
+    element("p", "reporter-card-copy", "Only the fields the admin requested are shown. Your other application details and documents remain unchanged.")
+  );
+
+  const requests = Array.isArray(application?.review_requests) ? application.review_requests : [];
+  if (!requests.length) {
+    applicationPanel.append(element(
+      "p",
+      "reporter-review-note",
+      "Your application needs more information, but no specific fields were included in the request. Contact an admin and ask them to send a field-specific request before resubmitting."
+    ));
+    return;
+  }
+
+  const form = element("form", "reporter-form-grid");
+  const requestedFields = new Map(requests.map((request) => [request.field, request]));
+  const requestedNames = new Set(requestedFields.keys());
+  const supportedFields = new Set([
+    "state_id", "rto_office_id", "mobile_number", "date_of_birth",
+    "emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone",
+    "blood_group", "preferred_language", "coverage_area_id", "coverage_localities",
+    "experience_years", "experience_summary", "availability", "bank_account_holder",
+    "bank_name", "bank_account_number", "bank_ifsc", "profile_photo", "aadhaar_front",
+    "aadhaar_back", "pan_card", "bank_proof"
+  ]);
+  const unsupportedField = [...requestedNames].find((field) => !supportedFields.has(field));
+  if (unsupportedField) {
+    applicationPanel.append(element(
+      "p",
+      "reporter-review-note",
+      `The admin requested an unsupported field (“${unsupportedField}”). Contact an administrator before resubmitting.`
+    ));
+    return;
+  }
+  const isLocationUpdate = ["state_id", "rto_office_id", "coverage_area_id"]
+    .some((field) => requestedNames.has(field));
+  const fieldNames = [...requestedNames];
+  if (isLocationUpdate) {
+    ["state_id", "rto_office_id", "coverage_area_id"].forEach((field) => {
+      if (!fieldNames.includes(field)) fieldNames.push(field);
+    });
+  }
+
+  const privateDetails = application?.private_details || {};
+  const documentRecords = new Map((application?.documents || [])
+    .map((document) => [document.document_type, document]));
+  const fieldLabels = {
+    state_id: "State",
+    rto_office_id: "District",
+    mobile_number: "Mobile number",
+    date_of_birth: "Date of birth",
+    emergency_contact_name: "Emergency contact name",
+    emergency_contact_relationship: "Emergency relationship",
+    emergency_contact_phone: "Emergency contact phone",
+    blood_group: "Blood group",
+    preferred_language: "Preferred language",
+    coverage_area_id: "Coverage Area",
+    coverage_localities: "Preferred locations",
+    experience_years: "Reporting experience",
+    experience_summary: "Experience summary",
+    availability: "Availability",
+    bank_account_holder: "Bank account holder",
+    bank_name: "Bank name",
+    bank_account_number: "Bank account number",
+    bank_ifsc: "IFSC",
+    profile_photo: "Profile photo",
+    aadhaar_front: "Masked Aadhaar front",
+    aadhaar_back: "Masked Aadhaar back",
+    pan_card: "PAN card",
+    bank_proof: "Bank proof"
+  };
+  const controls = new Map();
+  const addControl = (field, control, label) => {
+    control.name = field;
+    control.required = true;
+    label.append(control);
+    const request = requestedFields.get(field);
+    if (request?.instruction) {
+      label.append(element("small", "reporter-review-request-inline", request.instruction));
+    }
+    form.append(label);
+    controls.set(field, control);
+  };
+
+  let stateSelect = null;
+  let districtSelect = null;
+  let coverageAreaSelect = null;
+  if (isLocationUpdate) {
+    const locationField = (field, labelText) => {
+      const label = element("label", "reporter-field");
+      label.append(element("span", "", labelText));
+      const select = document.createElement("select");
+      addControl(field, select, label);
+      return select;
+    };
+    stateSelect = locationField("state_id", "State");
+    districtSelect = locationField("rto_office_id", "District");
+    coverageAreaSelect = locationField("coverage_area_id", "Coverage Area");
+    const statePlaceholder = element("option", "", "Choose a State");
+    statePlaceholder.value = "";
+    statePlaceholder.disabled = true;
+    statePlaceholder.selected = !(options.states || []).some((state) =>
+      String(state.id) === String(application?.state?.id || "")
+    );
+    stateSelect.prepend(statePlaceholder);
+    (options.states || []).forEach((state) => {
+      const option = element("option", "", `${state.state_name} (${state.state_code})`);
+      option.value = String(state.id);
+      option.selected = String(state.id) === String(application?.state?.id || "");
+      stateSelect.append(option);
+    });
+    const fillDistricts = (selectedId = "") => {
+      districtSelect.replaceChildren();
+      const districts = (options.rtos || []).filter((district) =>
+        String(district.state_id) === stateSelect.value
+      );
+      const districtPlaceholder = element("option", "", "Choose a District");
+      districtPlaceholder.value = "";
+      districtPlaceholder.disabled = true;
+      districtPlaceholder.selected = !districts.some((district) =>
+        String(district.id) === String(selectedId)
+      );
+      districtSelect.append(districtPlaceholder);
+      districts.forEach((district) => {
+        const option = element("option", "", reporterDistrictLabel(district));
+        option.value = String(district.id);
+        option.selected = String(district.id) === String(selectedId);
+        districtSelect.append(option);
+      });
+      fillCoverageAreas(application?.private_details?.coverage_area_id || "");
+    };
+    const fillCoverageAreas = (selectedId = "") => {
+      const selectedDistrict = (options.rtos || []).find((district) =>
+        String(district.id) === String(districtSelect.value)
+      );
+      coverageAreaSelect.replaceChildren();
+      const coverageAreas = (options.coverage_areas || [])
+        .filter((area) => String(area.parent_id) === String(selectedDistrict?.district_id));
+      const coveragePlaceholder = element("option", "", "Choose a Coverage Area");
+      coveragePlaceholder.value = "";
+      coveragePlaceholder.disabled = true;
+      coveragePlaceholder.selected = !coverageAreas.some((area) =>
+        String(area.id) === String(selectedId)
+      );
+      coverageAreaSelect.append(coveragePlaceholder);
+      coverageAreas.forEach((area) => {
+        const option = element("option", "", area.name);
+        option.value = String(area.id);
+        option.selected = String(area.id) === String(selectedId);
+        coverageAreaSelect.append(option);
+      });
+    };
+    const currentDistrict = (options.rtos || []).find((district) =>
+      String(district.id) === String(application?.rto?.id || "")
+    );
+    fillDistricts(currentDistrict?.id || "");
+    stateSelect.addEventListener("change", () => fillDistricts());
+    districtSelect.addEventListener("change", () => fillCoverageAreas());
+  }
+
+  const privateFieldTypes = {
+    mobile_number: "tel",
+    date_of_birth: "date",
+    emergency_contact_name: "text",
+    emergency_contact_relationship: "text",
+    emergency_contact_phone: "tel",
+    preferred_language: "text",
+    experience_years: "number",
+    experience_summary: "textarea",
+    availability: "text",
+    bank_account_holder: "text",
+    bank_name: "text",
+    bank_account_number: "text",
+    bank_ifsc: "text",
+    coverage_localities: "textarea"
+  };
+  const documentInputs = new Map();
+  fieldNames.forEach((field) => {
+    if (["state_id", "rto_office_id", "coverage_area_id"].includes(field) && isLocationUpdate) return;
+    const label = element("div", "reporter-field reporter-field-full");
+    label.append(element("span", "", fieldLabels[field] || field.replaceAll("_", " ")));
+    if (["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"].includes(field)) {
+      const reviewRequest = requestedFields.get(field);
+      if (reviewRequest?.kind !== "reupload") {
+        label.append(element("small", "reporter-review-request-inline", reviewRequest?.instruction || "Follow the admin's instruction; no replacement upload was requested."));
+        form.append(label);
+        return;
+      }
+      const fileContainer = element("div", "reporter-field-full");
+      if (field === "profile_photo") {
+        const cropper = createReporterPhotoCropper(fileContainer);
+        cropper.input.required = true;
+        documentInputs.set(field, { input: cropper.input, cropper });
+      } else {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf";
+        input.required = true;
+        documentInputs.set(field, { input });
+        fileContainer.append(input);
+      }
+      fileContainer.append(element("small", "reporter-field-help", "Only this requested document needs to be reuploaded. JPG, PNG or PDF · maximum 5 MB."));
+      label.append(fileContainer);
+      const request = requestedFields.get(field);
+      if (request?.instruction) label.append(element("small", "reporter-review-request-inline", request.instruction));
+      form.append(label);
+      return;
+    }
+
+    if (field === "blood_group") return;
+    const type = privateFieldTypes[field];
+    if (!type) {
+      form.append(element("p", "reporter-review-note", `The requested field “${field}” cannot be edited here. Contact an administrator.`));
+      return;
+    }
+    const control = type === "textarea" ? document.createElement("textarea") : document.createElement("input");
+    if (type !== "textarea") control.type = type;
+    control.value = privateDetails[field] == null ? "" : String(privateDetails[field]);
+    if (field === "date_of_birth") control.max = new Date().toISOString().slice(0, 10);
+    if (field === "experience_years") {
+      control.min = "0";
+      control.max = "80";
+      control.step = "0.5";
+    }
+    if (["preferred_language", "coverage_localities", "experience_years", "experience_summary", "availability"].includes(field)) {
+      control.required = false;
+    }
+    if (field === "preferred_language") control.maxLength = 80;
+    if (field === "coverage_localities") control.maxLength = 1000;
+    if (field === "experience_summary") control.maxLength = 2000;
+    if (field === "availability") control.maxLength = 120;
+    if (field === "mobile_number") control.pattern = "\\+?[0-9]{7,15}";
+    if (field === "emergency_contact_name") {
+      control.minLength = 2;
+      control.maxLength = 120;
+    }
+    if (field === "emergency_contact_relationship") {
+      control.minLength = 2;
+      control.maxLength = 80;
+    }
+    if (field === "emergency_contact_phone") {
+      control.pattern = "[+0-9() .-]{7,30}";
+      control.maxLength = 30;
+    }
+    if (field === "bank_account_holder") {
+      control.minLength = 2;
+      control.maxLength = 120;
+    }
+    if (field === "bank_name") {
+      control.minLength = 2;
+      control.maxLength = 160;
+    }
+    if (field === "bank_ifsc") {
+      control.maxLength = 11;
+      control.pattern = "[A-Za-z]{4}0[A-Za-z0-9]{6}";
+      control.addEventListener("input", () => { control.value = control.value.toUpperCase(); });
+    }
+    if (field === "bank_account_number") {
+      control.minLength = 6;
+      control.maxLength = 24;
+      control.pattern = "[0-9]{6,24}";
+    }
+    addControl(field, control, label);
+  });
+
+  if (requestedNames.has("blood_group")) {
+    const label = element("label", "reporter-field");
+    label.append(element("span", "", fieldLabels.blood_group));
+    const select = document.createElement("select");
+    ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Prefer not to say"].forEach((value) => {
+      const option = element("option", "", value);
+      option.value = value;
+      option.selected = value === privateDetails.blood_group;
+      select.append(option);
+    });
+    addControl("blood_group", select, label);
+  }
+
+  const submit = element("button", "reporter-button reporter-field-full", "Send requested update");
+  submit.type = "submit";
+  form.append(submit);
+  applicationPanel.append(form);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    submit.disabled = true;
+    submit.textContent = "Submitting update…";
+    const uploadedDocuments = [];
+    try {
+      for (const [field, { input, cropper }] of documentInputs) {
+        let file = input.files?.[0];
+        if (field === "profile_photo" && file) file = await cropper.file();
+        if (!file) throw new Error(`Upload the requested ${fieldLabels[field] || field} document.`);
+        if (file.size > 5 * 1024 * 1024
+            || !["image/jpeg", "image/png", "application/pdf"].includes(file.type)
+            || (field === "profile_photo" && file.type === "application/pdf")) {
+          throw new Error("Choose a supported JPG, PNG or PDF file no larger than 5 MB.");
+        }
+        showMessage(`Uploading ${fieldLabels[field] || field}…`);
+        const uploaded = (await request("/api/reporter/application-documents", "POST", {
+          document_type: field,
+          mime_type: file.type,
+          file_base64: await readFileAsBase64(file)
+        })).data;
+        uploadedDocuments.push(uploaded);
+      }
+
+      const values = new FormData(form);
+      const updatedPrivateDetails = {};
+      for (const field of requestedNames) {
+        if (controls.has(field) && !["state_id", "rto_office_id"].includes(field)) {
+          updatedPrivateDetails[field] = values.get(field);
+        }
+      }
+      if (isLocationUpdate) updatedPrivateDetails.coverage_area_id = values.get("coverage_area_id");
+      const payload = {
+        details_confirmed: true,
+        state_id: isLocationUpdate ? values.get("state_id") : application.state?.id,
+        rto_office_id: isLocationUpdate ? values.get("rto_office_id") : application.rto?.id,
+        private_details: updatedPrivateDetails,
+        application_documents: uploadedDocuments
+      };
+      await request("/api/reporter/applications", "POST", payload);
+
+      for (const replacement of uploadedDocuments) {
+        const oldDocument = documentRecords.get(replacement.document_type);
+        if (!oldDocument || oldDocument.storage_path === replacement.storage_path) continue;
+        try {
+          await request("/api/reporter/application-documents", "DELETE", { storage_path: oldDocument.storage_path });
+        } catch (cleanupError) {
+          console.error("Could not remove a replaced reporter document:", cleanupError.message);
+        }
+      }
+      showMessage("Your requested updates were sent to the admin for review.", true);
+      await loadReporterDesk();
+    } catch (error) {
+      for (const document of uploadedDocuments) {
+        try {
+          await request("/api/reporter/application-documents", "DELETE", { storage_path: document.storage_path });
+        } catch (cleanupError) {
+          console.error("Could not remove an unsubmitted reporter document:", cleanupError.message);
+        }
+      }
+      showMessage(error.message);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Send requested update";
+    }
+  });
 }
 
 function dataItem(label, value, code = false) {

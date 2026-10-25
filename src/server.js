@@ -719,17 +719,52 @@ async function reporterServiceAgreementContext(session) {
   return { agreement: currentAgreement, tokens, application, reporterName: tokens["reporter.full_name"] };
 }
 
-async function reporterServiceAgreementAdminContext(session, applicationId) {
+async function ensureReporterServiceAgreementTemplate(session) {
+  const selectPath = "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,template_content,status,created_at&template_content=not.is.null&order=created_at.desc,id.desc&limit=1";
+  const existing = await supabaseRequest(selectPath, { token: session.token });
+  if (!existing.response.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(existing.payload, "The service-agreement template could not be loaded from the database.")),
+      { statusCode: existing.response.status }
+    );
+  }
+  if (existing.payload?.[0]) return existing.payload[0];
+
+  const templateContent = defaultReporterAgreementTemplate().trim();
+  const version = `service-initial-${createHash("sha256").update(templateContent, "utf8").digest("hex").slice(0, 12)}`;
+  const inserted = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
+    method: "POST",
+    token: session.token,
+    body: {
+      version,
+      sha256: createHash("sha256").update(templateContent, "utf8").digest("hex"),
+      document_url: "/api/reporter/service-agreement-preview",
+      template_content: templateContent,
+      created_by: session.identity.id
+    },
+    prefer: "return=representation"
+  });
+  if (inserted.response.ok && inserted.payload?.[0]) return inserted.payload[0];
+
+  const afterInsert = await supabaseRequest(selectPath, { token: session.token });
+  if (afterInsert.response.ok && afterInsert.payload?.[0]) return afterInsert.payload[0];
+  throw Object.assign(
+    new Error(apiErrorMessage(
+      inserted.payload,
+      "The initial agreement template could not be saved to the database."
+    )),
+    { statusCode: inserted.response.status }
+  );
+}
+
+async function reporterServiceAgreementAdminContext(session, applicationId, { requirePublished = false } = {}) {
   if (!Number.isSafeInteger(applicationId) || applicationId < 1) {
     throw Object.assign(new Error("The reporter application reference is invalid."), { statusCode: 400 });
   }
-  const [applicationResult, agreementResult, organizationResult] = await Promise.all([
+  const agreement = await ensureReporterServiceAgreementTemplate(session);
+  const [applicationResult, organizationResult] = await Promise.all([
     supabaseRequest(
       `/rest/v1/reporter_applications?select=id,user_id,status,state_id,rto_office_id,created_at&id=eq.${applicationId}&limit=1`,
-      { token: session.token }
-    ),
-    supabaseRequest(
-      "/rest/v1/reporter_service_agreement_versions?select=version,sha256,template_content,status&status=eq.published&limit=1",
       { token: session.token }
     ),
     supabaseRequest(
@@ -737,7 +772,7 @@ async function reporterServiceAgreementAdminContext(session, applicationId) {
       { token: session.token }
     )
   ]);
-  for (const result of [applicationResult, agreementResult, organizationResult]) {
+  for (const result of [applicationResult, organizationResult]) {
     if (!result.response.ok) {
       throw Object.assign(
         new Error(apiErrorMessage(result.payload, "Agreement preparation data could not be loaded.")),
@@ -749,10 +784,18 @@ async function reporterServiceAgreementAdminContext(session, applicationId) {
   if (!application || !["approved", "active"].includes(application.status)) {
     throw Object.assign(new Error("Only an approved reporter can receive a service agreement."), { statusCode: 409 });
   }
-  const agreement = agreementResult.payload?.[0];
-  if (!agreement?.template_content) {
+  if (!agreement.template_content) {
     throw Object.assign(
-      new Error("No approved service-agreement template is published. Open Admin → Service agreement setup, finalize the template, and publish it before issuing reporter agreements."),
+      new Error("The service-agreement template is empty. Open Admin → Service agreement setup and add the approved terms."),
+      { statusCode: 409 }
+    );
+  }
+  if (!agreement.sha256) {
+    agreement.sha256 = createHash("sha256").update(agreement.template_content, "utf8").digest("hex");
+  }
+  if (requirePublished && agreement.status !== "published") {
+    throw Object.assign(
+      new Error("This preview uses an unpublished template. Finalize and publish the template in Admin → Service agreement setup, then generate a fresh preview before issuing it."),
       { statusCode: 409 }
     );
   }
@@ -1366,25 +1409,17 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-service-agreement-template" && request.method === "GET") {
-      const [latest, published] = await Promise.all([
-        supabaseRequest(
-          "/rest/v1/reporter_service_agreement_versions?select=id,version,template_content,status&template_content=not.is.null&order=created_at.desc&limit=1",
-          { token }
-        ),
-        supabaseRequest(
-          "/rest/v1/reporter_service_agreement_versions?select=version,published_at&template_content=not.is.null&status=eq.published&limit=1",
-          { token }
-        )
-      ]);
-      for (const result of [latest, published]) {
-        if (!result.response.ok) {
-          sendJson(response, result.response.status, {
-            error: apiErrorMessage(result.payload, "The service agreement setup could not be loaded.")
-          });
-          return;
-        }
+      const latestTemplate = await ensureReporterServiceAgreementTemplate(session);
+      const published = await supabaseRequest(
+        "/rest/v1/reporter_service_agreement_versions?select=version,published_at&template_content=not.is.null&status=eq.published&limit=1",
+        { token }
+      );
+      if (!published.response.ok) {
+        sendJson(response, published.response.status, {
+          error: apiErrorMessage(published.payload, "Published agreement status could not be loaded.")
+        });
+        return;
       }
-      const latestTemplate = latest.payload?.[0];
       const publishedTemplate = published.payload?.[0];
       sendJson(response, 200, {
         success: true,
@@ -1394,7 +1429,7 @@ async function adminRoute(request, response, requestUrl, session) {
           latest_status: latestTemplate?.status || null,
           published_version: publishedTemplate?.version || null,
           published_at: publishedTemplate?.published_at || null,
-          is_default: !latestTemplate,
+          is_default: latestTemplate.version.startsWith("service-initial-"),
           supported_fields: reporterServiceAgreementTemplateFields
         }
       });
@@ -2506,6 +2541,7 @@ async function adminRoute(request, response, requestUrl, session) {
     if (serviceAgreementIssue && request.method === "GET" && serviceAgreementIssue[2] === "preview") {
       const context = await reporterServiceAgreementAdminContext(session, Number(serviceAgreementIssue[1]));
       const pdf = await createReporterAgreementPdf(context.agreement.template_content, context.tokens, {
+        preview: context.agreement.status !== "published",
         allowedTokens: reporterServiceAgreementRenderTokens
       });
       const now = Date.now();
@@ -2524,6 +2560,7 @@ async function adminRoute(request, response, requestUrl, session) {
         user_id: context.application.user_id,
         agreement_version: context.agreement.version,
         agreement_sha256: context.agreement.sha256,
+        is_published: context.agreement.status === "published",
         tokens_json: JSON.stringify(context.tokens),
         pdf,
         expires_at: now + 10 * 60 * 1000
@@ -2533,7 +2570,11 @@ async function adminRoute(request, response, requestUrl, session) {
         pdf,
         `reporter-service-agreement-${context.agreement.version}-preview.pdf`,
         false,
-        { "X-Preview-Token": previewToken }
+        {
+          "X-Preview-Token": previewToken,
+          "X-Agreement-Published": String(context.agreement.status === "published"),
+          "X-Agreement-Version": context.agreement.version
+        }
       );
       return;
     }
@@ -2553,8 +2594,19 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 409, { error: "This agreement preview expired or is no longer available. Generate a fresh preview before publishing." });
         return;
       }
+      if (!cachedPreview.is_published) {
+        reporterServiceAgreementPreviews.delete(previewToken);
+        sendJson(response, 409, {
+          error: "This is a draft preview only. Finalize and publish the service-agreement template before issuing an agreement to a reporter."
+        });
+        return;
+      }
       reporterServiceAgreementPreviews.delete(previewToken);
-      const context = await reporterServiceAgreementAdminContext(session, Number(serviceAgreementIssue[1]));
+      const context = await reporterServiceAgreementAdminContext(
+        session,
+        Number(serviceAgreementIssue[1]),
+        { requirePublished: true }
+      );
       if (cachedPreview.user_id !== context.application.user_id
           || cachedPreview.agreement_version !== context.agreement.version
           || cachedPreview.agreement_sha256 !== context.agreement.sha256

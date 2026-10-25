@@ -171,6 +171,33 @@
   grid-column: 1 / -1;
 }
 
+.reporter-preferred-locations {
+  display: grid;
+  gap: 8px;
+}
+
+.reporter-preferred-locations > span {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reporter-preferred-location-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.reporter-preferred-location-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.reporter-preferred-location-row .reporter-button,
+.reporter-preferred-locations > .reporter-button {
+  margin: 0;
+}
+
 .reporter-form-navigation {
   display: flex;
   grid-column: 1 / -1;

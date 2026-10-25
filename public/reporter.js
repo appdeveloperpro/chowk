@@ -492,18 +492,84 @@ function renderApplicationForm(action, existing = null) {
     const existingRto = (options.rtos || []).find((rto) => String(rto.id) === String(existing?.rto?.id || ""));
     const rtoSelect = addSelectField(areaStep, "District", "rto_office_id", [], existing?.rto?.id || "", "Choose a state first");
     rtoSelect.disabled = true;
-    const coverageNote = element(
+    const existingCoverageAreaId = existing?.private_details?.coverage_area_id || "";
+    const coverageAreaSelect = addSelectField(areaStep, "Coverage Area", "coverage_area_id", [], existingCoverageAreaId, "Choose a District first");
+    coverageAreaSelect.disabled = true;
+    const preferredLocations = element("div", "reporter-preferred-locations reporter-field-full");
+    preferredLocations.append(
+      element("span", "", "Preferred locations (optional)"),
+      element("small", "reporter-field-help", "Add any neighborhoods, towns, or other areas where you would prefer to work. These are a request for review.")
+    );
+    const preferredLocationFields = element("div", "reporter-preferred-location-fields");
+    preferredLocations.append(preferredLocationFields);
+    const validatePreferredLocations = () => {
+      const fields = [...preferredLocationFields.querySelectorAll("input")];
+      const totalLength = fields.map((field) => field.value.trim()).filter(Boolean).join("\n").length;
+      const valid = totalLength === 0 || (totalLength >= 2 && totalLength <= 1000);
+      fields.forEach((field) => field.setCustomValidity(valid ? "" : "Enter at least two characters, and keep preferred locations within 1000 characters total."));
+      return valid;
+    };
+    const addPreferredLocation = (value = "") => {
+      const row = element("div", "reporter-preferred-location-row");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.name = "preferred_location";
+      input.maxLength = 160;
+      input.value = value;
+      input.placeholder = "Enter a preferred location";
+      input.setAttribute("aria-label", "Preferred location");
+      input.addEventListener("input", validatePreferredLocations);
+      const remove = element("button", "reporter-button secondary reporter-preferred-location-remove", "Remove");
+      remove.type = "button";
+      remove.setAttribute("aria-label", "Remove preferred location");
+      remove.addEventListener("click", () => {
+        if (preferredLocationFields.children.length === 1) input.value = "";
+        else row.remove();
+        validatePreferredLocations();
+      });
+      row.append(input, remove);
+      preferredLocationFields.append(row);
+      validatePreferredLocations();
+    };
+    (existing?.private_details?.coverage_localities || "")
+      .split(/\r?\n/)
+      .map((location) => location.trim())
+      .filter(Boolean)
+      .forEach(addPreferredLocation);
+    if (!preferredLocationFields.children.length) addPreferredLocation();
+    const addPreferredLocationButton = element("button", "reporter-button secondary reporter-preferred-location-add", "Add another location");
+    addPreferredLocationButton.type = "button";
+    addPreferredLocationButton.addEventListener("click", () => addPreferredLocation());
+    preferredLocations.append(addPreferredLocationButton);
+    areaStep.append(preferredLocations);
+    const preferredLocationHint = element(
       "p",
       "reporter-card-copy reporter-field-full",
-      "Optionally list the localities you would like to cover. This is a request for review, not an active coverage assignment; an admin confirms your authorized coverage after approval."
+      "The selected Coverage Area is your requested administrative reporting location. Preferred locations are optional requests, not active assignments."
     );
-    areaStep.append(coverageNote);
-    addTextareaField(areaStep, "Coverage area (optional)", "coverage_localities", {
-      required: false,
-      maxLength: 1000,
-      value: existing?.private_details?.coverage_localities,
-      placeholder: "List the localities, neighborhoods, towns, or Coverage areas you would like to report from."
-    });
+    areaStep.append(preferredLocationHint);
+    const refreshCoverageAreas = (districtId = "", selectedCoverageAreaId = "") => {
+      const eligibleCoverageAreas = (options.coverage_areas || []).filter((coverageArea) =>
+        String(coverageArea.parent_id) === String(districtId)
+      );
+      coverageAreaSelect.replaceChildren();
+      const placeholder = element(
+        "option",
+        "",
+        eligibleCoverageAreas.length ? "Choose a Coverage Area" : "No active Coverage Areas for this District"
+      );
+      placeholder.value = "";
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      coverageAreaSelect.append(placeholder);
+      eligibleCoverageAreas.forEach((coverageArea) => {
+        const option = element("option", "", coverageArea.name);
+        option.value = String(coverageArea.id);
+        option.selected = String(coverageArea.id) === String(selectedCoverageAreaId);
+        coverageAreaSelect.append(option);
+      });
+      coverageAreaSelect.disabled = !districtId;
+    };
     const refreshDistricts = (selectedDistrictId = "") => {
       const eligibleDistricts = (options.rtos || []).filter((district) =>
         String(district.state_id) === stateSelect.value
@@ -521,8 +587,9 @@ function renderApplicationForm(action, existing = null) {
         rtoSelect.append(option);
       });
       rtoSelect.disabled = eligibleDistricts.length === 0;
-      rtoSelect.dispatchEvent(new Event("change"));
+      refreshCoverageAreas(rtoSelect.value, existingCoverageAreaId);
     };
+    rtoSelect.addEventListener("change", () => refreshCoverageAreas(rtoSelect.value));
     stateSelect.addEventListener("change", () => refreshDistricts());
     if (stateSelect.value) refreshDistricts(existingRto?.id || "");
 
@@ -679,11 +746,18 @@ function renderApplicationForm(action, existing = null) {
       const values = new FormData(form);
       const selectedState = options.states.find((state) => String(state.id) === String(values.get("state_id")));
       const selectedRto = options.rtos.find((rto) => String(rto.id) === String(values.get("rto_office_id")));
+      const selectedCoverageArea = (options.coverage_areas || []).find((coverageArea) =>
+        String(coverageArea.id) === String(values.get("coverage_area_id"))
+      );
+      const preferredLocationValues = values.getAll("preferred_location")
+        .map((location) => String(location).trim())
+        .filter(Boolean);
       summary.replaceChildren(
         element("strong", "", "Check your application before sending"),
         element("span", "", `State: ${selectedState?.state_name || "—"}`),
         element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
-        element("span", "", `Coverage area (admin review required): ${String(values.get("coverage_localities") || "").trim() || "—"}`),
+        element("span", "", `Coverage Area: ${selectedCoverageArea?.name || "—"}`),
+        element("span", "", `Preferred locations: ${preferredLocationValues.join(", ") || "None provided"}`),
         element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
         element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
         element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
@@ -752,7 +826,11 @@ function renderApplicationForm(action, existing = null) {
           masked_aadhaar_confirmed: values.get("masked_aadhaar_confirmed") === "on",
           document_processing_consent: values.get("document_processing_consent") === "on",
           preferred_language: String(values.get("preferred_language") || "").trim(),
-          coverage_localities: String(values.get("coverage_localities") || "").trim(),
+          coverage_area_id: String(values.get("coverage_area_id") || ""),
+          coverage_localities: values.getAll("preferred_location")
+            .map((location) => String(location).trim())
+            .filter(Boolean)
+            .join("\n"),
           experience_years: String(values.get("experience_years") || ""),
           experience_summary: String(values.get("experience_summary") || "").trim(),
           availability: String(values.get("availability") || "").trim(),

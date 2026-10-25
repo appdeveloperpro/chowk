@@ -2030,7 +2030,7 @@ async function adminRoute(request, response, requestUrl, session) {
       const applicationId = applicationPrivateDetails[1];
       const [details, documents] = await Promise.all([
         supabaseRequest(
-          `/rest/v1/reporter_application_private_details?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${applicationId}&limit=1`,
+          `/rest/v1/reporter_application_private_details?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name),experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${applicationId}&limit=1`,
           { token }
         ),
         supabaseRequest(
@@ -3043,10 +3043,22 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname === "/api/reporter/options" && request.method === "GET") {
     void (async () => {
       try {
-        const result = await supabaseRequest("/rest/v1/rpc/chowk_reporter_options");
-        sendJson(response, result.response.status, result.response.ok
-          ? { success: true, data: result.payload }
-          : { error: apiErrorMessage(result.payload, "Reporter options could not be loaded.") });
+        const [result, coverageAreas] = await Promise.all([
+          supabaseRequest("/rest/v1/rpc/chowk_reporter_options"),
+          supabaseRequest("/rest/v1/locations?select=id,name,parent_id&location_type=eq.coverage_area&is_active=eq.true&order=name.asc&limit=5000")
+        ]);
+        for (const optionResult of [result, coverageAreas]) {
+          if (!optionResult.response.ok) {
+            sendJson(response, optionResult.response.status, {
+              error: apiErrorMessage(optionResult.payload, "Reporter options could not be loaded.")
+            });
+            return;
+          }
+        }
+        sendJson(response, 200, {
+          success: true,
+          data: { ...result.payload, coverage_areas: coverageAreas.payload || [] }
+        });
       } catch (error) {
         console.error("Reporter options request failed:", error.message);
         sendJson(response, 503, { error: "Reporter application options are unavailable." });
@@ -3126,9 +3138,34 @@ const server = http.createServer((request, response) => {
               method: "POST",
               token: session.token
             });
-            sendJson(response, result.response.status, result.response.ok
-              ? { success: true, data: result.payload }
-              : { error: apiErrorMessage(result.payload, "Reporter status could not be loaded.") });
+            if (!result.response.ok) {
+              sendJson(response, result.response.status, {
+                error: apiErrorMessage(result.payload, "Reporter status could not be loaded.")
+              });
+              return;
+            }
+            let data = result.payload;
+            const applicationId = data?.application?.id;
+            if (applicationId) {
+              const privateDetails = await supabaseRequest(
+                `/rest/v1/reporter_application_private_details?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${encodeURIComponent(applicationId)}&limit=1`,
+                { token: session.token }
+              );
+              if (!privateDetails.response.ok) {
+                sendJson(response, privateDetails.response.status, {
+                  error: apiErrorMessage(privateDetails.payload, "Reporter application details could not be loaded.")
+                });
+                return;
+              }
+              data = {
+                ...data,
+                application: {
+                  ...data.application,
+                  private_details: privateDetails.payload?.[0] || {}
+                }
+              };
+            }
+            sendJson(response, 200, { success: true, data });
             return;
           }
           if (requestUrl.pathname === "/api/reporter/application-documents" && request.method === "POST") {
@@ -3217,8 +3254,8 @@ const server = http.createServer((request, response) => {
                 && (typeof privateDetails.coverage_localities !== "string"
                   || (privateDetails.coverage_localities.trim().length > 0
                     && (privateDetails.coverage_localities.trim().length < 2
-                      || privateDetails.coverage_localities.trim().length > 1000)))) {
-              sendJson(response, 400, { error: "Coverage area must be empty or 2-1000 characters." });
+                      || privateDetails.coverage_localities.length > 1000)))) {
+              sendJson(response, 400, { error: "Preferred locations must be empty or 2-1000 characters." });
               return;
             }
             if (!privateDetails || typeof privateDetails !== "object" || Array.isArray(privateDetails)
@@ -3258,20 +3295,35 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Choose a valid State and District." });
               return;
             }
-            const locationOptions = await supabaseRequest("/rest/v1/rpc/chowk_reporter_options", {
-              token: session.token
-            });
-            if (!locationOptions.response.ok) {
-              sendJson(response, locationOptions.response.status, {
-                error: apiErrorMessage(locationOptions.payload, "Reporter location options could not be loaded.")
-              });
-              return;
+            const [locationOptions, coverageAreasResult] = await Promise.all([
+              supabaseRequest("/rest/v1/rpc/chowk_reporter_options", { token: session.token }),
+              supabaseRequest(
+                "/rest/v1/locations?select=id,name,parent_id&location_type=eq.coverage_area&is_active=eq.true&order=name.asc&limit=5000",
+                { token: session.token }
+              )
+            ]);
+            for (const locationResult of [locationOptions, coverageAreasResult]) {
+              if (!locationResult.response.ok) {
+                sendJson(response, locationResult.response.status, {
+                  error: apiErrorMessage(locationResult.payload, "Reporter location options could not be loaded.")
+                });
+                return;
+              }
             }
             const selectedDistrict = (locationOptions.payload?.rtos || []).find((district) =>
               Number(district.id) === rtoId && Number(district.state_id) === stateId
             );
             if (!selectedDistrict?.region_id) {
               sendJson(response, 400, { error: "Choose an active District within the selected State." });
+              return;
+            }
+            const coverageAreaId = Number(privateDetails?.coverage_area_id);
+            const selectedCoverageArea = (coverageAreasResult.payload || []).find((coverageArea) =>
+              Number(coverageArea.id) === coverageAreaId
+                && Number(coverageArea.parent_id) === Number(selectedDistrict.district_id)
+            );
+            if (!Number.isSafeInteger(coverageAreaId) || !selectedCoverageArea) {
+              sendJson(response, 400, { error: "Choose an active Coverage Area within the selected District." });
               return;
             }
             const typeResult = await supabaseRequest(

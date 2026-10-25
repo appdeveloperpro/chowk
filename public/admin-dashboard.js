@@ -50,8 +50,8 @@ const modules = {
     description: "Issue ID cards and authority letters; reporter access starts only after the authority letter is acknowledged."
   },
   "reporter-service-agreements": {
-    path: "admin/reporter-service-agreements",
-    description: "Create lawyer-reviewed personalized service agreement templates, preview drafts, publish or archive versions, and inspect accepted document receipts."
+    path: "admin/reporter-service-agreement-template",
+    description: "Maintain the approved service agreement template and company legal details used to prepare agreements for approved reporters."
   },
   "reporter-options": {
     path: "admin/reporter-options",
@@ -654,30 +654,56 @@ function renderReporterAdminSection(section, root, data) {
   }
 
   if (section === "reporter-service-agreements") {
-    const agreements = Array.isArray(data) ? data : [];
-    const currentVersion = agreements.find((agreement) => agreement.status === "published")?.version || "";
-    const rows = agreements.map((agreement) => ({
-      version: agreement.version,
-      sha256: agreement.sha256,
-      document: agreement.template_content ? "Personalized PDF template" : agreement.document_url ? "Legacy PDF available" : "No document",
-      status: agreement.status,
-      published_at: formatDate(agreement.published_at),
-      document_url: agreement.document_url,
-      _dynamic_template: Boolean(agreement.template_content),
-      _storage_object_path: agreement.storage_object_path,
-      _published_version: currentVersion,
-      id: agreement.id
-    }));
-    reporterActionButton(root, "Create personalized service agreement", () => void openReporterServiceAgreementTemplateDialog());
-    reporterActionButton(root, "Manage company legal details", async () => {
+    const panel = makeElement("section", "admin-panel");
+    const header = makeElement("div", "admin-panel-heading");
+    header.append(makeElement("h2", "", "Approved service agreement"));
+    const published = data.published_version;
+    const latestDraft = data.latest_status === "draft";
+    header.append(makeElement(
+      "span",
+      "",
+      published ? `Published · ${published}` : "Not published"
+    ));
+    panel.append(header);
+    panel.append(makeElement(
+      "p",
+      "admin-dialog-help",
+      "Maintain one approved template here. After a reporter is approved, open their application to preview and issue a personalized PDF. The system keeps previous versions and accepted documents for legal history."
+    ));
+    if (latestDraft) {
+      panel.append(makeElement(
+        "p",
+        "admin-inline-warning",
+        "An unpublished draft is saved. Review and publish it before issuing agreements based on the updated terms."
+      ));
+    } else if (!published) {
+      panel.append(makeElement(
+        "p",
+        "admin-inline-warning",
+        "No service agreement is published yet. Finalize the legal terms and verify company details before issuing agreements."
+      ));
+    }
+    const actions = makeElement("div", "admin-page-actions");
+    const editTemplate = makeElement(
+      "button",
+      "admin-primary-button admin-create-button",
+      data.is_default ? "Set up and publish template" : "Edit and publish template"
+    );
+    editTemplate.type = "button";
+    editTemplate.addEventListener("click", () => void openReporterServiceAgreementTemplateDialog());
+    const manageCompany = makeElement("button", "admin-secondary-button", "Manage company legal details");
+    manageCompany.type = "button";
+    manageCompany.addEventListener("click", async () => {
       try {
         const setup = await apiRequest("admin/reporter-options");
         openReporterOrganizationProfileDialog(setup.data?.organization_profile);
       } catch (error) {
-        window.alert(`Company legal details could not be loaded: ${error.message}`);
+        void showAdminMessage("Company details unavailable", error.message);
       }
     });
-    reporterPanel(root, "Reporter service agreements", rows, section);
+    actions.append(editTemplate, manageCompany);
+    panel.append(actions);
+    root.append(panel);
     return;
   }
 
@@ -722,7 +748,7 @@ function renderReporterSetup(root, data) {
     },
     {
       key: "service_agreement",
-      title: "Service agreement",
+      title: "Service agreement setup",
       count: publishedServiceAgreement ? "Published" : "Needed for credentials",
       detail: publishedServiceAgreement?.version || "Publish finalized service terms before issuing reporter credentials."
     }
@@ -747,7 +773,7 @@ function renderReporterSetup(root, data) {
       makeElement("strong", "reporter-setup-card-count", String(item.count)),
       makeElement("span", "reporter-setup-card-detail", item.detail),
       makeElement("span", "reporter-setup-card-action", item.key === "service_agreement"
-        ? "Open agreements →"
+        ? "Open setup →"
         : reporterSetupView === item.key ? "Currently open" : "Manage →")
     );
     card.addEventListener("click", () => {
@@ -908,7 +934,7 @@ async function openReporterAssignmentDialog(reporter, refresh) {
       "Assign reporter"
     );
   } catch (error) {
-    void showAdminMessage("Template could not be loaded", error.message);
+    void showAdminMessage("Template editor could not be opened", error.message);
   }
 }
 
@@ -1155,21 +1181,25 @@ function openCredentialDialog(staff) {
 }
 
 async function openReporterServiceAgreementTemplateDialog() {
+  let template = {};
+  try {
+    template = unwrapData(await apiRequest("admin/reporter-service-agreement-template")) || {};
+  } catch (error) {
+    void showAdminMessage("Template could not be loaded", error.message);
+    return;
+  }
+  return openReporterServiceAgreementTemplateEditor(template);
+}
+
+function openReporterServiceAgreementTemplateEditor(template) {
   let previewUrl = "";
   try {
-    const templateResult = await apiRequest("admin/reporter-service-agreement-template");
-    const template = templateResult.data || {};
     const dialog = openFormDialog(
-      "Create personalized service agreement template version",
-      template.is_default
-        ? "The editor starts with the existing Reporter Engagement Agreement format. Review it with counsel and replace every square-bracket placeholder with approved terms before publishing. Chowk does not create legal terms; save creates an immutable draft."
-        : "Review the existing service terms with counsel and replace every square-bracket placeholder with approved terms before publishing. Chowk does not create legal terms; save creates an immutable draft.",
+      "Approved reporter service agreement",
+      "Edit the single template used for new reporter agreements. Review all legal terms with counsel and replace every square-bracket drafting placeholder. Publishing a change creates a retained version; previously issued or accepted PDFs remain unchanged.",
       (form) => {
-        const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
-        version.pattern = "[a-zA-Z0-9._-]{1,40}";
-
         const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
-        contentLabel.append(makeElement("span", "", "Service agreement text (draft)"));
+        contentLabel.append(makeElement("span", "", "Service agreement text"));
         const content = document.createElement("textarea");
         content.name = "template_content";
         content.required = true;
@@ -1220,19 +1250,39 @@ async function openReporterServiceAgreementTemplateDialog() {
         form.append(preview);
       },
       async (values) => {
-        await apiRequest("admin/reporter-service-agreements/template", "POST", {
-          version: values.get("version"),
-          template_content: values.get("template_content")
+        const templateContent = String(values.get("template_content") || "").trim();
+        const placeholders = [...new Set(
+          [...templateContent.matchAll(/\[([^\]]+)\]/g)].map((match) => match[0])
+        )];
+        if (placeholders.length) {
+          throw new Error(`Replace all square-bracket drafting placeholders before publishing: ${placeholders.slice(0, 5).join(", ")}${placeholders.length > 5 ? ", …" : ""}`);
+        }
+        if (templateContent.length < 1000 || templateContent.length > 50000) {
+          throw new Error("The service agreement must contain between 1,000 and 50,000 characters.");
+        }
+        const version = `service-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const saved = await apiRequest("admin/reporter-service-agreements/template", "POST", {
+          version,
+          template_content: templateContent
         });
+        const agreementId = saved.data?.id;
+        if (!Number.isSafeInteger(agreementId) || agreementId < 1) {
+          throw new Error("The template draft was saved, but its version could not be identified for publishing. Refresh the page and try again.");
+        }
+        try {
+          await apiRequest(`admin/reporter-service-agreements/${agreementId}/publish`, "POST", {});
+        } catch (error) {
+          throw new Error(`The draft was saved but could not be published: ${error.message}`);
+        }
         await loadSection("reporter-service-agreements");
       },
-      "Save draft version"
+      "Save and publish"
     );
     dialog.addEventListener("close", () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     }, { once: true });
   } catch (error) {
-    window.alert(error.message);
+    void showAdminMessage("Template editor could not be opened", error.message);
   }
 }
 
@@ -1698,10 +1748,8 @@ function buildTable(rows, section) {
       ? ["applicant_name", "email", "state_name", "city", "area_coverage", "status", "details_confirmed"]
       : section === "reporter-credentials"
         ? ["name", "role", "type", "reference", "status", "scope", "valid_until"]
-        : section === "reporter-service-agreements"
-          ? ["version", "status", "document", "sha256", "published_at"]
-          : section === "reporter-directory"
-            ? ["full_name", "email", "reporter_code", "current_assignment", "assignment_history"]
+        : section === "reporter-directory"
+          ? ["full_name", "email", "reporter_code", "current_assignment", "assignment_history"]
           : [];
   const keys = [...new Set([
     ...preferredColumns.filter((key) => rows.some((row) => Object.hasOwn(row, key))),
@@ -1960,7 +2008,7 @@ function addRowActions(container, row, section) {
   if (section === "reporter-applications") {
     rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
     if (["approved", "active"].includes(row.status)) {
-      rowButton(container, "Service agreement", () => void openReporterServiceAgreementIssueDialog(row, refresh));
+      rowButton(container, "Preview / issue agreement", () => void openReporterServiceAgreementIssueDialog(row, refresh));
     }
     if (["pending", "needs_information"].includes(row.status)) {
       rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
@@ -2008,74 +2056,6 @@ function addRowActions(container, row, section) {
       else printWindow.opener = null;
     });
     rowButton(container, "Revoke", () => openCredentialRevokeDialog(id, refresh), "admin-row-button danger");
-    return;
-  }
-
-  if (section === "reporter-service-agreements") {
-    if (row.document_url) {
-      rowButton(container, "Preview PDF", () => {
-        const previewUrl = row._storage_object_path || row._dynamic_template
-          ? proxyUrl(`admin/reporter-service-agreements/${id}/preview`)
-          : new URL(row.document_url, window.location.origin).toString();
-        const parsedUrl = new URL(previewUrl, window.location.origin);
-        if (parsedUrl.protocol !== "https:" && parsedUrl.origin !== window.location.origin) {
-          window.alert("Agreement documents must use HTTPS.");
-          return;
-        }
-        const previewWindow = window.open(parsedUrl.toString(), "_blank");
-        if (previewWindow) previewWindow.opener = null;
-        else window.alert("Allow pop-ups to preview the agreement PDF.");
-      });
-    }
-    if (row.status === "draft" && row._dynamic_template) {
-      rowButton(container, "Publish", () => {
-        const replacesPublished = row._published_version;
-        const message = `Publish service agreement version ${row.version}? Admins will preview and issue an exact reporter-specific PDF; the reporter must accept that issued copy before credentials can be issued. The current published version will be archived.`;
-        void confirmAdminAction(
-          "Publish service agreement?",
-          replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message,
-          "Publish",
-          false
-        ).then((confirmed) => {
-          if (!confirmed) return;
-          void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/publish`, "POST", {}), refresh);
-        });
-      });
-    }
-    if (row.status === "draft" || row.status === "published") {
-      const isPublished = row.status === "published";
-      rowButton(container, isPublished ? "Archive current" : "Archive draft", () => {
-        const effect = "Approved reporters cannot receive credentials until a service-agreement version is published. This does not revoke access already granted.";
-        const message = isPublished
-          ? `Archive current version ${row.version}? ${effect} Historical acceptance records remain unchanged.`
-          : `Archive draft version ${row.version}? The record and document will be retained in history.`;
-        void confirmAdminAction(
-          isPublished ? "Archive published agreement?" : "Archive agreement draft?",
-          message,
-          "Archive",
-          true
-        ).then((confirmed) => {
-          if (!confirmed) return;
-          void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/archive`, "POST", {}), refresh);
-        });
-      }, "admin-row-button danger");
-    }
-    if (row.status !== "published") {
-      rowButton(container, "Delete", () => {
-        void confirmAdminAction(
-          "Delete service agreement?",
-          `Permanently delete agreement version ${row.version}? This cannot be undone. Versions with reporter acceptance, issuance, application, or credential history cannot be deleted.`,
-          "Delete",
-          true
-        ).then((confirmed) => {
-          if (!confirmed) return;
-          void runAction(
-            () => apiRequest(`admin/reporter-service-agreements/${id}`, "DELETE"),
-            refresh
-          );
-        });
-      }, "admin-row-button danger");
-    }
     return;
   }
 
@@ -2415,7 +2395,7 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   });
   const status = makeElement("p", "admin-dialog-help");
   status.setAttribute("role", "status");
-  status.textContent = "Before issuing: verify the company legal profile, then create and publish a personalized service-agreement template in Reporter setup → Service agreement.";
+  status.textContent = "Generate the personalized PDF, review it, then issue it to this reporter. The reporter must accept this exact document before credentials can be issued.";
   const frame = document.createElement("iframe");
   frame.title = "Personalized reporter service agreement preview";
   frame.hidden = true;

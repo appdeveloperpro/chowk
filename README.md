@@ -261,9 +261,9 @@ key and authenticated user tokens.
   the legal placeholders are completed and the documents are approved.
 
 Reporter applications remain open while legal documents are being finalized.
-In Admin → Reporter setup, replace and verify the organization legal profile
-before publishing service-agreement terms. There is one reporter contract
-workflow: the application collects and confirms reporter details; it does not
+In Admin → Service agreement setup, replace and verify the organization legal
+profile and maintain the single active service-agreement template. There is one
+reporter contract workflow: the application collects and confirms reporter details; it does not
 ask for contract acceptance. After approval, an administrator prepares a
 personalized service-agreement PDF from the verified company profile and the
 reporter's approved application, previews it, and explicitly issues that exact
@@ -274,10 +274,10 @@ requires acceptance of the current issued agreement. The service template
 editor starts with the existing Reporter Engagement Agreement format and
 inserts verified database details; it does not draft or approve legal terms.
 Square-bracket legal/business placeholders must be finalized by the company and
-reviewed by counsel before publication. Published versions cannot be edited, so
-create a replacement version for corrections. Archiving the current version
-stops new issues but does not erase historical receipts or revoke existing
-reporter access.
+reviewed by counsel before publication. Editing and publishing replaces the
+active template for future issues, while previous versions and issued or
+accepted PDFs remain retained as legal history. To prepare an agreement, open
+the approved reporter's application and use **Preview / issue agreement**.
 Reporter type remains an internal assignment setting and is not shown in
 reporter-facing pages or documents. Review the seeded states and legacy Uttar
 Pradesh RTOs; add RTO/reporting areas for other states as needed. Applicants create and
@@ -291,8 +291,8 @@ must be masked with only its last four digits visible. The database calculates
 and stores age at the application date from the date of birth for restricted
 admin review. Application submission records the applicant's accuracy
 confirmation and does not create a contract acceptance. Admins edit and publish
-immutable personalized service-agreement template versions after completing
-all legal terms and verifying organization details. Admins can open a
+the service-agreement template after completing all legal terms and verifying
+organization details. Admins can open a
 restricted private-details view from
 each application to review the submitted details and short-lived document links.
 Admins review the application,
@@ -305,8 +305,9 @@ company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; apply all migrations in
 order, including 0040 (stored application-age snapshot), 0041 (per-reporter
-service-agreement issues), and 0042 (single service-agreement workflow), before
-deploying the matching application code. The
+service-agreement issues), 0042 (single service-agreement workflow), and 0043
+(safe admin deletion of unused agreement versions), before deploying the
+matching application code. The
 public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.

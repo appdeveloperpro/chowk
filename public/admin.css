@@ -1247,6 +1247,17 @@
   color: #9a2424;
 }
 
+.admin-inline-warning {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d8b4;
+  border-radius: 8px;
+  background: #fffaf2;
+  color: #8b5a18;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .admin-upload-control {
   display: contents;
 }

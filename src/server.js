@@ -752,14 +752,14 @@ async function reporterServiceAgreementAdminContext(session, applicationId) {
   const agreement = agreementResult.payload?.[0];
   if (!agreement?.template_content) {
     throw Object.assign(
-      new Error("No personalized service-agreement template is published. In Admin → Reporter setup → Service agreement, create or review the legally approved template and publish it before issuing reporter agreements."),
+      new Error("No approved service-agreement template is published. Open Admin → Service agreement setup, finalize the template, and publish it before issuing reporter agreements."),
       { statusCode: 409 }
     );
   }
   const company = organizationResult.payload?.[0];
   if (!company?.is_verified) {
     throw Object.assign(
-      new Error("Verify the company legal profile in Admin → Reporter setup before preparing agreements."),
+      new Error("Verify the company legal profile in Admin → Service agreement setup before preparing agreements."),
       { statusCode: 409 }
     );
   }
@@ -1366,22 +1366,35 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-service-agreement-template" && request.method === "GET") {
-      const result = await supabaseRequest(
-        "/rest/v1/reporter_service_agreement_versions?select=id,version,template_content&template_content=not.is.null&order=created_at.desc&limit=1",
-        { token }
-      );
-      if (!result.response.ok) {
-        sendJson(response, result.response.status, {
-          error: apiErrorMessage(result.payload, "The service agreement template could not be loaded.")
-        });
-        return;
+      const [latest, published] = await Promise.all([
+        supabaseRequest(
+          "/rest/v1/reporter_service_agreement_versions?select=id,version,template_content,status&template_content=not.is.null&order=created_at.desc&limit=1",
+          { token }
+        ),
+        supabaseRequest(
+          "/rest/v1/reporter_service_agreement_versions?select=version,published_at&template_content=not.is.null&status=eq.published&limit=1",
+          { token }
+        )
+      ]);
+      for (const result of [latest, published]) {
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "The service agreement setup could not be loaded.")
+          });
+          return;
+        }
       }
+      const latestTemplate = latest.payload?.[0];
+      const publishedTemplate = published.payload?.[0];
       sendJson(response, 200, {
         success: true,
         data: {
-          template_content: result.payload?.[0]?.template_content || defaultReporterAgreementTemplate(),
-          based_on_version: result.payload?.[0]?.version || null,
-          is_default: !result.payload?.[0],
+          template_content: latestTemplate?.template_content || defaultReporterAgreementTemplate(),
+          based_on_version: latestTemplate?.version || null,
+          latest_status: latestTemplate?.status || null,
+          published_version: publishedTemplate?.version || null,
+          published_at: publishedTemplate?.published_at || null,
+          is_default: !latestTemplate,
           supported_fields: reporterServiceAgreementTemplateFields
         }
       });

@@ -1125,6 +1125,13 @@ function openCredentialDialog(staff) {
     ["reporter", "moderator", "editor"].includes(person.role)
       || person.can_issue_id_card
   );
+  if (!eligibleStaff.length) {
+    void showAdminMessage(
+      "No eligible staff members",
+      "Credential issuance is available for newsroom staff and approved reporters who have accepted the current service agreement."
+    );
+    return;
+  }
   openFormDialog(
     "Issue staff credential",
     "Approved applicants can receive an ID card and authority letter only after accepting the current service agreement. Reporter access starts only after they acknowledge a valid authority letter.",
@@ -1166,8 +1173,8 @@ function openCredentialDialog(staff) {
         start.min = today;
         end.min = start.value || today;
         if (start.value) {
-          const maximum = new Date(`${start.value}T00:00:00`);
-          maximum.setDate(maximum.getDate() + 366);
+          const maximum = new Date(`${start.value}T00:00:00.000Z`);
+          maximum.setUTCDate(maximum.getUTCDate() + 366);
           end.max = maximum.toISOString().slice(0, 10);
         } else {
           end.removeAttribute("max");
@@ -1775,7 +1782,12 @@ function renderTablePanel(title, rows, section) {
 }
 
 function buildTable(rows, section) {
-  if (!rows.length) return makeElement("p", "admin-empty", "No records are available.");
+  if (!rows.length) {
+    const message = section === "reporter-credentials"
+      ? "No credentials have been issued yet. Issued ID cards and authority letters will appear here."
+      : "No records are available.";
+    return makeElement("p", "admin-empty", message);
+  }
 
   const excluded = new Set(["content", "body", "password", "token", "credentials"]);
   const internalColumns = new Set(["id", "user_id", "application_id", "credential_id"]);

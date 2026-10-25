@@ -2504,31 +2504,31 @@ async function openReporterReviewDialog(application, refresh) {
           pan_card: "PAN card",
           bank_proof: "Bank proof"
         };
-        documents.forEach((document) => {
+        documents.forEach((submittedDocument) => {
           const row = makeElement("div", "admin-application-private-document");
-          const label = documentLabels[document.document_type] || document.document_type;
+          const label = documentLabels[submittedDocument.document_type] || submittedDocument.document_type;
           row.append(makeElement("span", "", label));
           const preview = makeElement("a", "", "Open document");
-          preview.href = document.preview_url;
+          preview.href = submittedDocument.preview_url;
           preview.target = "_blank";
           preview.rel = "noopener noreferrer";
-          row.append(preview, makeElement("small", "", `SHA-256 ${document.sha256}`));
+          row.append(preview, makeElement("small", "", `SHA-256 ${submittedDocument.sha256}`));
           const documentPreview = makeElement("div", "admin-review-document-preview");
-          if (document.mime_type?.startsWith("image/")) {
+          if (submittedDocument.mime_type?.startsWith("image/")) {
             const image = document.createElement("img");
-            image.src = document.preview_url;
+            image.src = submittedDocument.preview_url;
             image.alt = `${label} preview`;
             image.loading = "lazy";
             documentPreview.append(image);
-          } else if (document.mime_type === "application/pdf") {
+          } else if (submittedDocument.mime_type === "application/pdf") {
             const frame = document.createElement("iframe");
-            frame.src = document.preview_url;
+            frame.src = submittedDocument.preview_url;
             frame.title = `${label} preview`;
             frame.loading = "lazy";
             documentPreview.append(frame);
           }
           if (documentPreview.childElementCount) row.append(documentPreview);
-          addReviewRequestControl(row, document.document_type, label, ["reupload", "other"], requestControls);
+          addReviewRequestControl(row, submittedDocument.document_type, label, ["reupload", "other"], requestControls);
           documentList.append(row);
         });
         reviewDetails.append(documentList);

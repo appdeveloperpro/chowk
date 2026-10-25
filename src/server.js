@@ -752,7 +752,7 @@ async function reporterServiceAgreementAdminContext(session, applicationId) {
   const agreement = agreementResult.payload?.[0];
   if (!agreement?.template_content) {
     throw Object.assign(
-      new Error("Publish a finalized personalized service-agreement template before preparing reporter agreements."),
+      new Error("No personalized service-agreement template is published. In Admin → Reporter setup → Service agreement, create or review the legally approved template and publish it before issuing reporter agreements."),
       { statusCode: 409 }
     );
   }
@@ -831,6 +831,27 @@ async function reporterServiceAgreementAdminContext(session, applicationId) {
     "reporter.date_of_birth": details.date_of_birth || "Not provided",
     "reporter.mobile_number": details.mobile_number || "Not provided"
   };
+  const requiredTemplateTokens = new Set(
+    [...agreement.template_content.matchAll(/\{\{([^}]+)\}\}/g)]
+      .map((match) => match[1].trim())
+  );
+  const optionalTemplateTokens = new Set([
+    "company.registration_number",
+    "company.website_url"
+  ]);
+  const missingFields = [...requiredTemplateTokens].filter((token) =>
+    !Object.hasOwn(tokens, token)
+    || !String(tokens[token] ?? "").trim()
+    || (!optionalTemplateTokens.has(token)
+      && ["Not provided", "Name not provided", "Assigned after approval", "Assigned after onboarding"]
+        .includes(String(tokens[token]).trim()))
+  );
+  if (missingFields.length) {
+    throw Object.assign(
+      new Error(`Required reporter or company details are missing for this agreement: ${missingFields.join(", ")}. Update the verified company profile or correct the approved reporter application before previewing.`),
+      { statusCode: 409 }
+    );
+  }
   return { application, agreement, tokens };
 }
 

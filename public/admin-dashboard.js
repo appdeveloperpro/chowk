@@ -2548,8 +2548,25 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   const publish = makeElement("button", "admin-primary-button", "Publish to this reporter");
   publish.type = "button";
   publish.disabled = true;
+  const openSetup = makeElement("button", "admin-secondary-button", "Open service agreement setup");
+  openSetup.type = "button";
+  openSetup.addEventListener("click", () => {
+    dialog.close();
+    void loadSection("reporter-service-agreements");
+  });
+  const manageCompany = makeElement("button", "admin-secondary-button", "Manage company legal details");
+  manageCompany.type = "button";
+  manageCompany.addEventListener("click", async () => {
+    try {
+      const setup = await apiRequest("admin/reporter-options");
+      openReporterOrganizationProfileDialog(setup.data?.organization_profile);
+    } catch (error) {
+      status.textContent = `Company legal details could not be loaded: ${error.message}`;
+    }
+  });
   const status = makeElement("p", "admin-dialog-help");
   status.setAttribute("role", "status");
+  status.textContent = "Before issuing: verify the company legal profile, then create and publish a personalized service-agreement template in Reporter setup → Service agreement.";
   const frame = document.createElement("iframe");
   frame.title = "Personalized reporter service agreement preview";
   frame.hidden = true;
@@ -2612,7 +2629,7 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   const close = makeElement("button", "admin-secondary-button", "Close");
   close.type = "button";
   close.addEventListener("click", () => dialog.close());
-  body.append(preview, publish, close, status, frame);
+  body.append(openSetup, manageCompany, preview, publish, close, status, frame);
   dialog.append(body);
   dialog.addEventListener("close", () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);

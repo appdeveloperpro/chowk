@@ -2354,6 +2354,8 @@ async function openReporterPrivateDetailsDialog(application) {
     const documentLabels = {
       profile_photo: "Passport-size profile photo",
       masked_aadhaar: "Masked Aadhaar copy",
+      aadhaar_front: "Masked Aadhaar front",
+      aadhaar_back: "Masked Aadhaar back",
       pan_card: "PAN card",
       bank_proof: "Cancelled cheque / bank proof"
     };

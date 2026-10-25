@@ -96,9 +96,7 @@ function reporterAgreementPreviewUrl(form, download = false) {
   const params = new URLSearchParams();
   const fields = [
     ["state_id", "state_id"],
-    ["region_id", "region_id"],
-    ["rto_office_id", "rto_office_id"],
-    ["reporter_type_id", "reporter_type_id"]
+    ["rto_office_id", "rto_office_id"]
   ];
   for (const [fieldName, queryName] of fields) {
     const field = form.elements.namedItem(fieldName);
@@ -120,7 +118,7 @@ function addAgreement(root, agreement, signerName, form) {
   downloadLink.rel = "noopener noreferrer";
   const updateLinks = () => {
     const hasSelection = !form.elements.namedItem("state_id")
-      || ["state_id", "region_id", "rto_office_id", "reporter_type_id"].every((name) =>
+      || ["state_id", "rto_office_id"].every((name) =>
         Boolean(form.elements.namedItem(name)?.value)
       );
     [previewLink, downloadLink].forEach((link) => {
@@ -136,7 +134,7 @@ function addAgreement(root, agreement, signerName, form) {
       downloadLink.removeAttribute("href");
     }
   };
-  ["state_id", "region_id", "rto_office_id", "reporter_type_id"].forEach((name) => {
+  ["state_id", "rto_office_id"].forEach((name) => {
     form.elements.namedItem(name)?.addEventListener("change", updateLinks);
   });
   updateLinks();
@@ -223,6 +221,8 @@ function createReporterPhotoCropper(container) {
   canvas.width = 512;
   canvas.height = 512;
   canvas.setAttribute("aria-label", "Square preview of cropped reporter photo");
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("tabindex", "0");
   cropPanel.append(canvas);
   const controls = element("div", "reporter-photo-crop-controls");
   const zoom = document.createElement("input");
@@ -251,31 +251,77 @@ function createReporterPhotoCropper(container) {
     controls.append(controlLabel);
   });
   cropPanel.append(controls);
+  cropPanel.append(element("small", "reporter-field-help", "Drag the photo to reposition it. Use the sliders to zoom or fine-tune the crop."));
   container.append(cropPanel);
 
   let sourceImage = null;
+  let imageLoaded = false;
   let sourceUrl = "";
-  const redraw = () => {
-    if (!sourceImage) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
+  let panX = 0;
+  let panY = 0;
+  let dragPoint = null;
+  const clamp = (value) => Math.max(-1, Math.min(1, value));
+  const imageBounds = () => {
+    if (!sourceImage) return null;
     const baseScale = Math.max(canvas.width / sourceImage.naturalWidth, canvas.height / sourceImage.naturalHeight);
     const scale = baseScale * Number(zoom.value);
     const drawWidth = sourceImage.naturalWidth * scale;
     const drawHeight = sourceImage.naturalHeight * scale;
-    const overflowX = Math.max(0, drawWidth - canvas.width);
-    const overflowY = Math.max(0, drawHeight - canvas.height);
-    const x = (canvas.width - drawWidth) / 2 - (Number(horizontal.value) / 100) * overflowX / 2;
-    const y = (canvas.height - drawHeight) / 2 - (Number(vertical.value) / 100) * overflowY / 2;
+    return {
+      drawWidth,
+      drawHeight,
+      overflowX: Math.max(0, drawWidth - canvas.width),
+      overflowY: Math.max(0, drawHeight - canvas.height)
+    };
+  };
+  const redraw = () => {
+    if (!sourceImage) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const { drawWidth, drawHeight, overflowX, overflowY } = imageBounds();
+    const x = (canvas.width - drawWidth) / 2 - panX * overflowX / 2;
+    const y = (canvas.height - drawHeight) / 2 - panY * overflowY / 2;
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(sourceImage, x, y, drawWidth, drawHeight);
   };
-  [zoom, horizontal, vertical].forEach((control) => control.addEventListener("input", redraw));
+  const updatePanControls = () => {
+    horizontal.value = String(Math.round(panX * 100));
+    vertical.value = String(Math.round(panY * 100));
+  };
+  zoom.addEventListener("input", redraw);
+  horizontal.addEventListener("input", () => {
+    panX = Number(horizontal.value) / 100;
+    redraw();
+  });
+  vertical.addEventListener("input", () => {
+    panY = Number(vertical.value) / 100;
+    redraw();
+  });
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!sourceImage) return;
+    dragPoint = { x: event.clientX, y: event.clientY };
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!dragPoint) return;
+    const bounds = imageBounds();
+    if (!bounds) return;
+    const scale = canvas.width / canvas.getBoundingClientRect().width;
+    if (bounds.overflowX > 0) panX = clamp(panX - (event.clientX - dragPoint.x) * scale * 2 / bounds.overflowX);
+    if (bounds.overflowY > 0) panY = clamp(panY - (event.clientY - dragPoint.y) * scale * 2 / bounds.overflowY);
+    dragPoint = { x: event.clientX, y: event.clientY };
+    updatePanControls();
+    redraw();
+  });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach((eventName) => {
+    canvas.addEventListener(eventName, () => { dragPoint = null; });
+  });
   input.addEventListener("change", () => {
     const file = input.files?.[0];
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
     sourceUrl = "";
     sourceImage = null;
+    imageLoaded = false;
     if (!file) {
       cropPanel.hidden = true;
       return;
@@ -289,28 +335,50 @@ function createReporterPhotoCropper(container) {
     }
     input.setCustomValidity("");
     sourceUrl = URL.createObjectURL(file);
-    sourceImage = new Image();
-    sourceImage.onload = () => {
+    const selectedImage = new Image();
+    sourceImage = selectedImage;
+    selectedImage.onload = () => {
+      if (sourceImage !== selectedImage) return;
+      imageLoaded = true;
       zoom.value = "1";
       horizontal.value = "0";
       vertical.value = "0";
+      panX = 0;
+      panY = 0;
       cropPanel.hidden = false;
       redraw();
     };
-    sourceImage.onerror = () => {
+    selectedImage.onerror = () => {
+      if (sourceImage !== selectedImage) return;
+      imageLoaded = false;
       input.setCustomValidity("The selected photo could not be read.");
       input.reportValidity();
       input.value = "";
       cropPanel.hidden = true;
+      URL.revokeObjectURL(sourceUrl);
+      sourceUrl = "";
+      sourceImage = null;
     };
-    sourceImage.src = sourceUrl;
+    selectedImage.src = sourceUrl;
   });
   return {
     input,
     async file() {
-      if (!sourceImage) throw new Error("Choose and crop your passport-size photo.");
+      if (!sourceImage || !imageLoaded) throw new Error("Wait for the photo preview to finish loading, then submit again.");
       return new Promise((resolve, reject) => {
-        canvas.toBlob((blob) => {
+        const exportCanvas = document.createElement("canvas");
+        exportCanvas.width = 512;
+        exportCanvas.height = 512;
+        const context = exportCanvas.getContext("2d");
+        if (!context) {
+          reject(new Error("The cropped photo could not be prepared in this browser."));
+          return;
+        }
+        const { drawWidth, drawHeight, overflowX, overflowY } = imageBounds();
+        const x = (exportCanvas.width - drawWidth) / 2 - panX * overflowX / 2;
+        const y = (exportCanvas.height - drawHeight) / 2 - panY * overflowY / 2;
+        context.drawImage(sourceImage, x, y, drawWidth, drawHeight);
+        exportCanvas.toBlob((blob) => {
           if (!blob) {
             reject(new Error("The cropped photo could not be prepared."));
             return;
@@ -323,6 +391,7 @@ function createReporterPhotoCropper(container) {
       if (sourceUrl) URL.revokeObjectURL(sourceUrl);
       sourceUrl = "";
       sourceImage = null;
+      imageLoaded = false;
     }
   };
 }
@@ -417,55 +486,30 @@ function renderApplicationForm(action, existing = null) {
     addTextareaField(profileStep, "Journalism / community reporting experience (optional)", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
     addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
 
-    const areaStep = addStep("Reporting location", "Choose an active State, Region, and District. The District's RTO code is shown for reference and used automatically when your reporter ID is issued after approval.");
+    const areaStep = addStep("Reporting location", "Choose an active State and District. Region and reporter type are assigned automatically; the District RTO code is used when your reporter ID is issued after approval.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
     const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
     const existingRto = (options.rtos || []).find((rto) => String(rto.id) === String(existing?.rto?.id || ""));
-    const regionSelect = addSelectField(areaStep, "Region", "region_id", [], existingRto?.region_id || "", "Choose a state first");
-    regionSelect.disabled = true;
-    const rtoSelect = addSelectField(areaStep, "District", "rto_office_id", [], existing?.rto?.id || "", "Choose a region first");
+    const rtoSelect = addSelectField(areaStep, "District", "rto_office_id", [], existing?.rto?.id || "", "Choose a state first");
     rtoSelect.disabled = true;
-    const types = (options.types || []).map((type) => ({ id: type.id, label: `${type.name} (${type.type_code})` }));
-    addSelectField(areaStep, "Reporter type", "reporter_type_id", types, existing?.reporter_type?.id || "", "Choose reporter type");
     const coverageNote = element(
       "p",
       "reporter-card-copy reporter-field-full",
-      "Tell us the localities you would like to cover. This is a request for review, not an active coverage assignment; an admin confirms your authorized coverage after approval."
+      "Optionally list the localities you would like to cover. This is a request for review, not an active coverage assignment; an admin confirms your authorized coverage after approval."
     );
     areaStep.append(coverageNote);
-    addTextareaField(areaStep, "Requested coverage areas (required)", "coverage_localities", {
-      required: true,
-      minLength: 2,
+    addTextareaField(areaStep, "Coverage area (optional)", "coverage_localities", {
+      required: false,
       maxLength: 1000,
       value: existing?.private_details?.coverage_localities,
       placeholder: "List the localities, neighborhoods, towns, or Coverage areas you would like to report from."
     });
-    const refreshRegions = (selectedRegionId = "") => {
-      const eligibleRegions = (options.regions || []).filter((region) =>
-        String(region.state_id) === stateSelect.value
-      );
-      regionSelect.replaceChildren();
-      const regionPlaceholder = element("option", "", eligibleRegions.length ? "Choose a region" : "No active regions for this state");
-      regionPlaceholder.value = "";
-      regionPlaceholder.disabled = true;
-      regionPlaceholder.selected = true;
-      regionSelect.append(regionPlaceholder);
-      eligibleRegions.forEach((region) => {
-        const option = element("option", "", region.name);
-        option.value = String(region.id);
-        option.selected = String(region.id) === String(selectedRegionId);
-        regionSelect.append(option);
-      });
-      regionSelect.disabled = eligibleRegions.length === 0;
-      refreshDistricts(regionSelect.value, existingRto?.id || "");
-    };
-    const refreshDistricts = (selectedRegionId = "", selectedDistrictId = "") => {
+    const refreshDistricts = (selectedDistrictId = "") => {
       const eligibleDistricts = (options.rtos || []).filter((district) =>
         String(district.state_id) === stateSelect.value
-        && String(district.region_id) === String(selectedRegionId)
       );
       rtoSelect.replaceChildren();
-      const placeholder = element("option", "", eligibleDistricts.length ? "Choose a District" : "No active Districts for this Region");
+      const placeholder = element("option", "", eligibleDistricts.length ? "Choose a District" : "No active Districts for this State");
       placeholder.value = "";
       placeholder.disabled = true;
       placeholder.selected = true;
@@ -479,13 +523,12 @@ function renderApplicationForm(action, existing = null) {
       rtoSelect.disabled = eligibleDistricts.length === 0;
       rtoSelect.dispatchEvent(new Event("change"));
     };
-    stateSelect.addEventListener("change", () => refreshRegions());
-    regionSelect.addEventListener("change", () => refreshDistricts(regionSelect.value));
-    if (stateSelect.value) refreshRegions(existingRto?.region_id || "");
+    stateSelect.addEventListener("change", () => refreshDistricts());
+    if (stateSelect.value) refreshDistricts(existingRto?.id || "");
 
     const documentsStep = addStep("Identity & bank documents", "Upload clear, readable documents. These are stored privately and are visible only to authorized admins reviewing your application.");
     const privacyNote = element("p", "reporter-sensitive-data-note reporter-field-full",
-      "Aadhaar: upload a MASKED Aadhaar copy only. Hide the first 8 digits so only the last 4 are visible. Never upload an unmasked Aadhaar copy. Avoid uploading unrelated personal documents.");
+      "Aadhaar: upload both sides of a MASKED Aadhaar only. Hide the first 8 digits so only the last 4 are visible on both sides. Never upload an unmasked Aadhaar copy. Avoid uploading unrelated personal documents.");
     documentsStep.append(privacyNote);
     const photoGroup = element("div", "reporter-field-full");
     cropper = createReporterPhotoCropper(photoGroup);
@@ -514,14 +557,15 @@ function renderApplicationForm(action, existing = null) {
       label.append(input, element("small", "reporter-field-help", helpText));
       documentsStep.append(label);
     };
-    addDocumentInput("masked_aadhaar", "Masked Aadhaar copy", "JPG, PNG or PDF · maximum 5 MB");
+    addDocumentInput("aadhaar_front", "Masked Aadhaar front", "Upload the front side with only the last four Aadhaar digits visible · JPG, PNG or PDF · maximum 5 MB");
+    addDocumentInput("aadhaar_back", "Masked Aadhaar back", "Upload the back side; mask any Aadhaar number so only the last four digits are visible · JPG, PNG or PDF · maximum 5 MB");
     const maskedAadhaarCheck = document.createElement("label");
     maskedAadhaarCheck.className = "reporter-check reporter-field-full";
     const maskedAadhaarConfirmed = document.createElement("input");
     maskedAadhaarConfirmed.type = "checkbox";
     maskedAadhaarConfirmed.name = "masked_aadhaar_confirmed";
     maskedAadhaarConfirmed.required = true;
-    maskedAadhaarCheck.append(maskedAadhaarConfirmed, element("span", "", "I confirm this is a masked Aadhaar copy showing only the last four digits."));
+    maskedAadhaarCheck.append(maskedAadhaarConfirmed, element("span", "", "I confirm both Aadhaar sides are masked, with only the last four digits visible."));
     documentsStep.append(maskedAadhaarCheck);
     const privacyConsent = document.createElement("label");
     privacyConsent.className = "reporter-check reporter-field-full";
@@ -634,18 +678,14 @@ function renderApplicationForm(action, existing = null) {
     if (!acceptingUpdatedAgreement && summary.hidden) {
       const values = new FormData(form);
       const selectedState = options.states.find((state) => String(state.id) === String(values.get("state_id")));
-      const selectedRegion = (options.regions || []).find((region) => String(region.id) === String(values.get("region_id")));
       const selectedRto = options.rtos.find((rto) => String(rto.id) === String(values.get("rto_office_id")));
-      const selectedType = options.types.find((type) => String(type.id) === String(values.get("reporter_type_id")));
       summary.replaceChildren(
         element("strong", "", "Check your application before sending"),
         element("span", "", `State: ${selectedState?.state_name || "—"}`),
-        element("span", "", `Region: ${selectedRegion?.name || "—"}`),
         element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
-        element("span", "", `Reporter type: ${selectedType?.name || "—"}`),
-        element("span", "", `Requested coverage areas (admin review required): ${String(values.get("coverage_localities") || "").trim() || "—"}`),
+        element("span", "", `Coverage area (admin review required): ${String(values.get("coverage_localities") || "").trim() || "—"}`),
         element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
-        element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 4`),
+        element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
         element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
         element("span", "", options.agreement
           ? `Personalized application agreement: version ${options.agreement.version} accepted`
@@ -683,7 +723,7 @@ function renderApplicationForm(action, existing = null) {
       } else {
         const photo = await cropper.file();
         applicationFiles.set("profile_photo", photo);
-        for (const documentType of ["profile_photo", "masked_aadhaar", "pan_card", "bank_proof"]) {
+        for (const documentType of ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]) {
           const file = applicationFiles.get(documentType);
           if (!file) throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
           showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
@@ -703,9 +743,7 @@ function renderApplicationForm(action, existing = null) {
             : null
         };
         payload.state_id = values.get("state_id");
-        payload.region_id = values.get("region_id");
         payload.rto_office_id = values.get("rto_office_id");
-        payload.reporter_type_id = values.get("reporter_type_id");
         payload.private_details = {
           emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),
           emergency_contact_relationship: String(values.get("emergency_contact_relationship") || "").trim(),

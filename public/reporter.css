@@ -224,6 +224,12 @@
   border-radius: 8px;
   background: #f4f5f7;
   object-fit: cover;
+  cursor: grab;
+  touch-action: none;
+}
+
+.reporter-photo-crop canvas:active {
+  cursor: grabbing;
 }
 
 .reporter-photo-crop-controls {

@@ -467,7 +467,7 @@ async function uploadReporterAgreementAcceptancePdf(pdf, userId, token) {
 }
 
 async function uploadReporterApplicationDocument(body, userId, token) {
-  const documentTypes = new Set(["profile_photo", "masked_aadhaar", "pan_card", "bank_proof"]);
+  const documentTypes = new Set(["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]);
   if (!/^[0-9a-f-]{36}$/i.test(userId) || !documentTypes.has(body.document_type)) {
     throw Object.assign(new Error("Choose a valid reporter application document type."), { statusCode: 400 });
   }
@@ -529,7 +529,7 @@ async function reporterAgreementContext(session, requested = {}) {
   let stateId = requested.stateId;
   let rtoId = requested.rtoId;
   let typeId = requested.typeId;
-  if (!stateId || !rtoId || !typeId) {
+  if (!stateId || !rtoId) {
     const status = await supabaseRequest("/rest/v1/rpc/chowk_reporter_status", {
       method: "POST",
       token: session.token
@@ -545,9 +545,24 @@ async function reporterAgreementContext(session, requested = {}) {
     rtoId ||= application?.rto?.id;
     typeId ||= application?.reporter_type?.id;
   }
+  if (!typeId) {
+    const typeResult = await supabaseRequest(
+      "/rest/v1/reporter_types?select=id,type_code&is_active=eq.true&order=type_code.asc&limit=500",
+      { token: session.token }
+    );
+    if (!typeResult.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(typeResult.payload, "Reporter types could not be loaded.")),
+        { statusCode: typeResult.response.status }
+      );
+    }
+    const defaultType = (typeResult.payload || []).find((type) => type.type_code === "01")
+      || typeResult.payload?.[0];
+    typeId = defaultType?.id;
+  }
   const ids = [stateId, rtoId, typeId].map(Number);
   if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
-    throw Object.assign(new Error("Select a State, RTO / reporting area, and reporter type before previewing the agreement."), {
+    throw Object.assign(new Error("Select a State and District before previewing the agreement."), {
       statusCode: 400
     });
   }
@@ -638,7 +653,7 @@ async function signedReporterAgreementPdfUrl(objectPath, token, download = false
 
 async function signedReporterApplicationDocumentUrl(objectPath, token) {
   if (typeof objectPath !== "string"
-      || !/^applications\/[0-9a-f-]{36}\/(profile_photo|masked_aadhaar|pan_card|bank_proof)\/[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(objectPath)) {
+      || !/^applications\/[0-9a-f-]{36}\/(profile_photo|masked_aadhaar|aadhaar_front|aadhaar_back|pan_card|bank_proof)\/[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(objectPath)) {
     throw new Error("The reporter application document reference is invalid.");
   }
   const { url, key } = supabaseConfig();
@@ -665,7 +680,7 @@ async function signedReporterApplicationDocumentUrl(objectPath, token) {
 async function removeReporterApplicationDocument(objectPath, userId, token, { allowMissing = false } = {}) {
   if (typeof objectPath !== "string"
       || !objectPath.startsWith(`applications/${userId}/`)
-      || !/^applications\/[0-9a-f-]{36}\/(profile_photo|masked_aadhaar|pan_card|bank_proof)\/[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(objectPath)) {
+      || !/^applications\/[0-9a-f-]{36}\/(profile_photo|masked_aadhaar|aadhaar_front|aadhaar_back|pan_card|bank_proof)\/[0-9a-f-]{36}\.(jpg|png|pdf)$/.test(objectPath)) {
     throw Object.assign(new Error("The reporter application document reference is invalid."), { statusCode: 400 });
   }
   const { url, key } = supabaseConfig();
@@ -3200,9 +3215,10 @@ const server = http.createServer((request, response) => {
             const privateDetails = body.private_details;
             if (privateDetails && typeof privateDetails === "object" && !Array.isArray(privateDetails)
                 && (typeof privateDetails.coverage_localities !== "string"
-                  || privateDetails.coverage_localities.trim().length < 2
-                  || privateDetails.coverage_localities.trim().length > 1000)) {
-              sendJson(response, 400, { error: "Enter at least one preferred location to cover (2-1000 characters)." });
+                  || (privateDetails.coverage_localities.trim().length > 0
+                    && (privateDetails.coverage_localities.trim().length < 2
+                      || privateDetails.coverage_localities.trim().length > 1000)))) {
+              sendJson(response, 400, { error: "Coverage area must be empty or 2-1000 characters." });
               return;
             }
             if (!privateDetails || typeof privateDetails !== "object" || Array.isArray(privateDetails)
@@ -3227,22 +3243,54 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Check the emergency-contact, bank-account, IFSC and blood-group details." });
               return;
             }
-            const requiredDocuments = ["profile_photo", "masked_aadhaar", "pan_card", "bank_proof"];
+            const requiredDocuments = ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"];
             if (!Array.isArray(body.application_documents)
                 || body.application_documents.length !== requiredDocuments.length
                 || requiredDocuments.some((type) =>
                   body.application_documents.filter((document) => document?.document_type === type).length !== 1
                 )) {
-              sendJson(response, 400, { error: "Upload the profile photo, masked Aadhaar, PAN card and bank proof." });
+              sendJson(response, 400, { error: "Upload the profile photo, both Aadhaar sides, PAN card and bank proof." });
               return;
             }
-            const ids = [body.state_id, body.region_id, body.rto_office_id, body.reporter_type_id].map((value) =>
-              value === undefined || value === null || value === "" ? Number.NaN : Number(value)
+            const stateId = Number(body.state_id);
+            const rtoId = Number(body.rto_office_id);
+            if (![stateId, rtoId].every((id) => Number.isSafeInteger(id) && id > 0)) {
+              sendJson(response, 400, { error: "Choose a valid State and District." });
+              return;
+            }
+            const locationOptions = await supabaseRequest("/rest/v1/rpc/chowk_reporter_options", {
+              token: session.token
+            });
+            if (!locationOptions.response.ok) {
+              sendJson(response, locationOptions.response.status, {
+                error: apiErrorMessage(locationOptions.payload, "Reporter location options could not be loaded.")
+              });
+              return;
+            }
+            const selectedDistrict = (locationOptions.payload?.rtos || []).find((district) =>
+              Number(district.id) === rtoId && Number(district.state_id) === stateId
             );
-            if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
-              sendJson(response, 400, { error: "Choose a valid state, region, District and reporter type." });
+            if (!selectedDistrict?.region_id) {
+              sendJson(response, 400, { error: "Choose an active District within the selected State." });
               return;
             }
+            const typeResult = await supabaseRequest(
+              "/rest/v1/reporter_types?select=id,type_code&is_active=eq.true&order=type_code.asc&limit=500",
+              { token: session.token }
+            );
+            if (!typeResult.response.ok) {
+              sendJson(response, typeResult.response.status, {
+                error: apiErrorMessage(typeResult.payload, "Reporter type defaults could not be loaded.")
+              });
+              return;
+            }
+            const defaultType = (typeResult.payload || []).find((type) => type.type_code === "01")
+              || typeResult.payload?.[0];
+            if (!defaultType) {
+              sendJson(response, 409, { error: "No active reporter type is configured." });
+              return;
+            }
+            const ids = [stateId, Number(selectedDistrict.region_id), rtoId, Number(defaultType.id)];
             const locationCheck = await supabaseRequest("/rest/v1/rpc/chowk_validate_reporter_location", {
               method: "POST",
               token: session.token,

@@ -671,19 +671,20 @@ function renderReporterAdminSection(section, root, data) {
       published ? `Published · ${published}` : "Not published"
     ));
     panel.append(header);
-    panel.append(makeElement(
+    const body = makeElement("div", "admin-service-agreement-content");
+    body.append(makeElement(
       "p",
       "admin-dialog-help",
-      "Maintain one approved template here. After a reporter is approved, open their application to preview and issue a personalized PDF. The system keeps previous versions and accepted documents for legal history."
+      "After approval, open a reporter's application to preview and issue their personalized agreement. Previous versions and accepted agreements are retained."
     ));
     if (latestDraft) {
-      panel.append(makeElement(
+      body.append(makeElement(
         "p",
         "admin-inline-warning",
         "An unpublished draft is saved. Review and publish it before issuing agreements based on the updated terms."
       ));
     } else if (!published) {
-      panel.append(makeElement(
+      body.append(makeElement(
         "p",
         "admin-inline-warning",
         "No service agreement is published yet. Finalize the legal terms and verify company details before issuing agreements."
@@ -708,7 +709,8 @@ function renderReporterAdminSection(section, root, data) {
       }
     });
     actions.append(editTemplate, manageCompany);
-    panel.append(actions);
+    body.append(actions);
+    panel.append(body);
     root.append(panel);
     return;
   }

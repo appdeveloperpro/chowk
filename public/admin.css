@@ -635,6 +635,21 @@
   font-size: 10px;
 }
 
+.admin-service-agreement-content {
+  display: grid;
+  gap: 12px;
+  padding: 14px 18px 18px;
+}
+
+.admin-service-agreement-content > .admin-dialog-help {
+  color: #667186;
+  font-size: 12px;
+}
+
+.admin-service-agreement-content > .admin-inline-warning {
+  margin: 0;
+}
+
 .admin-table-wrap {
   overflow-x: auto;
 }

@@ -96,14 +96,14 @@ function normalizeAgreementLines(text) {
   return output;
 }
 
-function addMixedScriptText(document, text, bold = false) {
+function addMixedScriptText(document, text, bold = false, align = "left") {
   const runs = text.match(/[\u0900-\u097f₹]+|[^\u0900-\u097f₹]+/gu) || [""];
   runs.forEach((run, index) => {
     const devanagari = /[\u0900-\u097f₹]/u.test(run);
     const font = bold
       ? (devanagari ? "AgreementDevanagariBold" : "AgreementLatinBold")
       : (devanagari ? "AgreementDevanagari" : "AgreementLatin");
-    document.font(font).text(run, { continued: index < runs.length - 1 });
+    document.font(font).text(run, { continued: index < runs.length - 1, align });
   });
 }
 
@@ -150,7 +150,7 @@ function createReporterAgreementPdf(template, data, { preview = false, allowedTo
     const heading = title || /^(Background|Schedule [A-Z]|Signatures|(?:\d+(?:\.\d+)*\.?)\s+[A-Z])/.test(line);
     document.fontSize(title ? 17 : heading ? 11 : 9.5);
     document.fillColor("#172033");
-    addMixedScriptText(document, line, heading);
+    addMixedScriptText(document, line, heading, heading ? "left" : "justify");
     document.text("", { lineGap: heading ? 2 : 1 });
   });
   document.end();

@@ -694,6 +694,14 @@ function renderReporterAdminSection(section, root, data) {
     }));
     reporterActionButton(root, "Create personalized service agreement", () => void openReporterServiceAgreementTemplateDialog());
     reporterActionButton(root, "Upload legacy static PDF", () => openAgreementDialog("service"));
+    reporterActionButton(root, "Manage company legal details", async () => {
+      try {
+        const setup = await apiRequest("admin/reporter-options");
+        openReporterOrganizationProfileDialog(setup.data?.organization_profile);
+      } catch (error) {
+        window.alert(`Company legal details could not be loaded: ${error.message}`);
+      }
+    });
     reporterPanel(root, "Reporter service agreements", rows, section);
     return;
   }
@@ -850,7 +858,7 @@ function renderReporterSetup(root, data) {
       makeElement(
         "p",
         "reporter-organization-help",
-        "These details are stored for admin setup only; they are not automatically inserted into PDFs. Replace them with verified company details, then host the finalized, lawyer-reviewed PDF and register its HTTPS URL, version, and exact SHA-256 in the agreement manager."
+        "Verified company legal details are inserted into personalized agreement PDFs. Keep this profile accurate before preparing and issuing an agreement to a reporter. Legal terms must be finalized and reviewed before the template is published."
       )
     );
     const profileFields = [
@@ -2119,6 +2127,9 @@ function addRowActions(container, row, section) {
 
   if (section === "reporter-applications") {
     rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
+    if (["approved", "active"].includes(row.status)) {
+      rowButton(container, "Service agreement", () => void openReporterServiceAgreementIssueDialog(row, refresh));
+    }
     if (["pending", "needs_information"].includes(row.status)) {
       rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
     }
@@ -2425,6 +2436,7 @@ async function openReporterPrivateDetailsDialog(application) {
     [
       ["Mobile number", details.mobile_number],
       ["Date of birth", details.date_of_birth],
+      ["Age at application", details.age_at_application == null ? "—" : `${details.age_at_application} years`],
       ["Father's first name", details.father_first_name],
       ["Father's last name", details.father_last_name],
       ["Permanent address", [
@@ -2516,6 +2528,98 @@ async function openReporterPrivateDetailsDialog(application) {
   } catch (error) {
     window.alert(error.message);
   }
+}
+
+async function openReporterServiceAgreementIssueDialog(application, refresh) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "admin-json-dialog";
+  const body = makeElement("section", "admin-json-form");
+  body.append(
+    makeElement("span", "admin-eyebrow", "REPORTER-SPECIFIC SERVICE AGREEMENT"),
+    makeElement("h2", "", `Prepare agreement · ${application.applicant_name || application.user?.full_name || application.email || `application #${application.id}`}`),
+    makeElement(
+      "p",
+      "admin-dialog-help",
+      "Preview the PDF generated from the current published legal template, verified company profile, and this reporter's approved application. Publishing gives this exact PDF to this reporter for review and acceptance; it does not itself record reporter acceptance."
+    )
+  );
+  const preview = makeElement("button", "admin-secondary-button", "Generate and preview reporter PDF");
+  preview.type = "button";
+  const publish = makeElement("button", "admin-primary-button", "Publish to this reporter");
+  publish.type = "button";
+  publish.disabled = true;
+  const status = makeElement("p", "admin-dialog-help");
+  status.setAttribute("role", "status");
+  const frame = document.createElement("iframe");
+  frame.title = "Personalized reporter service agreement preview";
+  frame.hidden = true;
+  frame.style.width = "100%";
+  frame.style.height = "65vh";
+  frame.style.border = "1px solid #d8dde6";
+  let previewUrl = "";
+  let previewToken = "";
+  preview.addEventListener("click", async () => {
+    preview.disabled = true;
+    publish.disabled = true;
+    status.textContent = "Generating preview from the current approved template and reporter details…";
+    try {
+      const response = await fetch(proxyUrl(`admin/reporter-applications/${application.id}/service-agreement/preview`), {
+        cache: "no-store"
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(responseMessage(result) || "The personalized agreement preview could not be generated.");
+      }
+      const token = response.headers.get("X-Preview-Token");
+      if (!token) {
+        throw new Error("The preview could not be secured for publishing. Generate a new preview.");
+      }
+      const pdf = await response.blob();
+      if (pdf.type !== "application/pdf") {
+        throw new Error("The preview service returned an invalid document. No agreement was published.");
+      }
+      previewToken = token;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(pdf);
+      frame.src = previewUrl;
+      frame.hidden = false;
+      publish.disabled = false;
+      status.textContent = "Preview generated. Review the PDF above before publishing it to this reporter.";
+    } catch (error) {
+      status.textContent = `Preview failed: ${error.message}`;
+    } finally {
+      preview.disabled = false;
+    }
+  });
+  publish.addEventListener("click", async () => {
+    publish.disabled = true;
+    preview.disabled = true;
+    status.textContent = "Publishing the reviewed agreement…";
+    try {
+      await apiRequest(`admin/reporter-applications/${application.id}/service-agreement/publish`, "POST", {
+        preview_token: previewToken
+      });
+      status.textContent = "The personalized agreement was published and is now available to the reporter.";
+      dialog.close();
+      await refresh();
+    } catch (error) {
+      previewToken = "";
+      status.textContent = `Publish failed: ${error.message} Generate and review a fresh preview before trying again.`;
+      publish.disabled = true;
+      preview.disabled = false;
+    }
+  });
+  const close = makeElement("button", "admin-secondary-button", "Close");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  body.append(preview, publish, close, status, frame);
+  dialog.append(body);
+  dialog.addEventListener("close", () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    dialog.remove();
+  }, { once: true });
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 async function openReporterReviewDialog(application, refresh) {

@@ -148,7 +148,15 @@ Requires Node.js 18 or newer.
    Migration 0031 fixes the District-to-State mapping used by RTO synchronization
    (location IDs are not State IDs), repairs linked RTO rows and references, and
    normalizes a State-prefixed RTO input (for example, `UP80` to `80`) to prevent
-   duplicate State prefixes in reporter IDs.
+   duplicate State prefixes in reporter IDs. Migration 0032 makes coverage
+   optional and stores Aadhaar front and back separately; 0033 adds the optional
+   coverage-area field. Migrations 0034–0037 add targeted review requests and
+   resubmission of only the requested fields/documents. Migration 0038 adds
+   parent names and permanent-address fields. Migration 0039 adds personalized
+   service-agreement templates and acceptance receipts; 0040 stores age
+   calculated at the application date; 0041 adds admin-issued, per-reporter
+   service-agreement PDFs and gates credential issuance on acceptance of the
+   current issued copy.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -255,25 +263,30 @@ In Admin → Reporter setup, replace and verify the organization legal profile
 before publishing new application or service agreements. Publish only
 finalized, lawyer-reviewed terms. Application agreements use immutable text
 templates to generate applicant-specific PDFs. Service agreements can use
-immutable text templates to generate a reporter-specific PDF at acceptance,
-including the approved reporter and organization details; the generated PDF
-and its hash are retained with the acceptance receipt. The service template
-editor inserts data into terms supplied by the administrator and does not draft
-legal terms. Legacy uploaded service-agreement PDFs remain supported. Preview
-drafts before publishing; published versions cannot be edited, so create a
-replacement version for corrections. Archiving the current version stops new
-acceptances but does not erase historical receipts or revoke existing reporter
-access.
-Review the seeded states, legacy Uttar Pradesh RTOs, and Tehsil Reporter type;
-add RTO/reporting areas for other states as needed. Applicants create and
+immutable text templates to generate a reporter-specific PDF from approved
+application details and verified organization details. An administrator previews
+and explicitly issues that PDF to each approved reporter; the reporter reviews
+and accepts the issued copy. The database retains the exact PDF hash, agreement
+version, signer, and acceptance timestamp. ID-card and authority-letter issuance
+requires acceptance of the current issued agreement. The service template editor
+inserts data into terms supplied by the administrator and does not draft legal
+terms. Legacy uploaded service-agreement PDFs remain supported. Preview drafts
+before publishing; published versions cannot be edited, so create a replacement
+version for corrections. Archiving the current version stops new acceptances but
+does not erase historical receipts or revoke existing reporter access.
+Reporter type remains an internal assignment setting and is not shown in
+reporter-facing pages or documents. Review the seeded states and legacy Uttar
+Pradesh RTOs; add RTO/reporting areas for other states as needed. Applicants create and
 verify a subscriber account, then complete the four-step reporter application:
 profile and emergency contact; State, City, and Area Coverage; cropped profile
 photo, masked Aadhaar, PAN and bank proof plus payment details; and final review.
 The form reuses account name/email/phone and asks for optional reporting
 experience, preferred language, localities and availability. Sensitive files
 are stored privately; only the applicant and admins can access them. Aadhaar
-must be masked with only its last four digits visible. If a finalized
-application agreement is published, the server generates a personalized PDF
+must be masked with only its last four digits visible. The database calculates
+and stores age at the application date from the date of birth for restricted
+admin review. If a finalized application agreement is published, the server
+generates a personalized PDF
 for preview and acceptance during application; otherwise the desk clearly
 explains that no agreement acceptance will be recorded. Admins edit and publish
 immutable template versions after completing all legal terms and verifying
@@ -288,8 +301,10 @@ reporter. Admins cannot create or directly promote reporter accounts; they can
 update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
-SQL migrations is a manual Supabase dashboard step; run migrations 0001 through
-0024 in order before deploying the expanded newsroom workspace. The public site,
+SQL migrations is a manual Supabase dashboard step; apply all migrations in
+order, including 0040 (stored application-age snapshot) and 0041 (per-reporter
+service-agreement issues), before deploying the matching application code. The
+public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
 Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007

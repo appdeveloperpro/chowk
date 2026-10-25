@@ -263,7 +263,6 @@ costs are borne by {{company.trade_name}}.
 Schedule A - Reporter and engagement details
 Reporter ID: {{reporter.reporter_code}}
 Assigned area: {{reporter.state}} / {{reporter.rto}} / {{reporter.city}}
-Reporter type: {{reporter.type}}
 Fees: [Enter fees per accepted story or monthly retainer]
 Payment cycle: [Enter payment cycle]
 Payment details: Held securely on the Platform, not written here

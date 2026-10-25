@@ -30,7 +30,10 @@ const tokenValues = new Set([
   "reporter.mobile_number"
 ]);
 const serviceTokenValues = new Set([
-  ...tokenValues,
+  ...[...tokenValues].filter((token) => token !== "reporter.type"),
+  "company.official_email",
+  "company.official_phone",
+  "company.website_url",
   "reporter.father_first_name",
   "reporter.father_last_name",
   "reporter.permanent_address",
@@ -43,6 +46,7 @@ const serviceTokenValues = new Set([
   "reporter.date_of_birth",
   "reporter.mobile_number"
 ]);
+const serviceRenderTokenValues = new Set([...serviceTokenValues, "reporter.type"]);
 const templatePath = path.join(__dirname, "reporter-agreement-template.txt");
 const fontDirectory = path.resolve(__dirname, "../node_modules/@fontsource/noto-sans-devanagari/files");
 const latinFont = path.join(fontDirectory, "noto-sans-devanagari-latin-400-normal.woff");
@@ -155,8 +159,11 @@ function createReporterAgreementPdf(template, data, { preview = false, allowedTo
 module.exports = {
   createReporterAgreementPdf,
   defaultReporterAgreementTemplate,
-  reporterAgreementTemplateFields: [...tokenValues].map((token) => `{{${token}}}`),
+  reporterAgreementTemplateFields: [...tokenValues]
+    .filter((token) => token !== "reporter.type")
+    .map((token) => `{{${token}}}`),
   reporterServiceAgreementTemplateFields: [...serviceTokenValues].map((token) => `{{${token}}}`),
+  reporterServiceAgreementRenderTokens: serviceRenderTokenValues,
   renderReporterAgreementTemplate,
   unknownTemplateTokens,
   unknownServiceTemplateTokens: (template) => unknownTemplateTokens(template, serviceTokenValues),

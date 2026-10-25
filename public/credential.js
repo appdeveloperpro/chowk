@@ -52,8 +52,7 @@ async function loadCredential() {
       ["Coverage", [
         credential.scope?.state_name,
         credential.scope?.rto_code,
-        credential.scope?.city_name,
-        credential.scope?.reporter_type
+        credential.scope?.city_name
       ].filter(Boolean).join(" · ") || "Not specified"],
       ["Valid from", formatDate(credential.valid_from)],
       ["Valid until", formatDate(credential.valid_until)]

@@ -541,7 +541,7 @@ function renderApplicationForm(action, existing = null) {
     const availability = addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
     highlightRequestedField("availability", availability);
 
-    const areaStep = addStep("Reporting location", "Choose an active State and District. Region and reporter type are assigned automatically; the District RTO code is used when your reporter ID is issued after approval.");
+    const areaStep = addStep("Reporting location", "Choose an active State and District. The District RTO code is used when your reporter ID is issued after approval.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
     const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
     highlightRequestedField("state_id", stateSelect);
@@ -1472,11 +1472,27 @@ function dataItem(label, value, code = false) {
 function renderServiceAgreement(application) {
   if (!["approved", "active"].includes(application.status)) return;
   const activeReporter = application.status === "active";
-  const current = options.service_agreement;
+  const publishedAgreement = options.service_agreement;
+  const publishedIssue = application.service_agreement_issue;
+  const personalizedIssueIsCurrent = publishedAgreement?.template_content
+    && publishedIssue?.status === "published"
+    && publishedIssue.agreement_version === publishedAgreement.version
+    && publishedIssue.agreement_sha256 === publishedAgreement.sha256;
+  const current = personalizedIssueIsCurrent
+    ? {
+        ...publishedIssue,
+        issue_id: publishedIssue.id,
+        version: publishedIssue.agreement_version,
+        sha256: publishedIssue.agreement_sha256,
+        document_url: `/api/reporter/service-agreement-issued-document?issue_id=${encodeURIComponent(publishedIssue.id)}`
+      }
+    : publishedAgreement?.template_content ? null : publishedAgreement;
   const acceptedCurrent = current
     && application.service_agreement_version === current.version
     && application.service_agreement_sha256 === current.sha256
-    && application.service_agreement_accepted_at;
+    && application.service_agreement_accepted_at
+    && (!current.issue_id || (application.service_acceptances || []).some((receipt) =>
+      String(receipt.issue_id) === String(current.issue_id)));
   const panel = element("section", "reporter-onboarding-step");
   panel.append(element("h3", "", activeReporter
     ? "Service / appointment agreement"
@@ -1490,12 +1506,28 @@ function renderServiceAgreement(application) {
     link.href = application.service_agreement_document_url || current.document_url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    panel.append(link);
+    const download = element("a", "", "Download the accepted service agreement");
+    download.href = `${link.href}${link.href.includes("?") ? "&" : "?"}download=1`;
+    download.target = "_blank";
+    download.rel = "noopener noreferrer";
+    panel.append(link, download);
     panel.append(element("p", "reporter-card-copy", activeReporter
       ? "Your current service agreement is on file. Keep the issued authority letter current for your assigned area."
       : "Next: Chowk issues an authority letter for your assigned reporting area. Reporter access activates only after you acknowledge that letter."));
-  } else if (!current) {
-    panel.append(element("p", "reporter-review-note", "Onboarding is waiting for Chowk to publish the service / appointment agreement. No action is required from you."));
+  } else if (!publishedAgreement) {
+    panel.append(element(
+      "p",
+      "reporter-review-note",
+      "Chowk has not published the service / appointment agreement yet. Once finalized terms are published, this section will provide a PDF to view or download and a consent form. Acceptance cannot be recorded until the agreement is available."
+    ));
+  } else if (publishedAgreement.template_content && !personalizedIssueIsCurrent) {
+    panel.append(element(
+      "p",
+      "reporter-review-note",
+      publishedIssue?.status === "published"
+        ? "A newer service-agreement version is published. Chowk must review and issue your updated personalized PDF before you can accept it."
+        : "Chowk is preparing your personalized service agreement using the verified company details and your approved application. It will appear here for PDF review and acceptance once an administrator issues it."
+    ));
   } else {
     panel.append(element("p", "reporter-card-copy", activeReporter
       ? `Review the new service / appointment agreement, version ${current.version}. Accepting it records the current terms for any renewed authority.`
@@ -1504,7 +1536,19 @@ function renderServiceAgreement(application) {
     link.href = current.document_url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    panel.append(link, element("span", "reporter-card-copy", `Document SHA-256: ${current.sha256}`));
+    const download = element("a", "", "Download service agreement PDF");
+    download.href = `${current.document_url}${current.document_url.includes("?") ? "&" : "?"}download=1`;
+    download.target = "_blank";
+    download.rel = "noopener noreferrer";
+    const documentHash = current.document_sha256 || current.sha256;
+    panel.append(
+      link,
+      download,
+      element("span", "reporter-card-copy", `Document SHA-256: ${documentHash}`),
+      ...(current.document_sha256
+        ? [element("span", "reporter-card-copy", `Agreement terms SHA-256: ${current.sha256}`)]
+        : [])
+    );
     const form = element("form", "reporter-service-agreement-form");
     const signer = addField(form, "Type your account full name", "signer_name", "text", identity.full_name || identity.name);
     signer.autocomplete = "name";
@@ -1530,6 +1574,7 @@ function renderServiceAgreement(application) {
         await request("/api/reporter/service-agreement/accept", "POST", {
           agreement_version: current.version,
           agreement_sha256: current.sha256,
+          ...(current.issue_id ? { issue_id: current.issue_id } : {}),
           signer_name: signer.value.trim(),
           acceptance_statement: "I have reviewed and accept the Chowk reporter service agreement."
         });
@@ -1554,10 +1599,15 @@ function renderServiceAgreement(application) {
       ));
       if (receipt.document_storage_path && receipt.id) {
         const receiptLink = element("a", "", `View accepted copy · v${receipt.agreement_version}`);
-        receiptLink.href = `/api/reporter/service-agreement-accepted-document?acceptance_id=${encodeURIComponent(receipt.id)}`;
+        const receiptUrl = `/api/reporter/service-agreement-accepted-document?acceptance_id=${encodeURIComponent(receipt.id)}`;
+        receiptLink.href = receiptUrl;
         receiptLink.target = "_blank";
         receiptLink.rel = "noopener noreferrer";
-        panel.append(receiptLink);
+        const receiptDownload = element("a", "", `Download accepted copy · v${receipt.agreement_version}`);
+        receiptDownload.href = `${receiptUrl}&download=1`;
+        receiptDownload.target = "_blank";
+        receiptDownload.rel = "noopener noreferrer";
+        panel.append(receiptLink, receiptDownload);
       }
     });
   }
@@ -1625,7 +1675,6 @@ function renderStatus() {
       dataItem("Submitted", formatDate(application.created_at)),
       dataItem("Requested state", `${application.state?.state_name || "—"} (${application.state?.state_code || ""})`),
       dataItem("District / RTO code", reporterCityLabel(application.rto)),
-      dataItem("Reporter type", `${application.reporter_type?.name || "—"} (${application.reporter_type?.type_code || ""})`),
       dataItem("Agreement", application.agreement_version || "—"),
       dataItem("Agreement accepted", formatDate(application.agreement_accepted_at)),
       dataItem("Review completed", formatDate(application.reviewed_at)),
@@ -1746,7 +1795,7 @@ function renderStatus() {
       const history = element("div", "reporter-data-grid");
       reporter.assignments.forEach((assignment) => {
         history.append(dataItem(
-          `${assignment.type_name} · ${assignment.effective_to ? "Past assignment" : "Current assignment"}`,
+          assignment.effective_to ? "Past assignment" : "Current assignment",
           `${assignment.state_name || ""} ${assignment.rto_code || ""} ${assignment.city_name || ""} · ${formatDate(assignment.effective_from)} – ${assignment.effective_to ? formatDate(assignment.effective_to) : "Current"}`
         ));
       });

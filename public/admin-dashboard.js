@@ -49,10 +49,6 @@ const modules = {
     path: "admin/reporter-credentials",
     description: "Issue ID cards and authority letters; reporter access starts only after the authority letter is acknowledged."
   },
-  "reporter-agreements": {
-    path: "admin/reporter-agreements",
-    description: "Upload immutable PDF versions, preview drafts, publish or archive application terms, and inspect the exact SHA-256 reporters accept."
-  },
   "reporter-service-agreements": {
     path: "admin/reporter-service-agreements",
     description: "Create lawyer-reviewed personalized service agreement templates, preview drafts, publish or archive versions, and inspect accepted document receipts."
@@ -657,26 +653,6 @@ function renderReporterAdminSection(section, root, data) {
     return;
   }
 
-  if (section === "reporter-agreements") {
-    const agreements = Array.isArray(data) ? data : [];
-    const currentVersion = agreements.find((agreement) => agreement.status === "published")?.version || "";
-    const rows = agreements.map((agreement) => ({
-      version: agreement.version,
-      sha256: agreement.sha256,
-      document: agreement.template_content ? "Dynamic PDF template" : "Legacy PDF",
-      status: agreement.status,
-      published_at: formatDate(agreement.published_at),
-      document_url: agreement.document_url,
-      _dynamic_template: Boolean(agreement.template_content),
-      _storage_object_path: agreement.storage_object_path,
-      _published_version: currentVersion,
-      id: agreement.id
-    }));
-    reporterActionButton(root, "Create application agreement version", () => void openReporterAgreementTemplateDialog());
-    reporterPanel(root, "Versioned agreements", rows, section);
-    return;
-  }
-
   if (section === "reporter-service-agreements") {
     const agreements = Array.isArray(data) ? data : [];
     const currentVersion = agreements.find((agreement) => agreement.status === "published")?.version || "";
@@ -693,7 +669,6 @@ function renderReporterAdminSection(section, root, data) {
       id: agreement.id
     }));
     reporterActionButton(root, "Create personalized service agreement", () => void openReporterServiceAgreementTemplateDialog());
-    reporterActionButton(root, "Upload legacy static PDF", () => openAgreementDialog("service"));
     reporterActionButton(root, "Manage company legal details", async () => {
       try {
         const setup = await apiRequest("admin/reporter-options");
@@ -717,8 +692,6 @@ function renderReporterSetup(root, data) {
   const states = data.states || [];
   const rtos = data.rtos || [];
   const types = data.reporter_types || [];
-  const agreements = data.agreements || [];
-  const publishedAgreement = agreements.find((agreement) => agreement.status === "published");
   const serviceAgreements = data.service_agreements || [];
   const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
   const organizationProfile = data.organization_profile;
@@ -748,12 +721,6 @@ function renderReporterSetup(root, data) {
       detail: `${types.filter((type) => type.is_active).length} active · Roles available to applicants.`
     },
     {
-      key: "agreement",
-      title: "Application agreement",
-      count: publishedAgreement ? "Published" : "Optional",
-      detail: publishedAgreement?.version || "Applications stay open; publish finalized terms to collect acceptance."
-    },
-    {
       key: "service_agreement",
       title: "Service agreement",
       count: publishedServiceAgreement ? "Published" : "Needed for credentials",
@@ -764,7 +731,7 @@ function renderReporterSetup(root, data) {
   const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
   overviewHeading.append(
     makeElement("div", "", "REPORTER APPLICATION & ONBOARDING SETUP"),
-    makeElement("p", "", "Applications stay open. Verify the organization profile and prepare approved agreements for onboarding, then configure active coverage choices.")
+    makeElement("p", "", "Applications collect reporter details for review. Verify the organization profile and prepare the service agreement for approved reporters, then configure active coverage choices.")
   );
   overview.append(overviewHeading);
 
@@ -779,15 +746,11 @@ function renderReporterSetup(root, data) {
       makeElement("span", "reporter-setup-card-label", item.title),
       makeElement("strong", "reporter-setup-card-count", String(item.count)),
       makeElement("span", "reporter-setup-card-detail", item.detail),
-      makeElement("span", "reporter-setup-card-action", ["agreement", "service_agreement"].includes(item.key)
+      makeElement("span", "reporter-setup-card-action", item.key === "service_agreement"
         ? "Open agreements →"
         : reporterSetupView === item.key ? "Currently open" : "Manage →")
     );
     card.addEventListener("click", () => {
-      if (item.key === "agreement") {
-        void loadSection("reporter-agreements");
-        return;
-      }
       if (item.key === "service_agreement") {
         void loadSection("reporter-service-agreements");
         return;
@@ -800,15 +763,15 @@ function renderReporterSetup(root, data) {
   overview.append(cards);
 
   if (reporterSetupView === "overview") {
-    const reporterSetupReady = Boolean(publishedAgreement && publishedServiceAgreement && organizationProfile?.is_verified);
+    const reporterSetupReady = Boolean(publishedServiceAgreement && organizationProfile?.is_verified);
     const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
       makeElement("strong", "", reporterSetupReady && organizationProfile?.is_verified
-        ? "Reporter documents published"
-        : "Applications open · onboarding agreements need setup"),
+        ? "Reporter onboarding agreement published"
+        : "Applications open · service agreement setup needed"),
       makeElement("span", "", reporterSetupReady
-        ? "Applicants can accept the current application agreement; approved applicants can later accept the separate service agreement before receiving credentials."
-        : "Reporter applications can be submitted and reviewed without a published application agreement. Verify the organization profile and publish finalized service terms before issuing reporter credentials.")
+        ? "Applicants submit details for review. After approval, the reporter receives and accepts their personalized service agreement before credentials can be issued."
+        : "Reporter applications can be submitted and reviewed without a contract. Verify company legal details and publish finalized service terms before issuing reporter credentials.")
     );
     overview.append(setupNote);
     root.append(overview);
@@ -1191,165 +1154,6 @@ function openCredentialDialog(staff) {
   );
 }
 
-function openAgreementDialog(kind) {
-  const isService = kind === "service";
-  if (!isService) {
-    void openReporterAgreementTemplateDialog();
-    return;
-  }
-  const path = isService ? "admin/reporter-service-agreements" : "admin/reporter-agreements";
-  const section = isService ? "reporter-service-agreements" : "reporter-agreements";
-  let selectedFile = null;
-  let previewUrl = "";
-  const dialog = openFormDialog(
-    `Upload new ${isService ? "service" : "application"} agreement version`,
-    "Upload the complete, lawyer-reviewed PDF. The server calculates and records the exact SHA-256. Published versions cannot be edited; publish a replacement version to supersede one.",
-    (form) => {
-      const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
-      version.pattern = "[a-zA-Z0-9._-]{1,40}";
-      const fileLabel = makeElement("label", "admin-form-field");
-      fileLabel.append(makeElement("span", "", "Finalized agreement PDF (maximum 8 MB)"));
-      const fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.name = "agreement_pdf";
-      fileInput.accept = "application/pdf,.pdf";
-      fileInput.required = true;
-      fileLabel.append(fileInput);
-      form.append(fileLabel);
-      const fileStatus = makeElement("p", "admin-dialog-help", "Only a PDF is accepted. Its SHA-256 is calculated on the server and bound to this immutable version.");
-      fileStatus.setAttribute("aria-live", "polite");
-      form.append(fileStatus);
-      const preview = makeElement("button", "admin-secondary-button", "Preview selected PDF");
-      preview.type = "button";
-      preview.disabled = true;
-      preview.addEventListener("click", () => {
-        if (!previewUrl) return;
-        const previewWindow = window.open(previewUrl, "_blank");
-        if (previewWindow) previewWindow.opener = null;
-        else window.alert("Allow pop-ups to preview the selected agreement PDF.");
-      });
-      form.append(preview);
-      fileInput.addEventListener("change", () => {
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        selectedFile = fileInput.files?.[0] || null;
-        previewUrl = selectedFile ? URL.createObjectURL(selectedFile) : "";
-        preview.disabled = !selectedFile;
-        if (!selectedFile) {
-          fileInput.setCustomValidity("");
-          fileStatus.textContent = "Only a PDF is accepted. Its SHA-256 is calculated on the server and bound to this immutable version.";
-        } else if (selectedFile.size > 8 * 1024 * 1024) {
-          fileStatus.textContent = "This file exceeds the 8 MB limit.";
-          fileInput.setCustomValidity("Choose a PDF no larger than 8 MB.");
-        } else {
-          fileStatus.textContent = `Selected: ${selectedFile.name} · ${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB`;
-          fileInput.setCustomValidity("");
-        }
-      });
-    },
-    async (values) => {
-      if (!selectedFile || selectedFile.size > 8 * 1024 * 1024) {
-        throw new Error("Choose a PDF file no larger than 8 MB.");
-      }
-      const bytes = new Uint8Array(await selectedFile.arrayBuffer());
-      let binary = "";
-      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-      }
-      await apiRequest(path, "POST", {
-        version: values.get("version"),
-        file_base64: btoa(binary)
-      });
-      await loadSection(section);
-    },
-    "Save draft"
-  );
-  dialog.addEventListener("close", () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-  }, { once: true });
-}
-
-async function openReporterAgreementTemplateDialog() {
-  let previewUrl = "";
-  try {
-    const templateResult = await apiRequest("admin/reporter-agreement-template");
-    const template = templateResult.data || {};
-    const dialog = openFormDialog(
-      "Create application agreement template version",
-      "Edit the agreement text and save a new immutable version. Supported {{fields}} are filled by the server from the verified organization profile and the reporter's account/application. Replace every remaining square-bracket term before publishing; the database blocks publication while any remain.",
-      (form) => {
-        const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
-        version.pattern = "[a-zA-Z0-9._-]{1,40}";
-
-        const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
-        contentLabel.append(makeElement("span", "", "Agreement text template"));
-        const content = document.createElement("textarea");
-        content.name = "template_content";
-        content.required = true;
-        content.minLength = 1000;
-        content.maxLength = 50000;
-        content.rows = 28;
-        content.spellcheck = false;
-        content.value = template.template_content || "";
-        contentLabel.append(content);
-        form.append(contentLabel);
-
-        const fields = makeElement("details", "admin-agreement-template-fields");
-        fields.append(makeElement("summary", "", "Available server fields"));
-        const fieldList = makeElement("p", "admin-dialog-help",
-          (template.supported_fields || []).join("  ·  "));
-        fields.append(fieldList);
-        form.append(fields);
-
-        const preview = makeElement("button", "admin-secondary-button", "Preview generated PDF");
-        preview.type = "button";
-        preview.addEventListener("click", async () => {
-          const previewWindow = window.open("about:blank", "_blank");
-          if (!previewWindow) {
-            window.alert("Allow pop-ups to open the generated PDF preview.");
-            return;
-          }
-          previewWindow.opener = null;
-          preview.disabled = true;
-          try {
-            const response = await fetch(proxyUrl("admin/reporter-agreement-template/preview"), {
-              method: "POST",
-              cache: "no-store",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ template_content: content.value })
-            });
-            if (!response.ok) {
-              const result = await response.json().catch(() => ({}));
-              throw new Error(responseMessage(result));
-            }
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-            previewUrl = URL.createObjectURL(await response.blob());
-            previewWindow.location.replace(previewUrl);
-          } catch (error) {
-            previewWindow.close();
-            window.alert(error.message);
-          } finally {
-            preview.disabled = false;
-          }
-        });
-        form.append(preview);
-      },
-      async (values) => {
-        await apiRequest("admin/reporter-agreements", "POST", {
-          version: values.get("version"),
-          template_content: values.get("template_content")
-        });
-        await loadSection("reporter-agreements");
-      },
-      "Save draft version"
-    );
-    dialog.addEventListener("close", () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    }, { once: true });
-  } catch (error) {
-    window.alert(error.message);
-  }
-}
-
 async function openReporterServiceAgreementTemplateDialog() {
   let previewUrl = "";
   try {
@@ -1357,13 +1161,15 @@ async function openReporterServiceAgreementTemplateDialog() {
     const template = templateResult.data || {};
     const dialog = openFormDialog(
       "Create personalized service agreement template version",
-      "Use finalized legal terms reviewed by counsel. This editor only inserts reporter and organization details into text you provide; it does not create legal terms. Save creates an immutable draft. Replace all placeholders before publishing.",
+      template.is_default
+        ? "The editor starts with the existing Reporter Engagement Agreement format. Review it with counsel and replace every square-bracket placeholder with approved terms before publishing. Chowk does not create legal terms; save creates an immutable draft."
+        : "Review the existing service terms with counsel and replace every square-bracket placeholder with approved terms before publishing. Chowk does not create legal terms; save creates an immutable draft.",
       (form) => {
         const version = addField(form, "Unique version label", "version", "text", "", { maxLength: 40 });
         version.pattern = "[a-zA-Z0-9._-]{1,40}";
 
         const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
-        contentLabel.append(makeElement("span", "", "Lawyer-reviewed service agreement text"));
+        contentLabel.append(makeElement("span", "", "Service agreement text (draft)"));
         const content = document.createElement("textarea");
         content.name = "template_content";
         content.required = true;
@@ -1892,7 +1698,7 @@ function buildTable(rows, section) {
       ? ["applicant_name", "email", "state_name", "city", "area_coverage", "status", "details_confirmed"]
       : section === "reporter-credentials"
         ? ["name", "role", "type", "reference", "status", "scope", "valid_until"]
-        : ["reporter-agreements", "reporter-service-agreements"].includes(section)
+        : section === "reporter-service-agreements"
           ? ["version", "status", "document", "sha256", "published_at"]
           : section === "reporter-directory"
             ? ["full_name", "email", "reporter_code", "current_assignment", "assignment_history"]
@@ -2179,14 +1985,11 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (["reporter-agreements", "reporter-service-agreements"].includes(section)) {
+  if (section === "reporter-service-agreements") {
     if (row.document_url) {
       rowButton(container, "Preview PDF", () => {
-        const endpoint = section === "reporter-service-agreements"
-          ? "reporter-service-agreements"
-          : "reporter-agreements";
         const previewUrl = row._storage_object_path || row._dynamic_template
-          ? proxyUrl(`admin/${endpoint}/${id}/preview`)
+          ? proxyUrl(`admin/reporter-service-agreements/${id}/preview`)
           : new URL(row.document_url, window.location.origin).toString();
         const parsedUrl = new URL(previewUrl, window.location.origin);
         if (parsedUrl.protocol !== "https:" && parsedUrl.origin !== window.location.origin) {
@@ -2198,32 +2001,24 @@ function addRowActions(container, row, section) {
         else window.alert("Allow pop-ups to preview the agreement PDF.");
       });
     }
-    if (row.status === "draft") {
-      const isService = section === "reporter-service-agreements";
+    if (row.status === "draft" && row._dynamic_template) {
       rowButton(container, "Publish", () => {
         const replacesPublished = row._published_version;
-        const message = isService
-          ? `Publish service agreement version ${row.version}? Approved reporters must accept this version before credentials can be issued. Personalized templates generate a reporter-specific PDF at acceptance. The current published version will be archived.`
-          : `Publish application agreement template version ${row.version}? New applicants will receive a personalized PDF generated from the verified company details and their application. The exact accepted PDF will be retained. The current published version will be archived.`;
+        const message = `Publish service agreement version ${row.version}? Admins will preview and issue an exact reporter-specific PDF; the reporter must accept that issued copy before credentials can be issued. The current published version will be archived.`;
         if (window.confirm(replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message)) {
-          const endpoint = isService ? "reporter-service-agreements" : "reporter-agreements";
-          void runAction(() => apiRequest(`admin/${endpoint}/${id}/publish`, "POST", {}), refresh);
+          void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/publish`, "POST", {}), refresh);
         }
       });
     }
     if (row.status === "draft" || row.status === "published") {
       const isPublished = row.status === "published";
       rowButton(container, isPublished ? "Archive current" : "Archive draft", () => {
-        const isService = section === "reporter-service-agreements";
-        const effect = isService
-          ? "Reporters will not be able to accept a service agreement until another version is published. This does not revoke access already granted."
-          : "New applicants will not be asked to accept an application agreement until another version is published.";
+        const effect = "Approved reporters cannot receive credentials until a service-agreement version is published. This does not revoke access already granted.";
         const message = isPublished
           ? `Archive current version ${row.version}? ${effect} Historical acceptance records remain unchanged.`
           : `Archive draft version ${row.version}? The record and document will be retained in history.`;
         if (window.confirm(message)) {
-          const endpoint = isService ? "reporter-service-agreements" : "reporter-agreements";
-          void runAction(() => apiRequest(`admin/${endpoint}/${id}/archive`, "POST", {}), refresh);
+          void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/archive`, "POST", {}), refresh);
         }
       }, "admin-row-button danger");
     }
@@ -2677,28 +2472,10 @@ async function openReporterReviewDialog(application, refresh) {
           ["Application", `#${application.id} · ${application.status}`],
           ["Applicant", user.full_name || "—"],
           ["Email / account phone", [user.email, user.phone].filter(Boolean).join(" · ") || "—"],
-          ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"],
-          ["Application agreement", application.agreement_accepted
-            ? `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`
-            : "No published application agreement was accepted at submission"],
-          ["Applicant acceptance", `${application.agreement_signer_name || "—"} · ${formatDate(application.agreement_accepted_at)}`],
-          ["Acceptance statement", application.agreement_acceptance_statement || "—"]
+          ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"]
         ].forEach(([label, value]) => {
           reviewDetails.append(makeElement("strong", "", label), makeElement("span", "", value));
         });
-        (application.acceptances || []).forEach((receipt) => {
-          reviewDetails.append(
-            makeElement("strong", "", `Accepted v${receipt.agreement_version}`),
-            makeElement("span", "", `${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · ${receipt.acceptance_statement}`)
-          );
-        });
-        if (application.agreement_document_url) {
-          const agreementLink = makeElement("a", "", "Open accepted agreement document");
-          agreementLink.href = application.agreement_document_url;
-          agreementLink.target = "_blank";
-          agreementLink.rel = "noopener noreferrer";
-          reviewDetails.append(agreementLink);
-        }
 
         reviewDetails.append(makeElement("h3", "", "Applicant details"));
         const fieldGrid = makeElement("div", "admin-application-review-fields");

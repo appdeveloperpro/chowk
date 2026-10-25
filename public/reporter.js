@@ -92,80 +92,6 @@ function addSelect(form, name, labelText, values, selected, placeholder) {
   return select;
 }
 
-function reporterAgreementPreviewUrl(form, download = false) {
-  const params = new URLSearchParams();
-  const fields = [
-    ["state_id", "state_id"],
-    ["rto_office_id", "rto_office_id"]
-  ];
-  for (const [fieldName, queryName] of fields) {
-    const field = form.elements.namedItem(fieldName);
-    if (field?.value) params.set(queryName, field.value);
-  }
-  if (download) params.set("download", "1");
-  const query = params.toString();
-  return `/api/reporter/agreement-preview${query ? `?${query}` : ""}`;
-}
-
-function addAgreement(root, agreement, signerName, form) {
-  const box = element("section", "reporter-agreement");
-  box.append(element("strong", "", `Personalized application agreement · Version ${agreement.version}`));
-  const previewLink = element("a", "", "Preview generated agreement PDF");
-  previewLink.target = "_blank";
-  previewLink.rel = "noopener noreferrer";
-  const downloadLink = element("a", "", "Download personalized agreement PDF");
-  downloadLink.target = "_blank";
-  downloadLink.rel = "noopener noreferrer";
-  const updateLinks = () => {
-    const hasSelection = !form.elements.namedItem("state_id")
-      || ["state_id", "rto_office_id"].every((name) =>
-        Boolean(form.elements.namedItem(name)?.value)
-      );
-    [previewLink, downloadLink].forEach((link) => {
-      link.toggleAttribute("aria-disabled", !hasSelection);
-      if (hasSelection) link.removeAttribute("tabindex");
-      else link.tabIndex = -1;
-    });
-    if (hasSelection) {
-      previewLink.href = reporterAgreementPreviewUrl(form);
-      downloadLink.href = reporterAgreementPreviewUrl(form, true);
-    } else {
-      previewLink.removeAttribute("href");
-      downloadLink.removeAttribute("href");
-    }
-  };
-  ["state_id", "rto_office_id"].forEach((name) => {
-    form.elements.namedItem(name)?.addEventListener("change", updateLinks);
-  });
-  updateLinks();
-  box.append(previewLink, downloadLink);
-  box.append(element("span", "", `Agreement template SHA-256: ${agreement.sha256}. The generated PDF copy is separately hashed and retained when you accept.`));
-  const signer = addField(box, "Your full legal name (agreement signer)", "signer_name", "text", signerName);
-  signer.autocomplete = "name";
-  signer.minLength = 2;
-  const acceptance = document.createElement("label");
-  acceptance.className = "reporter-check";
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.name = "accepted";
-  checkbox.required = true;
-  acceptance.append(
-    checkbox,
-    element("span", "", "I have read and accept this published reporter application agreement.")
-  );
-  box.append(acceptance);
-  return box;
-}
-
-function addNoAgreementNotice(root) {
-  const notice = element("section", "reporter-agreement reporter-agreement-draft full-width");
-  notice.append(
-    element("strong", "", "No application agreement is published"),
-    element("p", "reporter-card-copy", "You can submit your reporter application now. No agreement acceptance is recorded until an admin publishes an agreement version.")
-  );
-  root.append(notice);
-}
-
 function addSelectField(form, labelText, name, values, selected = "", placeholder = "Choose an option", required = true) {
   const label = element("label", "reporter-field");
   label.append(element("span", "", labelText));
@@ -414,7 +340,6 @@ function readFileAsBase64(file) {
 }
 
 function renderApplicationForm(action, existing = null) {
-  const acceptingUpdatedAgreement = action === "updated-agreement";
   const resubmitting = action === "resubmit";
   if (resubmitting && existing?.status === "needs_information") {
     renderTargetedReporterResubmission(existing);
@@ -423,16 +348,12 @@ function renderApplicationForm(action, existing = null) {
   applicationPanel.replaceChildren();
   applicationPanel.hidden = false;
   applicationPanel.append(
-    element("h2", "", acceptingUpdatedAgreement
-      ? "Review the updated application agreement"
-      : resubmitting
-        ? "Update and resubmit your application"
-        : "Apply to become a Chowk reporter"),
-    element("p", "reporter-card-copy", acceptingUpdatedAgreement
-      ? "The agreement version changed. Accept the current version before your pending application can continue to review."
-      : resubmitting
-        ? "Update the requested details and resubmit for admin review. Your subscriber account remains available while the application is reviewed."
-        : "Complete your reporter application below. An admin reviews the application—not your account—and your account remains a subscriber until reporter onboarding is complete.")
+    element("h2", "", resubmitting
+      ? "Update and resubmit your application"
+      : "Apply to become a Chowk reporter"),
+    element("p", "reporter-card-copy", resubmitting
+      ? "Update the requested details and resubmit for admin review. Your subscriber account remains available while the application is reviewed."
+      : "Complete your reporter application below. An admin reviews the application—not your account—and your account remains a subscriber until reporter onboarding is complete.")
   );
 
   const form = element("form", "reporter-form-grid");
@@ -488,7 +409,7 @@ function renderApplicationForm(action, existing = null) {
     field.append(instruction);
   };
 
-  if (!acceptingUpdatedAgreement) {
+  {
     const profileStep = addStep("Your profile", "We use your verified account name, email and phone. Add the details needed to contact you safely.");
     const accountSummary = element("div", "reporter-account-summary reporter-field-full");
     accountSummary.append(
@@ -749,17 +670,6 @@ function renderApplicationForm(action, existing = null) {
     addDocumentInput("bank_proof", "Cancelled cheque / bank proof", "Upload a cancelled cheque or bank passbook first page showing the account holder, account number and IFSC · JPG, PNG or PDF · maximum 5 MB");
 
     const reviewStep = addStep("Review & submit", "Check your application details before sending them for admin review.");
-    if (options?.agreement) {
-      reviewStep.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name, form));
-      reviewStep.lastElementChild.classList.add("reporter-field-full");
-    } else {
-      const noAgreement = element("section", "reporter-agreement reporter-agreement-draft reporter-field-full");
-      noAgreement.append(
-        element("strong", "", "No application agreement is published"),
-        element("p", "reporter-card-copy", "You can submit your reporter application now. No agreement acceptance is recorded until an admin publishes an agreement version.")
-      );
-      reviewStep.append(noAgreement);
-    }
     const declaration = document.createElement("label");
     declaration.className = "reporter-check reporter-field-full";
     const confirmed = document.createElement("input");
@@ -785,9 +695,7 @@ function renderApplicationForm(action, existing = null) {
       steps.forEach((step) => {
         [...step.querySelectorAll("input[name], select[name], textarea[name]")].forEach((control) => {
           const name = control.name === "preferred_location" ? "coverage_localities" : control.name;
-          const visible = name === "details_confirmed"
-            || name === "signer_name"
-            || visibleNames.has(name);
+          const visible = name === "details_confirmed" || visibleNames.has(name);
           const field = control === cropper.input
             ? photoGroup
             : name === "coverage_localities"
@@ -804,13 +712,6 @@ function renderApplicationForm(action, existing = null) {
         });
       });
 
-      reviewStep.querySelectorAll(".reporter-agreement").forEach((agreement) => {
-        agreement.hidden = true;
-        agreement.querySelectorAll("input, select, textarea").forEach((control) => {
-          control.required = false;
-          control.disabled = true;
-        });
-      });
       profileStep.querySelector(".reporter-account-summary")?.setAttribute("hidden", "");
       documentsStep.querySelector(".reporter-sensitive-data-note")?.toggleAttribute(
         "hidden",
@@ -818,7 +719,7 @@ function renderApplicationForm(action, existing = null) {
       );
       const visibleSteps = steps.filter((step) =>
         step === reviewStep || [...step.querySelectorAll("input, select, textarea")]
-          .some((control) => !control.disabled && control.name !== "details_confirmed" && control.name !== "signer_name")
+          .some((control) => !control.disabled && control.name !== "details_confirmed")
       );
       steps.splice(0, steps.length, ...visibleSteps);
       progress.replaceChildren(...visibleSteps.map((step, index) => {
@@ -866,28 +767,17 @@ function renderApplicationForm(action, existing = null) {
       form.dataset.resubmitting = "true";
     }
     form.append(progress, stepContainers);
-  } else {
-    const agreementStep = document.createElement("div");
-    agreementStep.className = "reporter-field-full";
-    agreementStep.append(addAgreement(element("div"), options.agreement, identity.full_name || identity.name, form));
-    form.append(agreementStep);
   }
   const summary = element("section", "reporter-application-review");
   summary.hidden = true;
   form.append(summary);
-  if (acceptingUpdatedAgreement) {
-    submit.textContent = "Accept current agreement";
-    navigation.replaceChildren(submit);
-  }
   form.append(navigation);
   applicationPanel.append(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (acceptingUpdatedAgreement) {
-      if (!form.reportValidity()) return;
-    } else if (!validateLastStep()) return;
-    if (!acceptingUpdatedAgreement && summary.hidden) {
+    if (!validateLastStep()) return;
+    if (summary.hidden) {
       const values = new FormData(form);
       const selectedState = options.states.find((state) => String(state.id) === String(values.get("state_id")));
       const selectedRto = options.rtos.find((rto) => String(rto.id) === String(values.get("rto_office_id")));
@@ -922,9 +812,6 @@ function renderApplicationForm(action, existing = null) {
             element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
             element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
             element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
-            element("span", "", options.agreement
-              ? `Personalized application agreement: version ${options.agreement.version} accepted`
-              : "Application agreement: no version is published; no acceptance will be recorded."),
             element("span", "", "An admin reviews this application. Your account stays a subscriber until onboarding is complete.")
           ])
       );
@@ -949,47 +836,31 @@ function renderApplicationForm(action, existing = null) {
     const uploadedDocuments = [];
     const newlyUploadedDocuments = [];
     try {
-      if (acceptingUpdatedAgreement) {
-        const payload = {
-          agreement_version: options.agreement.version,
-          agreement_sha256: options.agreement.sha256,
-          signer_name: String(values.get("signer_name") || "").trim(),
-          acceptance_statement: "I have read and accept the Chowk reporter application agreement."
-        };
-        await request("/api/reporter/agreement/accept", "POST", payload);
-      } else {
-        if (cropper.input.files?.length) {
-          applicationFiles.set("profile_photo", await cropper.file());
+      if (cropper.input.files?.length) {
+        applicationFiles.set("profile_photo", await cropper.file());
+      }
+      for (const documentType of ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]) {
+        const file = applicationFiles.get(documentType);
+        if (!file) {
+          if (resubmitting) continue;
+          throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
         }
-        for (const documentType of ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]) {
-          const file = applicationFiles.get(documentType);
-          if (!file) {
-            if (resubmitting) continue;
-            throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
-          }
-          if (file instanceof File) {
-            showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
-            const uploaded = (await request("/api/reporter/application-documents", "POST", {
-              document_type: documentType,
-              mime_type: file.type,
-              file_base64: await readFileAsBase64(file)
-            })).data;
-            uploadedDocuments.push(uploaded);
-            newlyUploadedDocuments.push(uploaded);
-          }
+        if (file instanceof File) {
+          showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
+          const uploaded = (await request("/api/reporter/application-documents", "POST", {
+            document_type: documentType,
+            mime_type: file.type,
+            file_base64: await readFileAsBase64(file)
+          })).data;
+          uploadedDocuments.push(uploaded);
+          newlyUploadedDocuments.push(uploaded);
         }
-        const payload = {
-          details_confirmed: values.get("details_confirmed") === "on",
-          agreement_version: options.agreement?.version || null,
-          agreement_sha256: options.agreement?.sha256 || null,
-          signer_name: options.agreement ? String(values.get("signer_name") || "").trim() : null,
-          acceptance_statement: options.agreement
-            ? "I have read and accept the Chowk reporter application agreement."
-            : null
-        };
-        payload.state_id = values.get("state_id");
-        payload.rto_office_id = values.get("rto_office_id");
-        payload.private_details = {
+      }
+      const payload = {
+        details_confirmed: values.get("details_confirmed") === "on",
+        state_id: values.get("state_id"),
+        rto_office_id: values.get("rto_office_id"),
+        private_details: {
           emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),
           father_first_name: String(values.get("father_first_name") || "").trim(),
           father_last_name: String(values.get("father_last_name") || "").trim(),
@@ -1019,22 +890,22 @@ function renderApplicationForm(action, existing = null) {
           bank_name: String(values.get("bank_name") || "").trim(),
           bank_account_number: String(values.get("bank_account_number") || "").replace(/\s/g, ""),
           bank_ifsc: String(values.get("bank_ifsc") || "").trim().toUpperCase()
-        };
-        payload.application_documents = uploadedDocuments;
-        await request("/api/reporter/applications", "POST", payload);
-        for (const oldDocument of existing?.documents || []) {
-          const replacement = uploadedDocuments.find((item) => item.document_type === oldDocument.document_type);
-          if (!replacement || replacement.storage_path === oldDocument.storage_path) continue;
-          try {
-            await request("/api/reporter/application-documents", "DELETE", {
-              storage_path: oldDocument.storage_path
-            });
-          } catch (cleanupError) {
-            console.error("Could not remove a replaced reporter document:", cleanupError.message);
-          }
+        }
+      };
+      payload.application_documents = uploadedDocuments;
+      await request("/api/reporter/applications", "POST", payload);
+      for (const oldDocument of existing?.documents || []) {
+        const replacement = uploadedDocuments.find((item) => item.document_type === oldDocument.document_type);
+        if (!replacement || replacement.storage_path === oldDocument.storage_path) continue;
+        try {
+          await request("/api/reporter/application-documents", "DELETE", {
+            storage_path: oldDocument.storage_path
+          });
+        } catch (cleanupError) {
+          console.error("Could not remove a replaced reporter document:", cleanupError.message);
         }
       }
-      showMessage(acceptingUpdatedAgreement ? "Your updated agreement acceptance was recorded." : "Your reporter application was submitted.", true);
+      showMessage("Your reporter application was submitted.", true);
       cropper?.dispose();
       await loadReporterDesk();
     } catch (error) {
@@ -1050,11 +921,7 @@ function renderApplicationForm(action, existing = null) {
       showMessage(error.message);
     } finally {
       submit.disabled = false;
-      submit.textContent = acceptingUpdatedAgreement
-        ? "Accept current agreement"
-        : resubmitting
-          ? "Confirm and resubmit"
-          : "Confirm and submit";
+      submit.textContent = resubmitting ? "Confirm and resubmit" : "Confirm and submit";
     }
   });
 
@@ -1486,13 +1353,13 @@ function renderServiceAgreement(application) {
         sha256: publishedIssue.agreement_sha256,
         document_url: `/api/reporter/service-agreement-issued-document?issue_id=${encodeURIComponent(publishedIssue.id)}`
       }
-    : publishedAgreement?.template_content ? null : publishedAgreement;
+    : null;
   const acceptedCurrent = current
     && application.service_agreement_version === current.version
     && application.service_agreement_sha256 === current.sha256
     && application.service_agreement_accepted_at
-    && (!current.issue_id || (application.service_acceptances || []).some((receipt) =>
-      String(receipt.issue_id) === String(current.issue_id)));
+    && (application.service_acceptances || []).some((receipt) =>
+      String(receipt.issue_id) === String(current.issue_id));
   const panel = element("section", "reporter-onboarding-step");
   panel.append(element("h3", "", activeReporter
     ? "Service / appointment agreement"
@@ -1514,11 +1381,11 @@ function renderServiceAgreement(application) {
     panel.append(element("p", "reporter-card-copy", activeReporter
       ? "Your current service agreement is on file. Keep the issued authority letter current for your assigned area."
       : "Next: Chowk issues an authority letter for your assigned reporting area. Reporter access activates only after you acknowledge that letter."));
-  } else if (!publishedAgreement) {
+  } else if (!publishedAgreement?.template_content) {
     panel.append(element(
       "p",
       "reporter-review-note",
-      "Chowk has not published the service / appointment agreement yet. Once finalized terms are published, this section will provide a PDF to view or download and a consent form. Acceptance cannot be recorded until the agreement is available."
+      "Chowk has not published a personalized service-agreement template yet. An administrator must publish finalized terms and issue your individualized PDF before you can review or accept it."
     ));
   } else if (publishedAgreement.template_content && !personalizedIssueIsCurrent) {
     panel.append(element(
@@ -1531,7 +1398,7 @@ function renderServiceAgreement(application) {
   } else {
     panel.append(element("p", "reporter-card-copy", activeReporter
       ? `Review the new service / appointment agreement, version ${current.version}. Accepting it records the current terms for any renewed authority.`
-      : `Review the separate service / appointment agreement, version ${current.version}. This is not the application agreement.`));
+      : `Review your personalized service / appointment agreement, version ${current.version}.`));
     const link = element("a", "", "Open the full service agreement");
     link.href = current.document_url;
     link.target = "_blank";
@@ -1644,7 +1511,10 @@ function renderStatus() {
     const acceptedCurrentServiceAgreement = currentServiceAgreement
       && application.service_agreement_version === currentServiceAgreement.version
       && application.service_agreement_sha256 === currentServiceAgreement.sha256
-      && Boolean(application.service_agreement_accepted_at);
+      && Boolean(application.service_agreement_accepted_at)
+      && Boolean(application.service_agreement_issue_id)
+      && (application.service_acceptances || []).some((receipt) =>
+        String(receipt.issue_id) === String(application.service_agreement_issue_id));
     const stages = [
       ["Account", true],
       ["Application", true],
@@ -1675,56 +1545,11 @@ function renderStatus() {
       dataItem("Submitted", formatDate(application.created_at)),
       dataItem("Requested state", `${application.state?.state_name || "—"} (${application.state?.state_code || ""})`),
       dataItem("District / RTO code", reporterCityLabel(application.rto)),
-      dataItem("Agreement", application.agreement_version || "—"),
-      dataItem("Agreement accepted", formatDate(application.agreement_accepted_at)),
       dataItem("Review completed", formatDate(application.reviewed_at)),
       dataItem("Reviewed by", application.reviewer_name || "—"),
       dataItem("Decision recorded", application.company_signer_name || "—")
     );
     statusPanel.append(details);
-    const acceptances = Array.isArray(application.acceptances) ? application.acceptances : [];
-    if (acceptances.length) {
-      statusPanel.append(element("h3", "", "Application agreement acceptance history"));
-      const history = element("div", "reporter-data-grid");
-      acceptances.forEach((receipt) => {
-        const item = dataItem(
-          `Version ${receipt.agreement_version} · ${formatDate(receipt.accepted_at)}`,
-          `${receipt.signer_name} · ${receipt.acceptance_statement} · Template SHA-256 ${receipt.agreement_sha256}${receipt.generated_document_sha256 ? ` · Generated PDF SHA-256 ${receipt.generated_document_sha256}` : ""}`
-        );
-        if (receipt.document_storage_path && receipt.id) {
-          const documentUrl = `/api/reporter/agreement-accepted-document?acceptance_id=${encodeURIComponent(receipt.id)}`;
-          const links = element("div", "reporter-credential-actions");
-          const preview = element("a", "", "View this accepted PDF");
-          preview.href = documentUrl;
-          preview.target = "_blank";
-          preview.rel = "noopener noreferrer";
-          const download = element("a", "", "Download this accepted PDF");
-          download.href = `${documentUrl}&download=1`;
-          download.target = "_blank";
-          download.rel = "noopener noreferrer";
-          links.append(preview, download);
-          item.append(links);
-        }
-        history.append(item);
-      });
-      statusPanel.append(history);
-    }
-    const acceptedDocumentUrl = acceptances.some((receipt) => receipt.document_storage_path)
-      ? ""
-      : application.agreement_document_url;
-    if (acceptedDocumentUrl && application.agreement_accepted) {
-      const links = element("div", "reporter-credential-actions");
-      const preview = element("a", "", "View accepted agreement PDF");
-      preview.href = acceptedDocumentUrl;
-      preview.target = "_blank";
-      preview.rel = "noopener noreferrer";
-      const download = element("a", "", "Download accepted agreement PDF");
-      download.href = acceptedDocumentUrl;
-      download.target = "_blank";
-      download.rel = "noopener noreferrer";
-      links.append(preview, download);
-      statusPanel.append(links);
-    }
     if (application.review_note) {
       statusPanel.append(element("h3", "", application.status === "needs_information"
         ? "What you need to do"
@@ -1802,12 +1627,7 @@ function renderStatus() {
       statusPanel.append(history);
     }
   }
-  const needsAgreement = ["pending", "needs_information"].includes(application?.status) &&
-    options.agreement &&
-    (application.agreement_version !== options.agreement.version ||
-      application.agreement_sha256 !== options.agreement.sha256);
-  if (needsAgreement) renderApplicationForm("updated-agreement", application);
-  else if (application?.status === "needs_information" || application?.status === "rejected") {
+  if (application?.status === "needs_information" || application?.status === "rejected") {
     renderApplicationForm("resubmit", application);
   }
   else if (!application && identity.role === "subscriber") renderApplicationForm("new");

@@ -1162,6 +1162,17 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 403, { error: "Cross-origin request rejected." });
       return;
     }
+    if (
+      pathname === "/api/admin/reporter-agreement-template"
+      || pathname.startsWith("/api/admin/reporter-agreement-template/")
+      || pathname === "/api/admin/reporter-agreements"
+      || pathname.startsWith("/api/admin/reporter-agreements/")
+    ) {
+      sendJson(response, 410, {
+        error: "Application agreements are no longer used. Create and publish a personalized service agreement for approved reporters."
+      });
+      return;
+    }
 
     const collections = {
       locations: {
@@ -1178,7 +1189,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
+        select: "id,user_id,location_id,state_id,rto_office_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -1241,15 +1252,14 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-options" && request.method === "GET") {
-      const [states, rtos, types, agreements, serviceAgreements, organizationProfile] = await Promise.all([
+      const [states, rtos, types, serviceAgreements, organizationProfile] = await Promise.all([
         supabaseRequest("/rest/v1/states?select=id,state_code,state_name,is_active&order=state_name.asc&limit=500", { token }),
         supabaseRequest("/rest/v1/rto_offices?select=id,state_id,rto_code,city_name,is_active&order=rto_code.asc&limit=1000", { token }),
         supabaseRequest("/rest/v1/reporter_types?select=id,name,type_code,description,is_active&order=name.asc&limit=500", { token }),
-        supabaseRequest("/rest/v1/reporter_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token }),
-        supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,published_at&order=created_at.desc&limit=100", { token }),
+        supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,published_at&template_content=not.is.null&order=created_at.desc&limit=100", { token }),
         supabaseRequest("/rest/v1/reporter_organization_profile?select=id,legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified,updated_at&limit=1", { token })
       ]);
-      for (const result of [states, rtos, types, agreements, serviceAgreements, organizationProfile]) {
+      for (const result of [states, rtos, types, serviceAgreements, organizationProfile]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Reporter configuration could not be loaded.")
@@ -1261,7 +1271,6 @@ async function adminRoute(request, response, requestUrl, session) {
         states: states.payload || [],
         rtos: rtos.payload || [],
         reporter_types: types.payload || [],
-        agreements: agreements.payload || [],
         service_agreements: serviceAgreements.payload || [],
         organization_profile: organizationProfile.payload?.[0] || null
       } });
@@ -1370,8 +1379,9 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 200, {
         success: true,
         data: {
-          template_content: result.payload?.[0]?.template_content || "",
+          template_content: result.payload?.[0]?.template_content || defaultReporterAgreementTemplate(),
           based_on_version: result.payload?.[0]?.version || null,
+          is_default: !result.payload?.[0],
           supported_fields: reporterServiceAgreementTemplateFields
         }
       });
@@ -2079,35 +2089,9 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-service-agreements" && request.method === "POST") {
-      const body = await readJsonBody(request, 12 * 1024 * 1024);
-      const version = typeof body.version === "string" ? body.version.trim() : "";
-      if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version)) {
-        sendJson(response, 400, { error: "Enter a short version label using letters, numbers, dots, underscores, or hyphens." });
-        return;
-      }
-      const uploaded = await uploadReporterAgreementPdf(body.file_base64, "service", token);
-      const result = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
-        method: "POST",
-        token,
-        body: {
-          version,
-          sha256: uploaded.sha256,
-          document_url: uploaded.document_url,
-          storage_object_path: uploaded.object_path,
-          created_by: session.identity.id
-        },
-        prefer: "return=representation"
+      sendJson(response, 410, {
+        error: "Static service-agreement uploads are no longer supported. Create a personalized service-agreement template."
       });
-      if (!result.response.ok) {
-        try {
-          await removeReporterAgreementPdf(uploaded.object_path, token);
-        } catch (error) {
-          console.error("Could not clean up unregistered reporter service agreement PDF:", error.message);
-        }
-      }
-      sendJson(response, result.response.status, result.response.ok
-        ? { success: true, data: result.payload?.[0] }
-        : { error: apiErrorMessage(result.payload, "Service agreement version could not be added.") });
       return;
     }
 
@@ -3650,7 +3634,8 @@ const server = http.createServer((request, response) => {
         sendJson(response, 200, {
           success: true,
           data: {
-            ...result.payload,
+            ...Object.fromEntries(Object.entries(result.payload || {})
+              .filter(([key]) => key !== "agreement" && key !== "application_agreement")),
             coverage_areas: coverageAreas.payload || [],
             service_agreement: serviceAgreement.payload?.[0] || result.payload?.service_agreement
           }
@@ -3697,6 +3682,16 @@ const server = http.createServer((request, response) => {
         sendJson(response, 403, { error: "Cross-origin request rejected." });
         return;
       }
+      if ([
+        "/api/reporter/agreement-preview",
+        "/api/reporter/agreement-accepted-document",
+        "/api/reporter/agreement/accept"
+      ].includes(requestUrl.pathname)) {
+        sendJson(response, 410, {
+          error: "Application agreements are no longer used. Your service agreement will be issued after application approval."
+        });
+        return;
+      }
       void (async () => {
         try {
           const reporterPrint = requestUrl.pathname.match(/^\/api\/reporter\/credentials\/(\d+)\/print$/);
@@ -3741,6 +3736,13 @@ const server = http.createServer((request, response) => {
               return;
             }
             let data = result.payload;
+            if (data?.application) {
+              const application = { ...data.application };
+              Object.keys(application).forEach((key) => {
+                if (key.startsWith("agreement_") || key === "acceptances") delete application[key];
+              });
+              data = { ...data, application };
+            }
             const applicationId = data?.application?.id;
             if (applicationId) {
               const [privateDetails, documents, reviewRequests, serviceAcceptances, serviceIssue] = await Promise.all([
@@ -4249,31 +4251,6 @@ const server = http.createServer((request, response) => {
                 : { error: apiErrorMessage(result.payload, "Requested reporter application updates could not be submitted.") });
               return;
             }
-            let generatedDocument = null;
-            if (body.agreement_version) {
-              const context = await reporterAgreementContext(session, {
-                stateId: ids[0],
-                rtoId: ids[2],
-                typeId: ids[3]
-              });
-              if (context.agreement.version !== body.agreement_version
-                  || context.agreement.sha256 !== body.agreement_sha256) {
-                sendJson(response, 409, { error: "The agreement changed. Review and accept the current PDF before applying." });
-                return;
-              }
-              const signerName = typeof body.signer_name === "string" ? body.signer_name.trim() : "";
-              if (signerName.length < 2
-                  || signerName.toLocaleLowerCase() !== context.tokens["reporter.full_name"].toLocaleLowerCase()) {
-                sendJson(response, 400, { error: "Enter your account full name as the agreement signer." });
-                return;
-              }
-              const pdf = await createReporterAgreementPdf(context.agreement.template_content, context.tokens);
-              generatedDocument = await uploadReporterAgreementAcceptancePdf(
-                pdf,
-                session.identity.id,
-                session.token
-              );
-            }
             const result = await supabaseRequest("/rest/v1/rpc/chowk_submit_reporter_application_with_private_details", {
               method: "POST",
               token: session.token,
@@ -4281,24 +4258,17 @@ const server = http.createServer((request, response) => {
                 target_state: ids[0],
                 target_rto: ids[2],
                 target_type: ids[3],
-                accepted_version: body.agreement_version,
-                accepted_sha256: body.agreement_sha256,
-                signer_name: body.signer_name,
-                acceptance_statement: body.acceptance_statement,
+                accepted_version: null,
+                accepted_sha256: null,
+                signer_name: null,
+                acceptance_statement: null,
                 details_confirmed: body.details_confirmed,
-                target_document_sha256: generatedDocument?.sha256 || null,
-                target_document_path: generatedDocument?.object_path || null,
+                target_document_sha256: null,
+                target_document_path: null,
                 private_details: body.private_details,
                 application_documents: body.application_documents
               }
             });
-            if (!result.response.ok && generatedDocument) {
-              try {
-                await removeReporterAgreementPdf(generatedDocument.object_path, session.token);
-              } catch (error) {
-                console.error("Could not remove an unrecorded generated reporter agreement:", error.message);
-              }
-            }
             sendJson(response, result.response.status, result.response.ok
               ? { success: true, application_id: result.payload }
               : { error: apiErrorMessage(result.payload, "Reporter application could not be submitted.") });
@@ -4351,6 +4321,12 @@ const server = http.createServer((request, response) => {
           if (requestUrl.pathname === "/api/reporter/service-agreement/accept" && request.method === "POST") {
             const body = await readJsonBody(request);
             const context = await reporterServiceAgreementContext(session);
+            if (!context.tokens) {
+              sendJson(response, 409, {
+                error: "Only an administrator-issued personalized service agreement can be accepted."
+              });
+              return;
+            }
             if (context.agreement.version !== body.agreement_version
                 || context.agreement.sha256 !== body.agreement_sha256) {
               sendJson(response, 409, { error: "The service agreement changed. Review and accept the current version." });
@@ -4362,39 +4338,25 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Enter your account full name as the agreement signer." });
               return;
             }
-            let result;
-            if (context.tokens) {
-              const issueId = Number(body.issue_id);
-              if (!Number.isSafeInteger(issueId) || issueId < 1) {
-                sendJson(response, 409, {
-                  error: "Chowk has not published your personalized agreement yet. Contact an administrator if this message continues."
-                });
-                return;
-              }
-              result = await supabaseRequest(
-                "/rest/v1/rpc/chowk_accept_reporter_service_agreement_issue",
-                {
-                  method: "POST",
-                  token: session.token,
-                  body: {
-                    target_issue: issueId,
-                    signer_name: signerName,
-                    acceptance_statement: body.acceptance_statement
-                  }
-                }
-              );
-            } else {
-              result = await supabaseRequest("/rest/v1/rpc/chowk_accept_current_reporter_service_agreement", {
+            const issueId = Number(body.issue_id);
+            if (!Number.isSafeInteger(issueId) || issueId < 1) {
+              sendJson(response, 409, {
+                error: "Chowk has not issued your personalized agreement yet. Contact an administrator if this message continues."
+              });
+              return;
+            }
+            const result = await supabaseRequest(
+              "/rest/v1/rpc/chowk_accept_reporter_service_agreement_issue",
+              {
                 method: "POST",
                 token: session.token,
                 body: {
-                  accepted_version: body.agreement_version,
-                  accepted_sha256: body.agreement_sha256,
+                  target_issue: issueId,
                   signer_name: signerName,
                   acceptance_statement: body.acceptance_statement
                 }
-              });
-            }
+              }
+            );
             sendJson(response, result.response.status, result.response.ok
               ? { success: true }
               : { error: apiErrorMessage(result.payload, "Service agreement acceptance could not be recorded.") });

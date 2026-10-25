@@ -78,10 +78,13 @@ Requires Node.js 18 or newer.
    the profile. Migration 0013 adds private storage and immutable version controls
    for uploaded reporter service-agreement PDFs. Migration 0014 adds editable,
    immutable application-agreement templates and server-generated personalized
-   PDFs using the verified organization profile and each applicant's account and
-   application details. On acceptance, the exact generated PDF, its SHA-256
-   hash, and identity snapshots are retained for the reporter. The service
-   agreement remains an admin-uploaded PDF. Migration 0015 adds the multi-step
+   PDFs. Migration 0042 retires application-agreement acceptance while
+   preserving historical records, makes application submission require only
+   the applicant's accuracy confirmation, and requires acceptance of the exact
+   admin-issued service-agreement PDF before issuing reporter credentials. The
+   existing engagement-agreement text is reused as the initial service-agreement
+   draft format, populated with verified company and approved reporter details,
+   then previewed and issued by an admin. Migration 0015 adds the multi-step
    reporter application, profile-photo cropping, emergency contact and
    reporting-profile fields, masked-Aadhaar/PAN/bank-proof uploads, bank
    account details, and a private storage bucket with admin-only review access
@@ -228,16 +231,15 @@ key and authenticated user tokens.
   with actor snapshots, request context, reasons, before/after field diffs, and
   CSV export of up to 10,000 filtered events per export.
 - Reporter desk for signed-in applicants to submit and track applications,
-  accept updated application-agreement versions, review and accept a separate
-  published service/appointment agreement after approval, view stable reporter
-  IDs and assignment history, print their own credentials, and acknowledge
-  authority letters. Public credential verification exposes only the credential
-  record, status, and limited identity/scope details.
+  review and accept the personalized service/appointment agreement issued after
+  approval, view stable reporter IDs and assignment history, print their own
+  credentials, and acknowledge authority letters. Public credential
+  verification exposes only the credential record, status, and limited
+  identity/scope details.
 - Reporter administration for application review, state/RTO/type-code setup,
-  stable reporter ID allocation, assignment and coverage history, versioned
-  application-agreement template editing and generated-PDF previews,
-  personalized service-agreement template editing and generated-PDF previews,
-  legacy service-agreement PDF management, immutable versioning,
+  stable reporter ID allocation, assignment and coverage history, personalized
+  service-agreement template editing and generated-PDF previews, immutable
+  versioning,
   publish/archive controls, organization-profile verification, restricted
   review of applicant identity and bank documents, staff ID/authority-letter
   issuance, revocation, and expanded audit filtering.
@@ -260,20 +262,22 @@ key and authenticated user tokens.
 
 Reporter applications remain open while legal documents are being finalized.
 In Admin → Reporter setup, replace and verify the organization legal profile
-before publishing new application or service agreements. Publish only
-finalized, lawyer-reviewed terms. Application agreements use immutable text
-templates to generate applicant-specific PDFs. Service agreements can use
-immutable text templates to generate a reporter-specific PDF from approved
-application details and verified organization details. An administrator previews
-and explicitly issues that PDF to each approved reporter; the reporter reviews
-and accepts the issued copy. The database retains the exact PDF hash, agreement
+before publishing service-agreement terms. There is one reporter contract
+workflow: the application collects and confirms reporter details; it does not
+ask for contract acceptance. After approval, an administrator prepares a
+personalized service-agreement PDF from the verified company profile and the
+reporter's approved application, previews it, and explicitly issues that exact
+copy to the reporter. The reporter can view and download the PDF and must accept
+that issued copy. The database retains the issue, exact PDF hash, agreement
 version, signer, and acceptance timestamp. ID-card and authority-letter issuance
-requires acceptance of the current issued agreement. The service template editor
-inserts data into terms supplied by the administrator and does not draft legal
-terms. Legacy uploaded service-agreement PDFs remain supported. Preview drafts
-before publishing; published versions cannot be edited, so create a replacement
-version for corrections. Archiving the current version stops new acceptances but
-does not erase historical receipts or revoke existing reporter access.
+requires acceptance of the current issued agreement. The service template
+editor starts with the existing Reporter Engagement Agreement format and
+inserts verified database details; it does not draft or approve legal terms.
+Square-bracket legal/business placeholders must be finalized by the company and
+reviewed by counsel before publication. Published versions cannot be edited, so
+create a replacement version for corrections. Archiving the current version
+stops new issues but does not erase historical receipts or revoke existing
+reporter access.
 Reporter type remains an internal assignment setting and is not shown in
 reporter-facing pages or documents. Review the seeded states and legacy Uttar
 Pradesh RTOs; add RTO/reporting areas for other states as needed. Applicants create and
@@ -285,25 +289,24 @@ experience, preferred language, localities and availability. Sensitive files
 are stored privately; only the applicant and admins can access them. Aadhaar
 must be masked with only its last four digits visible. The database calculates
 and stores age at the application date from the date of birth for restricted
-admin review. If a finalized application agreement is published, the server
-generates a personalized PDF
-for preview and acceptance during application; otherwise the desk clearly
-explains that no agreement acceptance will be recorded. Admins edit and publish
-immutable template versions after completing all legal terms and verifying
-organization details. Admins can open a restricted private-details view from
+admin review. Application submission records the applicant's accuracy
+confirmation and does not create a contract acceptance. Admins edit and publish
+immutable personalized service-agreement template versions after completing
+all legal terms and verifying organization details. Admins can open a
+restricted private-details view from
 each application to review the submitted details and short-lived document links.
 Admins review the application,
 request information, or approve/reject it. Approval creates the stable reporter
-code and assignment but does not activate newsroom access. A current service
-agreement must be accepted before credentials can be issued; the reporter
+code and assignment but does not activate newsroom access. A current issued service agreement must be accepted before credentials can be issued; the reporter
 acknowledges the valid authority letter before their account becomes a
 reporter. Admins cannot create or directly promote reporter accounts; they can
 update assignments for reporters who have completed onboarding. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; apply all migrations in
-order, including 0040 (stored application-age snapshot) and 0041 (per-reporter
-service-agreement issues), before deploying the matching application code. The
+order, including 0040 (stored application-age snapshot), 0041 (per-reporter
+service-agreement issues), and 0042 (single service-agreement workflow), before
+deploying the matching application code. The
 public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.

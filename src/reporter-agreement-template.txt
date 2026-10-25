@@ -1,7 +1,7 @@
 Reporter Engagement Agreement
 This Reporter Engagement Agreement (“Agreement”) is made on {{agreement.date}} at {{reporter.city}} between:
-1. {{company.legal_name}}, operating as “{{company.trade_name}}”, a {{company.entity_type}} with its registered office at {{company.registered_address}} (registration no. {{company.registration_number}}) (“Chowk”); and
-2. {{reporter.full_name}}, identified by the verified account contact details on this application, mobile {{reporter.phone}}, email {{reporter.email}} ("Reporter").
+1. {{company.legal_name}}, operating as “{{company.trade_name}}”, a {{company.entity_type}} with its registered office at {{company.registered_address}} (registration no. {{company.registration_number}}), official email {{company.official_email}} and phone {{company.official_phone}} (“Chowk”); and
+2. {{reporter.full_name}}, son/daughter of {{reporter.father_first_name}} {{reporter.father_last_name}}, residing at {{reporter.permanent_address}}, mobile {{reporter.phone}}, email {{reporter.email}} ("Reporter").
 Chowk and the Reporter are each a “Party” and together the “Parties”.
 Background
 A. Chowk runs a local-language news app and website (the “Platform”), beginning in Uttar
@@ -262,6 +262,10 @@ advice.
 costs are borne by {{company.trade_name}}.
 Schedule A - Reporter and engagement details
 Reporter ID: {{reporter.reporter_code}}
+Reporter name: {{reporter.full_name}}
+Parent's name: {{reporter.father_first_name}} {{reporter.father_last_name}}
+Permanent address: {{reporter.permanent_address}}
+Contact: {{reporter.phone}} · {{reporter.email}}
 Assigned area: {{reporter.state}} / {{reporter.rto}} / {{reporter.city}}
 Fees: [Enter fees per accepted story or monthly retainer]
 Payment cycle: [Enter payment cycle]
@@ -290,4 +294,4 @@ Authorized representative: {{company.legal_name}}
 
 Reporter
 {{reporter.full_name}}
-Accepted electronically through the reporter application on {{agreement.date}}.
+Accepted electronically through the reporter desk after issue of this personalized agreement on {{agreement.date}}.

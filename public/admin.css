@@ -1065,6 +1065,50 @@
   resize: vertical;
 }
 
+.admin-category-icon-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 7px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.admin-category-icon-option {
+  display: grid;
+  min-height: 65px;
+  justify-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 7px 4px;
+  border: 1px solid #dce1e9;
+  border-radius: 7px;
+  background: #fff;
+  color: #596579;
+  cursor: pointer;
+}
+
+.admin-category-icon-option[aria-pressed="true"] {
+  border-color: var(--orange);
+  background: #fff3eb;
+  color: #e45c22;
+  box-shadow: 0 0 0 2px rgb(255 105 11 / 12%);
+}
+
+.admin-category-icon-option svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.admin-category-icon-option small {
+  font-size: 10px;
+}
+
 .admin-agreement-template-field textarea {
   min-height: 520px;
   font: 12px/1.55 Consolas, "Courier New", monospace;

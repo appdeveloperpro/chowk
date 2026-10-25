@@ -196,7 +196,8 @@ async function loadCategories() {
       button.className = "chip";
       button.type = "button";
       button.dataset.category = category.slug;
-      button.textContent = category.name;
+      button.append(window.ChowkCategoryIcons.create(category.icon_key, "category-chip-icon"));
+      button.append(document.createTextNode(category.name));
       chips.append(button);
     });
   } catch (error) {

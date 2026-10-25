@@ -488,7 +488,10 @@ button {
 }
 
 .chip {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
   min-height: 34px;
   padding: 5px 14px;
   border: 1px solid #e7ddcf;
@@ -498,6 +501,16 @@ button {
   cursor: pointer;
   font-size: 11px;
   transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.category-chip-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 .chip:hover,

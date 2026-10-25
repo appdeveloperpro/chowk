@@ -17,6 +17,10 @@ const port = Number(process.env.PORT) || 3000;
 const publicDirectory = path.resolve(__dirname, "..", "public");
 const maxRequestBodyBytes = 1024 * 1024;
 const apiTimeoutMs = 20_000;
+const categoryIconKeys = new Set([
+  "newspaper", "siren", "sprout", "trophy", "cpu", "leaf", "chart", "clapperboard",
+  "landmark", "globe", "book", "heart", "map-pin", "cloud", "briefcase"
+]);
 const userCookie = "chowk_user_session";
 const adminCookie = "chowk_admin_session";
 const sessionMaxAge = 60 * 60;
@@ -945,7 +949,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
+        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),private_details:reporter_application_private_details!reporter_application_private_details_application_id_fkey(coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name)),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -2224,7 +2228,7 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/categories" && request.method === "GET") {
-      const result = await supabaseRequest("/rest/v1/categories?select=id,name,slug,is_active,created_at&order=name.asc", { token });
+      const result = await supabaseRequest("/rest/v1/categories?select=id,name,slug,icon_key,is_active,created_at&order=name.asc", { token });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
         : { error: apiErrorMessage(result.payload, "Categories could not be loaded.") });
@@ -2263,8 +2267,14 @@ async function adminRoute(request, response, requestUrl, session) {
           : { error: apiErrorMessage(result.payload, "Article draft could not be created.") });
         return;
       }
+      const iconKey = body.icon_key === undefined ? "newspaper" : body.icon_key;
+      if (!categoryIconKeys.has(iconKey)) {
+        sendJson(response, 400, { error: "Choose a valid category icon." });
+        return;
+      }
       const allowed = ["name", "slug", "is_active"];
       const record = Object.fromEntries(allowed.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
+      record.icon_key = iconKey;
       const result = await supabaseRequest("/rest/v1/categories", { method: "POST", token, body: record, prefer: "return=representation" });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload?.[0] }
@@ -2365,8 +2375,12 @@ async function adminRoute(request, response, requestUrl, session) {
     if (categoryItem && ["PATCH", "DELETE"].includes(request.method)) {
       const endpoint = `/rest/v1/categories?id=eq.${categoryItem[1]}`;
       const body = request.method === "PATCH" ? await readJsonBody(request) : undefined;
+      if (body?.icon_key !== undefined && !categoryIconKeys.has(body.icon_key)) {
+        sendJson(response, 400, { error: "Choose a valid category icon." });
+        return;
+      }
       const safeBody = body && Object.fromEntries(
-        ["name", "slug", "is_active"].filter((key) => body[key] !== undefined).map((key) => [key, body[key]])
+        ["name", "slug", "icon_key", "is_active"].filter((key) => body[key] !== undefined).map((key) => [key, body[key]])
       );
       const result = await supabaseRequest(endpoint, {
         method: request.method, token, body: safeBody, prefer: "return=representation"
@@ -2994,7 +3008,7 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname === "/api/categories" && request.method === "GET") {
     void (async () => {
       try {
-        const result = await supabaseRequest("/rest/v1/categories?select=id,name,slug&is_active=eq.true&order=name.asc");
+        const result = await supabaseRequest("/rest/v1/categories?select=id,name,slug,icon_key&is_active=eq.true&order=name.asc");
         sendJson(response, result.response.status, result.response.ok
           ? { success: true, data: result.payload }
           : { error: apiErrorMessage(result.payload, "Categories could not be loaded.") });

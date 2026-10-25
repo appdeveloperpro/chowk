@@ -24,11 +24,12 @@ const modules = {
   },
   categories: {
     path: "admin/categories",
-    description: "Organize published stories into categories.",
+    description: "Organize published stories into categories and choose a matching icon for each one.",
     createPath: "admin/categories",
     formFields: [
       { name: "name", label: "Category name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
+      { name: "icon_key", label: "Category icon", type: "icon-picker" },
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
   },
@@ -580,7 +581,7 @@ function renderReporterAdminSection(section, root, data) {
       city: application.rto?.city_name && application.rto?.rto_code
         ? `${application.rto.city_name} (${application.rto.rto_code})`
         : application.rto?.city_name || application.rto?.rto_code || "—",
-      area_coverage: application.reporter_type?.name || "—",
+      area_coverage: application.private_details?.coverage_area?.name || "—",
       details_confirmed: application.applicant_details_confirmed ? "Confirmed" : "Not recorded"
     }));
     reporterPanel(root, "Reporter applications", rows, section);
@@ -2198,6 +2199,37 @@ function openConfiguredRecordDialog(section, existing) {
             populateLocationParents(select, form.elements.location_type.value, select.value, existing?.id);
           });
           label.append(select);
+          form.append(label);
+          return;
+        }
+        if (field.type === "icon-picker") {
+          const label = makeElement("div", "admin-form-field admin-category-icon-field");
+          label.append(makeElement("span", "", field.label));
+          const selectedKey = window.ChowkCategoryIcons.has(value) ? value : "newspaper";
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = field.name;
+          input.value = selectedKey;
+          const picker = makeElement("div", "admin-category-icon-picker");
+          picker.setAttribute("role", "group");
+          picker.setAttribute("aria-label", field.label);
+          window.ChowkCategoryIcons.icons.forEach((icon) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "admin-category-icon-option";
+            button.setAttribute("aria-label", icon.label);
+            button.setAttribute("aria-pressed", String(icon.key === selectedKey));
+            button.title = icon.label;
+            button.append(window.ChowkCategoryIcons.create(icon.key), makeElement("small", "", icon.label));
+            button.addEventListener("click", () => {
+              input.value = icon.key;
+              picker.querySelectorAll(".admin-category-icon-option").forEach((option) => {
+                option.setAttribute("aria-pressed", String(option === button));
+              });
+            });
+            picker.append(button);
+          });
+          label.append(input, picker);
           form.append(label);
           return;
         }

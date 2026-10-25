@@ -548,9 +548,12 @@ function renderApplicationForm(action, existing = null) {
       "The selected Coverage Area is your requested administrative reporting location. Preferred locations are optional requests, not active assignments."
     );
     areaStep.append(preferredLocationHint);
-    const refreshCoverageAreas = (districtId = "", selectedCoverageAreaId = "") => {
+    const refreshCoverageAreas = (rtoOfficeId = "", selectedCoverageAreaId = "") => {
+      const selectedDistrict = (options.rtos || []).find((district) =>
+        String(district.id) === String(rtoOfficeId)
+      );
       const eligibleCoverageAreas = (options.coverage_areas || []).filter((coverageArea) =>
-        String(coverageArea.parent_id) === String(districtId)
+        String(coverageArea.parent_id) === String(selectedDistrict?.district_id)
       );
       coverageAreaSelect.replaceChildren();
       const placeholder = element(
@@ -568,7 +571,7 @@ function renderApplicationForm(action, existing = null) {
         option.selected = String(coverageArea.id) === String(selectedCoverageAreaId);
         coverageAreaSelect.append(option);
       });
-      coverageAreaSelect.disabled = !districtId;
+      coverageAreaSelect.disabled = !selectedDistrict;
     };
     const refreshDistricts = (selectedDistrictId = "") => {
       const eligibleDistricts = (options.rtos || []).filter((district) =>

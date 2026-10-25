@@ -509,6 +509,24 @@ function renderApplicationForm(action, existing = null) {
     const emergencyPhone = addField(profileStep, "Emergency contact phone", "emergency_contact_phone", "tel", existing?.private_details?.emergency_contact_phone, { minLength: 7, maxLength: 30, autocomplete: "tel" });
     emergencyPhone.pattern = "[+0-9]{7,15}";
     highlightRequestedField("emergency_contact_phone", emergencyPhone);
+    const fatherFirstName = addField(profileStep, "Father's first name", "father_first_name", "text", existing?.private_details?.father_first_name, { minLength: 1, maxLength: 80, autocomplete: "given-name" });
+    highlightRequestedField("father_first_name", fatherFirstName);
+    const fatherLastName = addField(profileStep, "Father's last name", "father_last_name", "text", existing?.private_details?.father_last_name, { minLength: 1, maxLength: 80, autocomplete: "family-name" });
+    highlightRequestedField("father_last_name", fatherLastName);
+    const permanentAddressLine1 = addField(profileStep, "Permanent address · House / building and street", "permanent_address_line1", "text", existing?.private_details?.permanent_address_line1, { minLength: 2, maxLength: 160, autocomplete: "address-line1" });
+    highlightRequestedField("permanent_address_line1", permanentAddressLine1);
+    const permanentAddressLine2 = addField(profileStep, "Permanent address · Area / locality (optional)", "permanent_address_line2", "text", existing?.private_details?.permanent_address_line2, { required: false, maxLength: 160, autocomplete: "address-line2" });
+    highlightRequestedField("permanent_address_line2", permanentAddressLine2);
+    const permanentAddressCity = addField(profileStep, "Permanent address · City / town / village", "permanent_address_city", "text", existing?.private_details?.permanent_address_city, { minLength: 2, maxLength: 100, autocomplete: "address-level2" });
+    highlightRequestedField("permanent_address_city", permanentAddressCity);
+    const permanentAddressDistrict = addField(profileStep, "Permanent address · District", "permanent_address_district", "text", existing?.private_details?.permanent_address_district, { minLength: 2, maxLength: 100 });
+    highlightRequestedField("permanent_address_district", permanentAddressDistrict);
+    const permanentAddressState = addField(profileStep, "Permanent address · State", "permanent_address_state", "text", existing?.private_details?.permanent_address_state, { minLength: 2, maxLength: 100, autocomplete: "address-level1" });
+    highlightRequestedField("permanent_address_state", permanentAddressState);
+    const permanentAddressPostalCode = addField(profileStep, "Permanent address · PIN / ZIP code", "permanent_address_postal_code", "text", existing?.private_details?.permanent_address_postal_code, { minLength: 6, maxLength: 6, autocomplete: "postal-code" });
+    permanentAddressPostalCode.inputMode = "numeric";
+    permanentAddressPostalCode.pattern = "[0-9]{6}";
+    highlightRequestedField("permanent_address_postal_code", permanentAddressPostalCode);
     addSelectField(profileStep, "Blood group (optional to disclose)", "blood_group", [
       ...["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((value) => ({ id: value, label: value })),
       { id: "Prefer not to say", label: "Prefer not to say" }
@@ -886,6 +904,9 @@ function renderApplicationForm(action, existing = null) {
             ...[...requestedFields.values()].map((request) => {
               const label = request.field.replaceAll("_", " ");
               if (request.kind === "reupload") return element("span", "", `${label}: replacement uploaded`);
+              if (request.field === "permanent_address_postal_code") {
+                return element("span", "", `${label}: ${String(values.get(request.field) || "")}`);
+              }
               if (request.field === "coverage_localities") {
                 return element("span", "", `${label}: ${preferredLocationValues.join(", ") || "No locations entered"}`);
               }
@@ -970,6 +991,14 @@ function renderApplicationForm(action, existing = null) {
         payload.rto_office_id = values.get("rto_office_id");
         payload.private_details = {
           emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),
+          father_first_name: String(values.get("father_first_name") || "").trim(),
+          father_last_name: String(values.get("father_last_name") || "").trim(),
+          permanent_address_line1: String(values.get("permanent_address_line1") || "").trim(),
+          permanent_address_line2: String(values.get("permanent_address_line2") || "").trim(),
+          permanent_address_city: String(values.get("permanent_address_city") || "").trim(),
+          permanent_address_district: String(values.get("permanent_address_district") || "").trim(),
+          permanent_address_state: String(values.get("permanent_address_state") || "").trim(),
+          permanent_address_postal_code: String(values.get("permanent_address_postal_code") || "").trim(),
           mobile_number: String(values.get("mobile_number") || "").trim(),
           date_of_birth: String(values.get("date_of_birth") || ""),
           emergency_contact_relationship: String(values.get("emergency_contact_relationship") || "").trim(),
@@ -1061,6 +1090,9 @@ function renderTargetedReporterResubmission(application) {
   const requestedNames = new Set(requestedFields.keys());
   const supportedFields = new Set([
     "state_id", "rto_office_id", "mobile_number", "date_of_birth",
+    "father_first_name", "father_last_name", "permanent_address_line1",
+    "permanent_address_line2", "permanent_address_city", "permanent_address_district",
+    "permanent_address_state", "permanent_address_postal_code",
     "emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone",
     "blood_group", "preferred_language", "coverage_area_id", "coverage_localities",
     "experience_years", "experience_summary", "availability", "bank_account_holder",
@@ -1096,6 +1128,14 @@ function renderTargetedReporterResubmission(application) {
     emergency_contact_name: "Emergency contact name",
     emergency_contact_relationship: "Emergency relationship",
     emergency_contact_phone: "Emergency contact phone",
+    father_first_name: "Father's first name",
+    father_last_name: "Father's last name",
+    permanent_address_line1: "Permanent address · House / building and street",
+    permanent_address_line2: "Permanent address · Area / locality",
+    permanent_address_city: "Permanent address · City / town / village",
+    permanent_address_district: "Permanent address · District",
+    permanent_address_state: "Permanent address · State",
+    permanent_address_postal_code: "Permanent address · PIN / ZIP code",
     blood_group: "Blood group",
     preferred_language: "Preferred language",
     coverage_area_id: "Coverage Area",
@@ -1208,6 +1248,14 @@ function renderTargetedReporterResubmission(application) {
     emergency_contact_name: "text",
     emergency_contact_relationship: "text",
     emergency_contact_phone: "tel",
+    father_first_name: "text",
+    father_last_name: "text",
+    permanent_address_line1: "text",
+    permanent_address_line2: "text",
+    permanent_address_city: "text",
+    permanent_address_district: "text",
+    permanent_address_state: "text",
+    permanent_address_postal_code: "text",
     preferred_language: "text",
     experience_years: "number",
     experience_summary: "textarea",
@@ -1266,8 +1314,29 @@ function renderTargetedReporterResubmission(application) {
       control.max = "80";
       control.step = "0.5";
     }
-    if (["preferred_language", "coverage_localities", "experience_years", "experience_summary", "availability"].includes(field)) {
+    if ([
+      "preferred_language", "coverage_localities", "experience_years",
+      "experience_summary", "availability", "permanent_address_line2"
+    ].includes(field)) {
       control.required = false;
+    }
+    if (field === "permanent_address_postal_code") {
+      control.minLength = 6;
+      control.maxLength = 6;
+      control.inputMode = "numeric";
+      control.pattern = "[0-9]{6}";
+    }
+    if (["father_first_name", "father_last_name"].includes(field)) {
+      control.minLength = 1;
+      control.maxLength = 80;
+    }
+    if (["permanent_address_line1", "permanent_address_line2"].includes(field)) {
+      control.maxLength = 160;
+      if (field === "permanent_address_line1") control.minLength = 2;
+    }
+    if (["permanent_address_city", "permanent_address_district", "permanent_address_state"].includes(field)) {
+      control.minLength = 2;
+      control.maxLength = 100;
     }
     if (field === "preferred_language") control.maxLength = 80;
     if (field === "coverage_localities") control.maxLength = 1000;
@@ -1611,6 +1680,14 @@ function renderStatus() {
         rto_office_id: "District",
         mobile_number: "Mobile number",
         date_of_birth: "Date of birth",
+        father_first_name: "Father's first name",
+        father_last_name: "Father's last name",
+        permanent_address_line1: "Permanent address · House / building and street",
+        permanent_address_line2: "Permanent address · Area / locality",
+        permanent_address_city: "Permanent address · City / town / village",
+        permanent_address_district: "Permanent address · District",
+        permanent_address_state: "Permanent address · State",
+        permanent_address_postal_code: "Permanent address · PIN / ZIP code",
         emergency_contact_name: "Emergency contact",
         emergency_contact_relationship: "Emergency relationship",
         emergency_contact_phone: "Emergency phone",

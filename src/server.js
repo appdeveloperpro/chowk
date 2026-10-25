@@ -949,7 +949,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
+        select: "id,user_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -2079,7 +2079,7 @@ async function adminRoute(request, response, requestUrl, session) {
       const applicationId = applicationPrivateDetails[1];
       const [details, documents] = await Promise.all([
         supabaseRequest(
-          `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name),experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${applicationId}&limit=1`,
+          `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name),experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${applicationId}&limit=1`,
           { token }
         ),
         supabaseRequest(
@@ -2138,6 +2138,9 @@ async function adminRoute(request, response, requestUrl, session) {
       const reviewableFields = new Set([
         "state_id", "rto_office_id",
         "mobile_number", "date_of_birth", "emergency_contact_name",
+        "father_first_name", "father_last_name", "permanent_address_line1",
+        "permanent_address_line2", "permanent_address_city", "permanent_address_district",
+        "permanent_address_state", "permanent_address_postal_code",
         "emergency_contact_relationship", "emergency_contact_phone", "blood_group",
         "preferred_language", "coverage_area_id", "coverage_localities",
         "experience_years", "experience_summary", "availability",
@@ -3261,7 +3264,7 @@ const server = http.createServer((request, response) => {
             if (applicationId) {
               const [privateDetails, documents, reviewRequests] = await Promise.all([
                 supabaseRequest(
-                  `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${encodeURIComponent(applicationId)}&limit=1`,
+                  `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${encodeURIComponent(applicationId)}&limit=1`,
                   { token: session.token }
                 ),
                 supabaseRequest(
@@ -3421,6 +3424,9 @@ const server = http.createServer((request, response) => {
               requestedFieldNames = [...requestedFields];
               const requestedPrivateFields = new Set([
                 "mobile_number", "date_of_birth", "emergency_contact_name",
+                "father_first_name", "father_last_name", "permanent_address_line1",
+                "permanent_address_line2", "permanent_address_city", "permanent_address_district",
+                "permanent_address_state", "permanent_address_postal_code",
                 "emergency_contact_relationship", "emergency_contact_phone", "blood_group",
                 "preferred_language", "coverage_area_id", "coverage_localities",
                 "experience_years", "experience_summary", "availability",

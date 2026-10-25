@@ -640,8 +640,9 @@ function renderApplicationForm(action, existing = null) {
     documentsStep.append(privacyNote);
     const photoGroup = element("div", "reporter-field-full");
     cropper = createReporterPhotoCropper(photoGroup);
-    cropper.input.required = !applicationFiles.has("profile_photo")
-      || requestedFields.get("profile_photo")?.kind === "reupload";
+    cropper.    input.required = resubmitting
+      ? requestedFields.get("profile_photo")?.kind === "reupload"
+      : !applicationFiles.has("profile_photo");
     if (applicationFiles.has("profile_photo")
         && requestedFields.get("profile_photo")?.kind !== "reupload") {
       photoGroup.append(element("small", "reporter-field-help", "Your current profile photo is already on file; no new upload is needed."));
@@ -654,7 +655,9 @@ function renderApplicationForm(action, existing = null) {
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf";
-      input.required = !applicationFiles.has(type) || requestedFields.get(type)?.kind === "reupload";
+      input.required = resubmitting
+        ? requestedFields.get(type)?.kind === "reupload"
+        : !applicationFiles.has(type);
       input.addEventListener("change", () => {
         const file = input.files?.[0];
         if (!file) return;
@@ -748,6 +751,68 @@ function renderApplicationForm(action, existing = null) {
       const note = element("p", "reporter-review-note reporter-field-full", `Admin requested an update: ${existing.review_note}`);
       profileStep.prepend(note);
     }
+    if (resubmitting && requestedFields.size) {
+      const requestedNames = new Set(requestedFields.keys());
+      const visibleNames = new Set(requestedNames);
+      if (requestedNames.has("state_id") || requestedNames.has("rto_office_id")) {
+        visibleNames.add("state_id");
+        visibleNames.add("rto_office_id");
+        visibleNames.add("coverage_area_id");
+      }
+
+      steps.forEach((step) => {
+        [...step.querySelectorAll("input[name], select[name], textarea[name]")].forEach((control) => {
+          const name = control.name === "preferred_location" ? "coverage_localities" : control.name;
+          const visible = name === "details_confirmed"
+            || name === "signer_name"
+            || visibleNames.has(name);
+          const field = control === cropper.input
+            ? photoGroup
+            : name === "coverage_localities"
+              ? preferredLocations
+              : control.closest(".reporter-field")
+                || control.closest(".reporter-check")
+                || control.closest("label")
+                || control.parentElement;
+          if (field && name !== "details_confirmed") field.hidden = !visible;
+          if (!visible) {
+            control.required = false;
+            control.disabled = true;
+          }
+        });
+      });
+
+      reviewStep.querySelectorAll(".reporter-agreement").forEach((agreement) => {
+        agreement.hidden = true;
+        agreement.querySelectorAll("input, select, textarea").forEach((control) => {
+          control.required = false;
+          control.disabled = true;
+        });
+      });
+      profileStep.querySelector(".reporter-account-summary")?.setAttribute("hidden", "");
+      documentsStep.querySelector(".reporter-sensitive-data-note")?.toggleAttribute(
+        "hidden",
+        !requestedNames.has("aadhaar_front") && !requestedNames.has("aadhaar_back")
+      );
+      const visibleSteps = steps.filter((step) =>
+        step === reviewStep || [...step.querySelectorAll("input, select, textarea")]
+          .some((control) => !control.disabled && control.name !== "details_confirmed" && control.name !== "signer_name")
+      );
+      steps.splice(0, steps.length, ...visibleSteps);
+      progress.replaceChildren(...visibleSteps.map((step, index) => {
+        const indicator = document.createElement("li");
+        indicator.append(element("span", "", String(index + 1)), element("strong", "", step.querySelector("legend")?.textContent.replace(/^\d+\.\s*/, "") || "Update"));
+        return indicator;
+      }));
+      activeStep = 0;
+      nextButton.textContent = "Review update";
+      submit.textContent = "Confirm and resubmit";
+      reviewStep.querySelector(".reporter-card-copy")?.replaceWith(
+        element("p", "reporter-card-copy reporter-field-full", "Review only the information requested by the admin. Your other details and documents will remain on file.")
+      );
+      if (!requestedNames.has("masked_aadhaar_confirmed")) maskedAadhaarCheck.hidden = true;
+      if (!requestedNames.has("document_processing_consent")) privacyConsent.hidden = true;
+    }
     updateSteps = () => {
       steps.forEach((step, index) => {
         step.hidden = index !== activeStep;
@@ -812,17 +877,31 @@ function renderApplicationForm(action, existing = null) {
         .filter(Boolean);
       summary.replaceChildren(
         element("strong", "", "Check your application before sending"),
-        element("span", "", `State: ${selectedState?.state_name || "—"}`),
-        element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
-        element("span", "", `Coverage Area: ${selectedCoverageArea?.name || "—"}`),
-        element("span", "", `Preferred locations: ${preferredLocationValues.join(", ") || "None provided"}`),
-        element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
-        element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
-        element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
-        element("span", "", options.agreement
-          ? `Personalized application agreement: version ${options.agreement.version} accepted`
-          : "Application agreement: no version is published; no acceptance will be recorded."),
-        element("span", "", "An admin reviews this application. Your account stays a subscriber until onboarding is complete.")
+        ...(resubmitting
+          ? [
+            ...[...requestedFields.values()].map((request) => {
+              const label = request.field.replaceAll("_", " ");
+              if (request.kind === "reupload") return element("span", "", `${label}: replacement uploaded`);
+              if (request.field === "coverage_localities") {
+                return element("span", "", `${label}: ${preferredLocationValues.join(", ") || "No locations entered"}`);
+              }
+              return element("span", "", `${label}: ${String(values.get(request.field) || "Updated as requested")}`);
+            }),
+            element("span", "", "Other application information and documents remain unchanged.")
+          ]
+          : [
+            element("span", "", `State: ${selectedState?.state_name || "—"}`),
+            element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
+            element("span", "", `Coverage Area: ${selectedCoverageArea?.name || "—"}`),
+            element("span", "", `Preferred locations: ${preferredLocationValues.join(", ") || "None provided"}`),
+            element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
+            element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
+            element("span", "", `Bank account ending: ${String(values.get("bank_account_number") || "").replace(/\s/g, "").slice(-4) || "—"}`),
+            element("span", "", options.agreement
+              ? `Personalized application agreement: version ${options.agreement.version} accepted`
+              : "Application agreement: no version is published; no acceptance will be recorded."),
+            element("span", "", "An admin reviews this application. Your account stays a subscriber until onboarding is complete.")
+          ])
       );
       const edit = element("button", "reporter-button secondary", "Edit application details");
       edit.type = "button";
@@ -859,7 +938,10 @@ function renderApplicationForm(action, existing = null) {
         }
         for (const documentType of ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]) {
           const file = applicationFiles.get(documentType);
-          if (!file) throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
+          if (!file) {
+            if (resubmitting) continue;
+            throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
+          }
           if (file instanceof File) {
             showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
             const uploaded = (await request("/api/reporter/application-documents", "POST", {

@@ -3376,12 +3376,135 @@ const server = http.createServer((request, response) => {
           }
           if (requestUrl.pathname === "/api/reporter/applications" && request.method === "POST") {
             const body = await readJsonBody(request);
+            const currentApplicationResult = await supabaseRequest(
+              `/rest/v1/reporter_applications?select=id,status,review_requests,state_id,rto_office_id,reporter_type_id&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
+              { token: session.token }
+            );
+            if (!currentApplicationResult.response.ok) {
+              sendJson(response, currentApplicationResult.response.status, {
+                error: apiErrorMessage(currentApplicationResult.payload, "Your existing reporter application could not be checked.")
+              });
+              return;
+            }
+            const currentApplication = currentApplicationResult.payload?.[0] || null;
+            let existingDocumentsPayload = [];
+            let requestedDocumentReplacements = [];
+            let requestedFieldNames = [];
+            const isTargetedResubmission = currentApplication?.status === "needs_information"
+              && Array.isArray(currentApplication.review_requests)
+              && currentApplication.review_requests.length > 0;
+            if (isTargetedResubmission) {
+              const [privateDetailsResult, existingDocumentsResult] = await Promise.all([
+                supabaseRequest(
+                  `/rest/v1/reporter_application_private_details?select=*&application_id=eq.${encodeURIComponent(currentApplication.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
+                  { token: session.token }
+                ),
+                supabaseRequest(
+                  `/rest/v1/reporter_application_documents?select=document_type,storage_path,mime_type,sha256&application_id=eq.${encodeURIComponent(currentApplication.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}`,
+                  { token: session.token }
+                )
+              ]);
+              for (const result of [privateDetailsResult, existingDocumentsResult]) {
+                if (!result.response.ok) {
+                  sendJson(response, result.response.status, {
+                    error: apiErrorMessage(result.payload, "Your existing reporter application details could not be loaded.")
+                  });
+                  return;
+                }
+              }
+              const existingPrivateDetails = privateDetailsResult.payload?.[0];
+              if (!existingPrivateDetails) {
+                sendJson(response, 409, { error: "Your existing reporter application details are incomplete. Contact an administrator." });
+                return;
+              }
+              const requestedFields = new Set(currentApplication.review_requests.map((request) => request.field));
+              requestedFieldNames = [...requestedFields];
+              const requestedPrivateFields = new Set([
+                "mobile_number", "date_of_birth", "emergency_contact_name",
+                "emergency_contact_relationship", "emergency_contact_phone", "blood_group",
+                "preferred_language", "coverage_area_id", "coverage_localities",
+                "experience_years", "experience_summary", "availability",
+                "bank_account_holder", "bank_name", "bank_account_number", "bank_ifsc"
+              ]);
+              const submittedPrivateDetails = body.private_details && typeof body.private_details === "object"
+                && !Array.isArray(body.private_details) ? body.private_details : {};
+              const updateFields = new Set([...requestedFields].filter((field) => requestedPrivateFields.has(field)));
+              if (requestedFields.has("state_id") || requestedFields.has("rto_office_id")) {
+                updateFields.add("coverage_area_id");
+              }
+              body.private_details = { ...existingPrivateDetails };
+              updateFields.forEach((field) => {
+                if (Object.hasOwn(submittedPrivateDetails, field)) {
+                  body.private_details[field] = submittedPrivateDetails[field];
+                }
+              });
+              body.state_id = requestedFields.has("state_id") ? body.state_id : currentApplication.state_id;
+              body.rto_office_id = requestedFields.has("rto_office_id") || requestedFields.has("state_id")
+                ? body.rto_office_id
+                : currentApplication.rto_office_id;
+              body.private_details.masked_aadhaar_confirmed = existingPrivateDetails.masked_aadhaar_confirmed;
+              body.private_details.document_processing_consent = existingPrivateDetails.document_processing_consent;
+
+              if (!Array.isArray(body.application_documents)) {
+                sendJson(response, 400, { error: "Upload the specific document requested by the admin." });
+                return;
+              }
+              const requestedReuploads = new Set(currentApplication.review_requests
+                .filter((request) => request.kind === "reupload")
+                .map((request) => request.field));
+              if (body.application_documents.some((document) =>
+                !requestedReuploads.has(document?.document_type)
+              )) {
+                sendJson(response, 400, { error: "Only documents explicitly requested for reupload can be replaced." });
+                return;
+              }
+              requestedDocumentReplacements = body.application_documents;
+              existingDocumentsPayload = existingDocumentsResult.payload || [];
+              body.details_confirmed = true;
+            }
+            const submitTargetedResubmission = () => supabaseRequest(
+              "/rest/v1/rpc/chowk_resubmit_reporter_application",
+              {
+                method: "POST",
+                token: session.token,
+                body: {
+                  target_application: currentApplication.id,
+                  target_state: Number(body.state_id || currentApplication.state_id),
+                  target_rto: Number(body.rto_office_id || currentApplication.rto_office_id),
+                  private_details: body.private_details,
+                  application_documents: requestedDocumentReplacements
+                }
+              }
+            );
+            const locationRequest = requestedFieldNames.some((field) =>
+              ["state_id", "rto_office_id", "coverage_area_id"].includes(field)
+            );
+            if (isTargetedResubmission && !locationRequest) {
+              const result = await submitTargetedResubmission();
+              sendJson(response, result.response.status, result.response.ok
+                ? { success: true }
+                : { error: apiErrorMessage(result.payload, "Requested reporter application updates could not be submitted.") });
+              return;
+            }
+            if (currentApplication && !isTargetedResubmission) {
+              const existingDocumentsResult = await supabaseRequest(
+                `/rest/v1/reporter_application_documents?select=document_type,storage_path,mime_type,sha256&application_id=eq.${encodeURIComponent(currentApplication.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}`,
+                { token: session.token }
+              );
+              if (!existingDocumentsResult.response.ok) {
+                sendJson(response, existingDocumentsResult.response.status, {
+                  error: apiErrorMessage(existingDocumentsResult.payload, "Your existing reporter documents could not be loaded.")
+                });
+                return;
+              }
+              existingDocumentsPayload = existingDocumentsResult.payload || [];
+            }
             if (body.details_confirmed !== true) {
               sendJson(response, 400, { error: "Confirm that your reporter application details are accurate." });
               return;
             }
             const privateDetails = body.private_details;
-            if (privateDetails && typeof privateDetails === "object" && !Array.isArray(privateDetails)
+            if (!isTargetedResubmission && privateDetails && typeof privateDetails === "object" && !Array.isArray(privateDetails)
                 && (typeof privateDetails.coverage_localities !== "string"
                   || (privateDetails.coverage_localities.trim().length > 0
                     && (privateDetails.coverage_localities.trim().length < 2
@@ -3389,7 +3512,7 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Preferred locations must be empty or 2-1000 characters." });
               return;
             }
-            if (!privateDetails || typeof privateDetails !== "object" || Array.isArray(privateDetails)
+            if (!isTargetedResubmission && (!privateDetails || typeof privateDetails !== "object" || Array.isArray(privateDetails)
                 || typeof privateDetails.mobile_number !== "string"
                 || !/^\+?[0-9]{7,15}$/.test(privateDetails.mobile_number)
                 || typeof privateDetails.date_of_birth !== "string"
@@ -3414,7 +3537,7 @@ const server = http.createServer((request, response) => {
                 || typeof privateDetails.blood_group !== "string"
                 || !["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Prefer not to say"].includes(privateDetails.blood_group)
                 || privateDetails.masked_aadhaar_confirmed !== true
-                || privateDetails.document_processing_consent !== true) {
+                || privateDetails.document_processing_consent !== true)) {
               sendJson(response, 400, { error: "Check the mobile number, date of birth, emergency-contact, bank-account, IFSC and blood-group details." });
               return;
             }
@@ -3466,31 +3589,8 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Choose an active Coverage Area within the selected District." });
               return;
             }
-            const currentApplication = await supabaseRequest(
-              `/rest/v1/reporter_applications?select=id&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
-              { token: session.token }
-            );
-            if (!currentApplication.response.ok) {
-              sendJson(response, currentApplication.response.status, {
-                error: apiErrorMessage(currentApplication.payload, "Your existing reporter application could not be checked.")
-              });
-              return;
-            }
-            const applicationId = currentApplication.payload?.[0]?.id;
-            const existingDocuments = applicationId
-              ? await supabaseRequest(
-                `/rest/v1/reporter_application_documents?select=document_type,storage_path,mime_type,sha256&application_id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}`,
-                { token: session.token }
-              )
-              : { response: { ok: true }, payload: [] };
-            if (!existingDocuments.response.ok) {
-              sendJson(response, existingDocuments.response.status, {
-                error: apiErrorMessage(existingDocuments.payload, "Your existing reporter documents could not be loaded.")
-              });
-              return;
-            }
             const documentsByType = new Map(
-              (existingDocuments.payload || []).map((document) => [document.document_type, document])
+              existingDocumentsPayload.map((document) => [document.document_type, document])
             );
             for (const replacement of body.application_documents) {
               if (typeof replacement.storage_path !== "string"
@@ -3518,18 +3618,20 @@ const server = http.createServer((request, response) => {
               return;
             }
             body.application_documents = [...documentsByType.values()];
-            const typeResult = await supabaseRequest(
+            const typeResult = isTargetedResubmission ? null : await supabaseRequest(
               "/rest/v1/reporter_types?select=id,type_code&is_active=eq.true&order=type_code.asc&limit=500",
               { token: session.token }
             );
-            if (!typeResult.response.ok) {
+            if (typeResult && !typeResult.response.ok) {
               sendJson(response, typeResult.response.status, {
                 error: apiErrorMessage(typeResult.payload, "Reporter type defaults could not be loaded.")
               });
               return;
             }
-            const defaultType = (typeResult.payload || []).find((type) => type.type_code === "01")
-              || typeResult.payload?.[0];
+            const defaultType = isTargetedResubmission
+              ? { id: currentApplication.reporter_type_id }
+              : (typeResult.payload || []).find((type) => type.type_code === "01")
+                || typeResult.payload?.[0];
             if (!defaultType) {
               sendJson(response, 409, { error: "No active reporter type is configured." });
               return;
@@ -3548,6 +3650,13 @@ const server = http.createServer((request, response) => {
               sendJson(response, locationCheck.response.status, {
                 error: apiErrorMessage(locationCheck.payload, "Choose an active District within the selected Region and State.")
               });
+              return;
+            }
+            if (isTargetedResubmission) {
+              const result = await submitTargetedResubmission();
+              sendJson(response, result.response.status, result.response.ok
+                ? { success: true }
+                : { error: apiErrorMessage(result.payload, "Requested reporter application updates could not be submitted.") });
               return;
             }
             let generatedDocument = null;

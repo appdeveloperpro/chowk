@@ -285,6 +285,30 @@
   line-height: 1.6;
 }
 
+.reporter-review-requested {
+  padding: 8px;
+  border: 1px solid #efc084;
+  border-radius: 7px;
+  background: #fffaf0;
+}
+
+.reporter-review-request-inline {
+  color: #9a4d22;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.reporter-review-request-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  color: #67574d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .reporter-application-review[hidden] {
   display: none;
 }

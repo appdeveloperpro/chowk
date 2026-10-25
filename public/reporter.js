@@ -433,6 +433,9 @@ function renderApplicationForm(action, existing = null) {
 
   const form = element("form", "reporter-form-grid");
   const applicationFiles = new Map();
+  (existing?.documents || []).forEach((document) => {
+    applicationFiles.set(document.document_type, document);
+  });
   let cropper = null;
   let activeStep = 0;
   const steps = [];
@@ -463,6 +466,23 @@ function renderApplicationForm(action, existing = null) {
     progress.append(indicator);
     return step;
   };
+  const requestedFields = new Map((existing?.review_requests || []).map((item) => [item.field, item]));
+  const highlightRequestedField = (fieldName, control) => {
+    const request = requestedFields.get(fieldName);
+    if (!request || !control) return;
+    const field = control.matches(".reporter-preferred-locations")
+      ? control
+      : control.closest(".reporter-field") || control.closest("label") || control.parentElement;
+    if (!field) return;
+    if ("required" in control && request.kind !== "other") control.required = true;
+    field.classList.add("reporter-review-requested");
+    const instruction = element(
+      "small",
+      "reporter-review-request-inline",
+      `${request.kind === "reupload" ? "Reupload requested" : request.kind === "other" ? "Action requested" : "Correction requested"}: ${request.instruction}`
+    );
+    field.append(instruction);
+  };
 
   if (!acceptingUpdatedAgreement) {
     const profileStep = addStep("Your profile", "We use your verified account name, email and phone. Add the details needed to contact you safely.");
@@ -473,27 +493,43 @@ function renderApplicationForm(action, existing = null) {
       dataItem("Account phone", identity.phone || "Update your account profile if this is missing.")
     );
     profileStep.append(accountSummary);
-    addField(profileStep, "Emergency contact full name", "emergency_contact_name", "text", existing?.private_details?.emergency_contact_name, { minLength: 2, maxLength: 120, autocomplete: "name" });
-    addField(profileStep, "Relationship to you", "emergency_contact_relationship", "text", existing?.private_details?.emergency_contact_relationship, { minLength: 2, maxLength: 80 });
+    const mobileNumber = addField(profileStep, "Mobile number", "mobile_number", "tel", existing?.private_details?.mobile_number || identity.phone, { minLength: 7, maxLength: 16, autocomplete: "tel" });
+    mobileNumber.pattern = "\\+?[0-9]{7,15}";
+    highlightRequestedField("mobile_number", mobileNumber);
+    const dateOfBirth = addField(profileStep, "Date of birth", "date_of_birth", "date", existing?.private_details?.date_of_birth || "", { max: new Date().toISOString().slice(0, 10), autocomplete: "bday" });
+    highlightRequestedField("date_of_birth", dateOfBirth);
+    const emergencyName = addField(profileStep, "Emergency contact full name", "emergency_contact_name", "text", existing?.private_details?.emergency_contact_name, { minLength: 2, maxLength: 120, autocomplete: "name" });
+    highlightRequestedField("emergency_contact_name", emergencyName);
+    const emergencyRelationship = addField(profileStep, "Relationship to you", "emergency_contact_relationship", "text", existing?.private_details?.emergency_contact_relationship, { minLength: 2, maxLength: 80 });
+    highlightRequestedField("emergency_contact_relationship", emergencyRelationship);
     const emergencyPhone = addField(profileStep, "Emergency contact phone", "emergency_contact_phone", "tel", existing?.private_details?.emergency_contact_phone, { minLength: 7, maxLength: 30, autocomplete: "tel" });
     emergencyPhone.pattern = "[+0-9]{7,15}";
+    highlightRequestedField("emergency_contact_phone", emergencyPhone);
     addSelectField(profileStep, "Blood group (optional to disclose)", "blood_group", [
       ...["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((value) => ({ id: value, label: value })),
       { id: "Prefer not to say", label: "Prefer not to say" }
     ], existing?.private_details?.blood_group || "Prefer not to say", "Choose blood group");
-    addField(profileStep, "Preferred reporting language (optional)", "preferred_language", "text", existing?.private_details?.preferred_language, { required: false, maxLength: 80 });
-    addField(profileStep, "Reporting experience in years (optional)", "experience_years", "number", existing?.private_details?.experience_years, { required: false, min: 0, max: 80, step: 0.5 });
+    highlightRequestedField("blood_group", profileStep.querySelector('[name="blood_group"]'));
+    const preferredLanguage = addField(profileStep, "Preferred reporting language (optional)", "preferred_language", "text", existing?.private_details?.preferred_language, { required: false, maxLength: 80 });
+    highlightRequestedField("preferred_language", preferredLanguage);
+    const experienceYears = addField(profileStep, "Reporting experience in years (optional)", "experience_years", "number", existing?.private_details?.experience_years, { required: false, min: 0, max: 80, step: 0.5 });
+    highlightRequestedField("experience_years", experienceYears);
     addTextareaField(profileStep, "Journalism / community reporting experience (optional)", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
-    addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
+    highlightRequestedField("experience_summary", profileStep.querySelector('[name="experience_summary"]'));
+    const availability = addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
+    highlightRequestedField("availability", availability);
 
     const areaStep = addStep("Reporting location", "Choose an active State and District. Region and reporter type are assigned automatically; the District RTO code is used when your reporter ID is issued after approval.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
     const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
+    highlightRequestedField("state_id", stateSelect);
     const existingRto = (options.rtos || []).find((rto) => String(rto.id) === String(existing?.rto?.id || ""));
     const rtoSelect = addSelectField(areaStep, "District", "rto_office_id", [], existing?.rto?.id || "", "Choose a state first");
+    highlightRequestedField("rto_office_id", rtoSelect);
     rtoSelect.disabled = true;
     const existingCoverageAreaId = existing?.private_details?.coverage_area_id || "";
     const coverageAreaSelect = addSelectField(areaStep, "Coverage Area", "coverage_area_id", [], existingCoverageAreaId, "Choose a District first");
+    highlightRequestedField("coverage_area_id", coverageAreaSelect);
     coverageAreaSelect.disabled = true;
     const preferredLocations = element("div", "reporter-preferred-locations reporter-field-full");
     preferredLocations.append(
@@ -502,6 +538,7 @@ function renderApplicationForm(action, existing = null) {
     );
     const preferredLocationFields = element("div", "reporter-preferred-location-fields");
     preferredLocations.append(preferredLocationFields);
+    highlightRequestedField("coverage_localities", preferredLocations);
     const validatePreferredLocations = () => {
       const fields = [...preferredLocationFields.querySelectorAll("input")];
       const totalLength = fields.map((field) => field.value.trim()).filter(Boolean).join("\n").length;
@@ -518,6 +555,7 @@ function renderApplicationForm(action, existing = null) {
       input.value = value;
       input.placeholder = "Enter a preferred location";
       input.setAttribute("aria-label", "Preferred location");
+      input.required = ["correction", "reupload"].includes(requestedFields.get("coverage_localities")?.kind);
       input.addEventListener("input", validatePreferredLocations);
       const remove = element("button", "reporter-button secondary reporter-preferred-location-remove", "Remove");
       remove.type = "button";
@@ -602,6 +640,9 @@ function renderApplicationForm(action, existing = null) {
     documentsStep.append(privacyNote);
     const photoGroup = element("div", "reporter-field-full");
     cropper = createReporterPhotoCropper(photoGroup);
+    cropper.input.required = !applicationFiles.has("profile_photo")
+      || requestedFields.get("profile_photo")?.kind === "reupload";
+    highlightRequestedField("profile_photo", cropper.input);
     documentsStep.append(photoGroup);
     const addDocumentInput = (type, labelText, helpText) => {
       const label = element("label", "reporter-field reporter-field-full");
@@ -609,9 +650,8 @@ function renderApplicationForm(action, existing = null) {
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf";
-      input.required = true;
+      input.required = !applicationFiles.has(type) || requestedFields.get(type)?.kind === "reupload";
       input.addEventListener("change", () => {
-        applicationFiles.delete(type);
         const file = input.files?.[0];
         if (!file) return;
         if (file.size > 5 * 1024 * 1024
@@ -625,6 +665,7 @@ function renderApplicationForm(action, existing = null) {
         applicationFiles.set(type, file);
       });
       label.append(input, element("small", "reporter-field-help", helpText));
+      highlightRequestedField(type, input);
       documentsStep.append(label);
     };
     addDocumentInput("aadhaar_front", "Masked Aadhaar front", "Upload the front side with only the last four Aadhaar digits visible · JPG, PNG or PDF · maximum 5 MB");
@@ -649,12 +690,15 @@ function renderApplicationForm(action, existing = null) {
     );
     documentsStep.append(privacyConsent);
     addDocumentInput("pan_card", "PAN card", "JPG, PNG or PDF · maximum 5 MB");
-    addField(documentsStep, "Bank account holder name", "bank_account_holder", "text", identity.full_name || identity.name, { minLength: 2, maxLength: 120, autocomplete: "name" });
-    addField(documentsStep, "Bank name", "bank_name", "text", "", { minLength: 2, maxLength: 160, autocomplete: "organization" });
-    const accountNumber = addField(documentsStep, "Bank account number", "bank_account_number", "text", "", { minLength: 6, maxLength: 24, autocomplete: "off" });
+    const bankAccountHolder = addField(documentsStep, "Bank account holder name", "bank_account_holder", "text", existing?.private_details?.bank_account_holder || identity.full_name || identity.name, { minLength: 2, maxLength: 120, autocomplete: "name" });
+    highlightRequestedField("bank_account_holder", bankAccountHolder);
+    const bankName = addField(documentsStep, "Bank name", "bank_name", "text", existing?.private_details?.bank_name || "", { minLength: 2, maxLength: 160, autocomplete: "organization" });
+    highlightRequestedField("bank_name", bankName);
+    const accountNumber = addField(documentsStep, "Bank account number", "bank_account_number", "text", existing?.private_details?.bank_account_number || "", { minLength: 6, maxLength: 24, autocomplete: "off" });
+    highlightRequestedField("bank_account_number", accountNumber);
     accountNumber.inputMode = "numeric";
     accountNumber.pattern = "[0-9 ]{6,29}";
-    const accountNumberConfirm = addField(documentsStep, "Confirm bank account number", "bank_account_number_confirm", "text", "", { minLength: 6, maxLength: 24, autocomplete: "off" });
+    const accountNumberConfirm = addField(documentsStep, "Confirm bank account number", "bank_account_number_confirm", "text", existing?.private_details?.bank_account_number || "", { minLength: 6, maxLength: 24, autocomplete: "off" });
     accountNumberConfirm.inputMode = "numeric";
     accountNumberConfirm.pattern = "[0-9 ]{6,29}";
     const validateAccountNumber = () => {
@@ -664,7 +708,9 @@ function renderApplicationForm(action, existing = null) {
     accountNumber.addEventListener("input", validateAccountNumber);
     accountNumberConfirm.addEventListener("input", validateAccountNumber);
     const ifsc = addField(documentsStep, "IFSC code", "bank_ifsc", "text", "", { minLength: 11, maxLength: 11, autocomplete: "off" });
+    ifsc.value = existing?.private_details?.bank_ifsc || "";
     ifsc.pattern = "[A-Za-z]{4}0[A-Za-z0-9]{6}";
+    highlightRequestedField("bank_ifsc", ifsc);
     ifsc.addEventListener("input", () => { ifsc.value = ifsc.value.toUpperCase(); });
     addDocumentInput("bank_proof", "Cancelled cheque / bank proof", "Upload a cancelled cheque or bank passbook first page showing the account holder, account number and IFSC · JPG, PNG or PDF · maximum 5 MB");
 
@@ -788,6 +834,7 @@ function renderApplicationForm(action, existing = null) {
     submit.textContent = "Submitting…";
     const values = new FormData(form);
     const uploadedDocuments = [];
+    const newlyUploadedDocuments = [];
     try {
       if (acceptingUpdatedAgreement) {
         const payload = {
@@ -798,17 +845,24 @@ function renderApplicationForm(action, existing = null) {
         };
         await request("/api/reporter/agreement/accept", "POST", payload);
       } else {
-        const photo = await cropper.file();
-        applicationFiles.set("profile_photo", photo);
+        if (cropper.input.files?.length) {
+          applicationFiles.set("profile_photo", await cropper.file());
+        }
         for (const documentType of ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]) {
           const file = applicationFiles.get(documentType);
           if (!file) throw new Error(`Upload the required ${documentType.replaceAll("_", " ")} document.`);
-          showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
-          uploadedDocuments.push((await request("/api/reporter/application-documents", "POST", {
-            document_type: documentType,
-            mime_type: file.type,
-            file_base64: await readFileAsBase64(file)
-          })).data);
+          if (file instanceof File) {
+            showMessage(`Uploading ${documentType.replaceAll("_", " ")}…`);
+            const uploaded = (await request("/api/reporter/application-documents", "POST", {
+              document_type: documentType,
+              mime_type: file.type,
+              file_base64: await readFileAsBase64(file)
+            })).data;
+            uploadedDocuments.push(uploaded);
+            newlyUploadedDocuments.push(uploaded);
+          } else {
+            uploadedDocuments.push(file);
+          }
         }
         const payload = {
           details_confirmed: values.get("details_confirmed") === "on",
@@ -823,6 +877,8 @@ function renderApplicationForm(action, existing = null) {
         payload.rto_office_id = values.get("rto_office_id");
         payload.private_details = {
           emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),
+          mobile_number: String(values.get("mobile_number") || "").trim(),
+          date_of_birth: String(values.get("date_of_birth") || ""),
           emergency_contact_relationship: String(values.get("emergency_contact_relationship") || "").trim(),
           emergency_contact_phone: String(values.get("emergency_contact_phone") || "").trim(),
           blood_group: String(values.get("blood_group") || "Prefer not to say"),
@@ -844,12 +900,23 @@ function renderApplicationForm(action, existing = null) {
         };
         payload.application_documents = uploadedDocuments;
         await request("/api/reporter/applications", "POST", payload);
+        for (const oldDocument of existing?.documents || []) {
+          const replacement = uploadedDocuments.find((item) => item.document_type === oldDocument.document_type);
+          if (!replacement || replacement.storage_path === oldDocument.storage_path) continue;
+          try {
+            await request("/api/reporter/application-documents", "DELETE", {
+              storage_path: oldDocument.storage_path
+            });
+          } catch (cleanupError) {
+            console.error("Could not remove a replaced reporter document:", cleanupError.message);
+          }
+        }
       }
       showMessage(acceptingUpdatedAgreement ? "Your updated agreement acceptance was recorded." : "Your reporter application was submitted.", true);
       cropper?.dispose();
       await loadReporterDesk();
     } catch (error) {
-      for (const document of uploadedDocuments) {
+      for (const document of newlyUploadedDocuments) {
         try {
           await request("/api/reporter/application-documents", "DELETE", {
             storage_path: document.storage_path
@@ -1087,6 +1154,43 @@ function renderStatus() {
           ? "Decision reason"
           : "Review note"));
       statusPanel.append(element("p", "reporter-card-copy", application.review_note));
+    }
+    if (application.status === "needs_information" && application.review_requests?.length) {
+      const requestList = element("ul", "reporter-review-request-list");
+      const fieldLabels = {
+        state_id: "State",
+        rto_office_id: "District",
+        mobile_number: "Mobile number",
+        date_of_birth: "Date of birth",
+        emergency_contact_name: "Emergency contact",
+        emergency_contact_relationship: "Emergency relationship",
+        emergency_contact_phone: "Emergency phone",
+        blood_group: "Blood group",
+        coverage_area_id: "Coverage Area",
+        coverage_localities: "Preferred locations",
+        preferred_language: "Preferred language",
+        experience_years: "Reporting experience",
+        experience_summary: "Experience summary",
+        availability: "Availability",
+        bank_account_holder: "Bank account holder",
+        bank_name: "Bank name",
+        bank_account_number: "Bank account number",
+        bank_ifsc: "IFSC",
+        profile_photo: "Profile photo",
+        aadhaar_front: "Aadhaar front",
+        aadhaar_back: "Aadhaar back",
+        pan_card: "PAN card",
+        bank_proof: "Bank proof"
+      };
+      application.review_requests.forEach((request) => {
+        const label = fieldLabels[request.field] || request.field.replaceAll("_", " ");
+        requestList.append(element(
+          "li",
+          "",
+          `${request.kind === "reupload" ? "Reupload" : request.kind === "other" ? "Other action" : "Correction"} · ${label}: ${request.instruction}`
+        ));
+      });
+      statusPanel.append(element("h3", "", "Requested field updates"), requestList);
     }
     if (application.status === "approved") {
       statusPanel.append(element("p", "reporter-next-step", "Approved does not mean field-authorized yet. Accept the service agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."));

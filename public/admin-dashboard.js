@@ -2309,6 +2309,8 @@ async function openReporterPrivateDetailsDialog(application) {
     );
     const detailsGrid = makeElement("div", "admin-application-private-grid");
     [
+      ["Mobile number", details.mobile_number],
+      ["Date of birth", details.date_of_birth],
       ["Emergency contact", details.emergency_contact_name],
       ["Relationship", details.emergency_contact_relationship],
       ["Emergency phone", details.emergency_contact_phone],
@@ -2392,91 +2394,210 @@ async function openReporterPrivateDetailsDialog(application) {
   }
 }
 
-function openReporterReviewDialog(application, refresh) {
-  openFormDialog(
-    "Review reporter application",
-    "Choose a clear next step for this application. Approval creates a reporter ID and assignment; credentials and access remain subject to the approved engagement terms and authority-letter process.",
-    (form) => {
-      const decisionLabel = makeElement("label", "admin-form-field");
-      decisionLabel.append(makeElement("span", "", "Decision"));
-      const decision = document.createElement("select");
-      decision.name = "decision";
-      [["needs_information", "Request more information"], ["approve", "Approve"], ["reject", "Reject"]].forEach(([value, text]) => {
-        const option = makeElement("option", "", text);
-        option.value = value;
-        decision.append(option);
-      });
-      decisionLabel.append(decision);
-      form.append(decisionLabel);
-      addField(form, "Review note", "note", "text", "", { required: false, maxLength: 1000 });
-      addField(form, "Company signer name", "signer_name", "text", "", { required: false, maxLength: 120 });
-      addField(form, "Signer designation", "signer_designation", "text", "", { required: false, maxLength: 120 });
-      const acceptLabel = makeElement("label", "admin-form-checkbox");
-      const signature = document.createElement("input");
-      signature.type = "checkbox";
-      signature.name = "signature_accepted";
-      acceptLabel.append(signature, makeElement("span", "", "I confirm I am authorized to approve this application. This is an attestation, not a digital signature."));
-      form.append(acceptLabel);
-      const updateRequirements = () => {
-        const approval = decision.value === "approve";
-        form.elements.note.required = !approval;
-        form.elements.signer_name.required = approval;
-        form.elements.signer_designation.required = approval;
-        signature.required = approval;
-        form.elements.note.placeholder = decision.value === "needs_information"
-          ? "Tell the applicant exactly what to update or provide"
-          : decision.value === "reject"
-            ? "Explain the reason for rejection"
-            : "Optional applicant-facing note";
-      };
-      decision.addEventListener("change", updateRequirements);
-      updateRequirements();
-      const details = makeElement("section", "admin-application-review-details");
-      const user = application.user || {};
-      [
-        ["Application", `#${application.id} · ${application.status}`],
-        ["Applicant", user.full_name || "—"],
-        ["Email / phone", [user.email, user.phone].filter(Boolean).join(" · ") || "—"],
-        ["Requested State / City / Area Coverage", [
-          application.state?.state_name,
-          application.rto?.city_name && application.rto?.rto_code
+async function openReporterReviewDialog(application, refresh) {
+  try {
+    const result = await apiRequest(`admin/reporter-applications/${application.id}/private-details`);
+    const privateData = result.data || {};
+    const details = privateData.details || {};
+    const documents = Array.isArray(privateData.documents) ? privateData.documents : [];
+    const requestControls = [];
+    openFormDialog(
+      "Review reporter application",
+      "Review the applicant's details and documents together. Sensitive identity and bank documents are restricted to authorized admins; previews expire shortly. Request field-specific corrections or reuploads when needed.",
+      (form) => {
+        const decisionLabel = makeElement("label", "admin-form-field");
+        decisionLabel.append(makeElement("span", "", "Decision"));
+        const decision = document.createElement("select");
+        decision.name = "decision";
+        [["needs_information", "Request more information"], ["approve", "Approve"], ["reject", "Reject"]].forEach(([value, text]) => {
+          decision.append(new Option(text, value));
+        });
+        decisionLabel.append(decision);
+        form.append(decisionLabel);
+        addField(form, "Review note", "note", "text", "", { required: false, maxLength: 1000 });
+
+        const reviewerName = sessionIdentity?.full_name || sessionIdentity?.name || "Reviewer profile name missing";
+        const reviewerDesignation = sessionIdentity?.role === "super_admin" ? "Super Administrator" : "Administrator";
+        form.append(makeElement("p", "admin-dialog-help", `Approval signer (from your account): ${reviewerName} · ${reviewerDesignation}`));
+        const acceptLabel = makeElement("label", "admin-form-checkbox");
+        const signature = document.createElement("input");
+        signature.type = "checkbox";
+        signature.name = "signature_accepted";
+        acceptLabel.append(signature, makeElement("span", "", "I confirm I am authorized to approve this application. This is an attestation, not a digital signature."));
+        form.append(acceptLabel);
+
+        const reviewDetails = makeElement("section", "admin-application-review-details");
+        const user = application.user || {};
+        [
+          ["Application", `#${application.id} · ${application.status}`],
+          ["Applicant", user.full_name || "—"],
+          ["Email / account phone", [user.email, user.phone].filter(Boolean).join(" · ") || "—"],
+          ["Reporter type", application.reporter_type?.name || "—"],
+          ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"],
+          ["Application agreement", application.agreement_accepted
+            ? `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`
+            : "No published application agreement was accepted at submission"],
+          ["Applicant acceptance", `${application.agreement_signer_name || "—"} · ${formatDate(application.agreement_accepted_at)}`],
+          ["Acceptance statement", application.agreement_acceptance_statement || "—"]
+        ].forEach(([label, value]) => {
+          reviewDetails.append(makeElement("strong", "", label), makeElement("span", "", value));
+        });
+        (application.acceptances || []).forEach((receipt) => {
+          reviewDetails.append(
+            makeElement("strong", "", `Accepted v${receipt.agreement_version}`),
+            makeElement("span", "", `${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · ${receipt.acceptance_statement}`)
+          );
+        });
+        if (application.agreement_document_url) {
+          const agreementLink = makeElement("a", "", "Open accepted agreement document");
+          agreementLink.href = application.agreement_document_url;
+          agreementLink.target = "_blank";
+          agreementLink.rel = "noopener noreferrer";
+          reviewDetails.append(agreementLink);
+        }
+
+        reviewDetails.append(makeElement("h3", "", "Applicant details"));
+        const fieldGrid = makeElement("div", "admin-application-review-fields");
+        const fieldRows = [
+          ["state_id", "State", application.state?.state_name],
+          ["rto_office_id", "District", application.rto?.city_name && application.rto?.rto_code
             ? `${application.rto.city_name} (${application.rto.rto_code})`
-            : application.rto?.city_name || application.rto?.rto_code,
-          application.reporter_type?.name
-        ].filter(Boolean).join(" · ") || "—"],
-        ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"],
-        ["Application agreement", application.agreement_accepted
-          ? `${application.agreement_version || "—"} · SHA-256 ${application.agreement_sha256 || "—"}`
-          : "No published application agreement was accepted at submission"],
-        ["Applicant acceptance", `${application.agreement_signer_name || "—"} · ${formatDate(application.agreement_accepted_at)}`],
-        ["Acceptance statement", application.agreement_acceptance_statement || "—"]
-      ].forEach(([label, value]) => {
-        details.append(makeElement("strong", "", label), makeElement("span", "", value));
-      });
-      (application.acceptances || []).forEach((receipt) => {
-        details.append(
-          makeElement("strong", "", `Accepted v${receipt.agreement_version}`),
-          makeElement("span", "", `${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · ${receipt.acceptance_statement}`)
-        );
-      });
-      if (application.agreement_document_url) {
-        const link = makeElement("a", "", "Open accepted agreement document");
-        link.href = application.agreement_document_url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        details.append(link);
-      }
-      form.prepend(details);
-      form.prepend(makeElement("p", "admin-dialog-help", `User ID: ${application.user_id}`));
-    },
-    async (formData) => {
-      const payload = Object.fromEntries(formData.entries());
-      payload.signature_accepted = formData.has("signature_accepted");
-      await apiRequest(`admin/reporter-applications/${application.id}/review`, "POST", payload);
-      await refresh();
-    },
-    "Save decision"
-  );
+            : application.rto?.city_name || application.rto?.rto_code],
+          ["mobile_number", "Mobile number", details.mobile_number],
+          ["date_of_birth", "Date of birth", details.date_of_birth],
+          ["emergency_contact_name", "Emergency contact", details.emergency_contact_name],
+          ["emergency_contact_relationship", "Emergency relationship", details.emergency_contact_relationship],
+          ["emergency_contact_phone", "Emergency phone", details.emergency_contact_phone],
+          ["blood_group", "Blood group", details.blood_group],
+          ["coverage_area_id", "Selected Coverage Area", details.coverage_area?.name],
+          ["coverage_localities", "Preferred locations", String(details.coverage_localities || "").replace(/\r?\n/g, ", ")],
+          ["preferred_language", "Preferred language", details.preferred_language],
+          ["experience_years", "Reporting experience", details.experience_years == null ? "—" : `${details.experience_years} years`],
+          ["experience_summary", "Experience summary", details.experience_summary],
+          ["availability", "Availability", details.availability],
+          ["bank_account_holder", "Bank account holder", details.bank_account_holder],
+          ["bank_name", "Bank name", details.bank_name],
+          ["bank_account_number", "Bank account number", details.bank_account_number],
+          ["bank_ifsc", "IFSC", details.bank_ifsc]
+        ];
+        fieldRows.forEach(([field, label, value]) => {
+          const row = makeElement("div", "admin-application-review-field");
+          row.append(makeElement("strong", "", label), makeElement("span", "", value || "—"));
+          addReviewRequestControl(row, field, label, ["correction", "other"], requestControls);
+          fieldGrid.append(row);
+        });
+        const consentRows = makeElement("div", "admin-application-review-fields");
+        [
+          ["Masked Aadhaar confirmed", details.masked_aadhaar_confirmed ? "Yes" : "No"],
+          ["Document privacy consent", details.document_processing_consent ? "Recorded" : "Not recorded"]
+        ].forEach(([label, value]) => {
+          const row = makeElement("div", "admin-application-review-field");
+          row.append(makeElement("strong", "", label), makeElement("span", "", value));
+          consentRows.append(row);
+        });
+        reviewDetails.append(fieldGrid, consentRows, makeElement("h3", "", "Submitted documents"));
+        const documentList = makeElement("div", "admin-application-private-documents");
+        const documentLabels = {
+          profile_photo: "Profile photo",
+          aadhaar_front: "Masked Aadhaar front",
+          aadhaar_back: "Masked Aadhaar back",
+          pan_card: "PAN card",
+          bank_proof: "Bank proof"
+        };
+        documents.forEach((document) => {
+          const row = makeElement("div", "admin-application-private-document");
+          const label = documentLabels[document.document_type] || document.document_type;
+          row.append(makeElement("span", "", label));
+          const preview = makeElement("a", "", "Open document");
+          preview.href = document.preview_url;
+          preview.target = "_blank";
+          preview.rel = "noopener noreferrer";
+          row.append(preview, makeElement("small", "", `SHA-256 ${document.sha256}`));
+          const documentPreview = makeElement("div", "admin-review-document-preview");
+          if (document.mime_type?.startsWith("image/")) {
+            const image = document.createElement("img");
+            image.src = document.preview_url;
+            image.alt = `${label} preview`;
+            image.loading = "lazy";
+            documentPreview.append(image);
+          } else if (document.mime_type === "application/pdf") {
+            const frame = document.createElement("iframe");
+            frame.src = document.preview_url;
+            frame.title = `${label} preview`;
+            frame.loading = "lazy";
+            documentPreview.append(frame);
+          }
+          if (documentPreview.childElementCount) row.append(documentPreview);
+          addReviewRequestControl(row, document.document_type, label, ["reupload", "other"], requestControls);
+          documentList.append(row);
+        });
+        reviewDetails.append(documentList);
+        reviewDetails.append(makeElement("p", "admin-dialog-help", `User ID: ${application.user_id}`));
+        form.prepend(reviewDetails);
+
+        const updateRequirements = () => {
+          const approval = decision.value === "approve";
+          const requestEnabled = decision.value === "needs_information";
+          form.elements.note.required = !approval;
+          signature.required = approval;
+          form.elements.note.placeholder = requestEnabled
+            ? "Summarize the updates the applicant must make"
+            : decision.value === "reject"
+              ? "Explain the reason for rejection"
+              : "Optional applicant-facing note";
+          requestControls.forEach(({ checkbox, editor }) => {
+            checkbox.disabled = !requestEnabled;
+            editor.hidden = !requestEnabled || !checkbox.checked;
+            if (!requestEnabled) checkbox.checked = false;
+          });
+        };
+        decision.addEventListener("change", updateRequirements);
+        updateRequirements();
+      },
+      async (formData) => {
+        const payload = Object.fromEntries(formData.entries());
+        payload.signature_accepted = formData.has("signature_accepted");
+        payload.review_requests = requestControls
+          .filter(({ checkbox }) => checkbox.checked)
+          .map(({ field, kind, instruction }) => ({
+            field,
+            kind: kind.value,
+            instruction: instruction.value.trim()
+          }));
+        if (payload.review_requests.some((request) => request.instruction.length < 2)) {
+          throw new Error("Add a clear instruction to every requested field.");
+        }
+        await apiRequest(`admin/reporter-applications/${application.id}/review`, "POST", payload);
+        await refresh();
+      },
+      "Save decision"
+    );
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+function addReviewRequestControl(container, field, label, actionKinds, requestControls) {
+  const controls = makeElement("div", "admin-review-request-controls");
+  const toggleLabel = makeElement("label", "admin-form-checkbox");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.disabled = true;
+  toggleLabel.append(checkbox, makeElement("span", "", `Request update for ${label}`));
+  const editor = makeElement("div", "admin-review-request-editor");
+  editor.hidden = true;
+  const kind = document.createElement("select");
+  actionKinds.forEach((value) => {
+    kind.append(new Option(value === "other" ? "Other action" : value[0].toUpperCase() + value.slice(1), value));
+  });
+  const instruction = document.createElement("textarea");
+  instruction.maxLength = 500;
+  instruction.placeholder = "Explain exactly what needs to be corrected or reuploaded";
+  editor.append(kind, instruction);
+  checkbox.addEventListener("change", () => { editor.hidden = !checkbox.checked; });
+  controls.append(toggleLabel, editor);
+  container.append(controls);
+  requestControls.push({ field, checkbox, editor, kind, instruction });
 }
 
 function openCredentialRevokeDialog(id, refresh) {

@@ -945,7 +945,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
+        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -2030,7 +2030,7 @@ async function adminRoute(request, response, requestUrl, session) {
       const applicationId = applicationPrivateDetails[1];
       const [details, documents] = await Promise.all([
         supabaseRequest(
-          `/rest/v1/reporter_application_private_details?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name),experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${applicationId}&limit=1`,
+          `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name),experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${applicationId}&limit=1`,
           { token }
         ),
         supabaseRequest(
@@ -2064,20 +2064,73 @@ async function adminRoute(request, response, requestUrl, session) {
         : body.decision === "reject" ? "rejected"
           : body.decision === "needs_information" ? "needs_information"
             : "";
+      const targetApplication = Number(applicationReview[1]);
       if (!decision) {
-        sendJson(response, 400, { error: "Choose approve or reject." });
+        sendJson(response, 400, { error: "Choose a valid review decision." });
+        return;
+      }
+      if (!Number.isSafeInteger(targetApplication) || targetApplication < 1) {
+        sendJson(response, 400, { error: "The reporter application reference is invalid." });
+        return;
+      }
+      const reviewRequests = body.review_requests === undefined ? [] : body.review_requests;
+      if (!Array.isArray(reviewRequests)) {
+        sendJson(response, 400, { error: "Field requests must be provided as a list." });
+        return;
+      }
+      if (reviewRequests.length > 40) {
+        sendJson(response, 400, { error: "A review may contain no more than 40 field requests." });
+        return;
+      }
+      const reviewerName = String(session.identity.full_name || session.identity.name || "").trim();
+      const reviewerDesignation = session.identity.role === "super_admin"
+        ? "Super Administrator"
+        : "Administrator";
+      const reviewableFields = new Set([
+        "state_id", "rto_office_id",
+        "mobile_number", "date_of_birth", "emergency_contact_name",
+        "emergency_contact_relationship", "emergency_contact_phone", "blood_group",
+        "preferred_language", "coverage_area_id", "coverage_localities",
+        "experience_years", "experience_summary", "availability",
+        "bank_account_holder", "bank_name", "bank_account_number", "bank_ifsc",
+        "profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"
+      ]);
+      const documentFields = new Set(["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"]);
+      const requestedFieldNames = new Set();
+      const invalidRequest = reviewRequests.some((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)
+            || !reviewableFields.has(item.field)
+            || !["correction", "reupload", "other"].includes(item.kind)
+            || typeof item.instruction !== "string"
+            || item.instruction.trim().length < 2
+            || item.instruction.trim().length > 500
+            || (item.kind === "reupload" && !documentFields.has(item.field))
+            || (item.kind === "correction" && documentFields.has(item.field))
+            || requestedFieldNames.has(item.field)) {
+          return true;
+        }
+        requestedFieldNames.add(item.field);
+        return false;
+      });
+      if (invalidRequest) {
+        sendJson(response, 400, { error: "Each field request needs a unique supported field, action and 2-500 character instruction." });
+        return;
+      }
+      if (reviewRequests.length && decision !== "needs_information") {
+        sendJson(response, 400, { error: "Field requests can only be sent with a request-for-information decision." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_review_reporter_application", {
         method: "POST",
         token,
         body: {
-          target_application: Number(applicationReview[1]),
+          target_application: targetApplication,
           decision,
           note: body.note || "",
-          signer_name: body.signer_name || "",
-          signer_designation: body.signer_designation || "",
-          signature_accepted: body.signature_accepted === true
+          signer_name: reviewerName,
+          signer_designation: reviewerDesignation,
+          signature_accepted: body.signature_accepted === true,
+          requested_fields: reviewRequests
         }
       });
       sendJson(response, result.response.status, result.response.ok
@@ -3147,21 +3200,40 @@ const server = http.createServer((request, response) => {
             let data = result.payload;
             const applicationId = data?.application?.id;
             if (applicationId) {
-              const privateDetails = await supabaseRequest(
-                `/rest/v1/reporter_application_private_details?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${encodeURIComponent(applicationId)}&limit=1`,
-                { token: session.token }
-              );
-              if (!privateDetails.response.ok) {
-                sendJson(response, privateDetails.response.status, {
-                  error: apiErrorMessage(privateDetails.payload, "Reporter application details could not be loaded.")
-                });
+              const [privateDetails, documents, reviewRequests] = await Promise.all([
+                supabaseRequest(
+                  `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,masked_aadhaar_confirmed,document_processing_consent,preferred_language,coverage_localities,coverage_area_id,experience_years,experience_summary,availability,bank_account_holder,bank_name,bank_account_number,bank_ifsc&application_id=eq.${encodeURIComponent(applicationId)}&limit=1`,
+                  { token: session.token }
+                ),
+                supabaseRequest(
+                  `/rest/v1/reporter_application_documents?select=document_type,storage_path,mime_type,sha256&application_id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}&order=document_type.asc`,
+                  { token: session.token }
+                ),
+                supabaseRequest(
+                  `/rest/v1/reporter_applications?select=review_requests&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
+                  { token: session.token }
+                )
+              ]);
+              for (const result of [privateDetails, documents, reviewRequests]) {
+                if (!result.response.ok) {
+                  sendJson(response, result.response.status, {
+                    error: apiErrorMessage(result.payload, "Reporter application details could not be loaded.")
+                  });
+                  return;
+                }
+              }
+              if (!Array.isArray(reviewRequests.payload) || !reviewRequests.payload[0]
+                  || !Array.isArray(reviewRequests.payload[0].review_requests)) {
+                sendJson(response, 500, { error: "Reporter review requests could not be loaded." });
                 return;
               }
               data = {
                 ...data,
                 application: {
                   ...data.application,
-                  private_details: privateDetails.payload?.[0] || {}
+                  private_details: privateDetails.payload?.[0] || {},
+                  documents: documents.payload || [],
+                  review_requests: reviewRequests.payload[0].review_requests
                 }
               };
             }
@@ -3259,6 +3331,13 @@ const server = http.createServer((request, response) => {
               return;
             }
             if (!privateDetails || typeof privateDetails !== "object" || Array.isArray(privateDetails)
+                || typeof privateDetails.mobile_number !== "string"
+                || !/^\+?[0-9]{7,15}$/.test(privateDetails.mobile_number)
+                || typeof privateDetails.date_of_birth !== "string"
+                || !/^\d{4}-\d{2}-\d{2}$/.test(privateDetails.date_of_birth)
+                || Number.isNaN(Date.parse(`${privateDetails.date_of_birth}T00:00:00Z`))
+                || new Date(`${privateDetails.date_of_birth}T00:00:00Z`).toISOString().slice(0, 10) !== privateDetails.date_of_birth
+                || privateDetails.date_of_birth > new Date().toISOString().slice(0, 10)
                 || typeof privateDetails.emergency_contact_name !== "string"
                 || privateDetails.emergency_contact_name.trim().length < 2
                 || typeof privateDetails.emergency_contact_relationship !== "string"
@@ -3277,7 +3356,7 @@ const server = http.createServer((request, response) => {
                 || !["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Prefer not to say"].includes(privateDetails.blood_group)
                 || privateDetails.masked_aadhaar_confirmed !== true
                 || privateDetails.document_processing_consent !== true) {
-              sendJson(response, 400, { error: "Check the emergency-contact, bank-account, IFSC and blood-group details." });
+              sendJson(response, 400, { error: "Check the mobile number, date of birth, emergency-contact, bank-account, IFSC and blood-group details." });
               return;
             }
             const requiredDocuments = ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"];

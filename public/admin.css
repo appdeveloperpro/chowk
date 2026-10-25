@@ -240,6 +240,10 @@
   display: none;
 }
 
+.admin-application-review-fields {
+  grid-template-columns: 1fr;
+}
+
 .admin-nav-group {
   display: grid;
   gap: 3px;
@@ -845,6 +849,100 @@
   grid-column: 2;
 }
 
+.admin-application-review-details h3,
+.admin-application-review-fields,
+.admin-application-review-details > .admin-application-private-documents,
+.admin-application-review-details > .admin-dialog-help {
+  grid-column: 1 / -1;
+}
+
+.admin-application-review-details h3 {
+  margin: 12px 0 0;
+  color: #27334a;
+  font-size: 12px;
+}
+
+.admin-application-review-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-application-review-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #e6eaf0;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.admin-application-review-field > strong {
+  color: #667085;
+}
+
+.admin-application-review-field > span {
+  overflow-wrap: anywhere;
+  color: #27334a;
+  font-size: 12px;
+}
+
+.admin-review-request-controls {
+  display: grid;
+  gap: 6px;
+  padding-top: 7px;
+  border-top: 1px solid #edf0f4;
+}
+
+.admin-review-request-controls label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #667085;
+  font-size: 10px;
+}
+
+.admin-review-request-controls input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #da5d24;
+}
+
+.admin-review-request-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-review-request-editor[hidden] {
+  display: none;
+}
+
+.admin-review-request-editor select,
+.admin-review-request-editor textarea {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid #dce1e9;
+  border-radius: 6px;
+  background: #fff;
+  color: #27334a;
+  font: inherit;
+  font-size: 11px;
+}
+
+.admin-review-request-editor textarea {
+  min-height: 65px;
+  resize: vertical;
+}
+
+.admin-review-request-editor select:focus,
+.admin-review-request-editor textarea:focus {
+  border-color: var(--orange);
+  outline: 2px solid rgb(255 105 11 / 16%);
+}
+
 .admin-audit-pagination {
   display: flex;
   align-items: center;
@@ -1038,6 +1136,32 @@
   overflow-wrap: anywhere;
   color: #818a99;
   font-size: 10px;
+}
+
+.admin-review-document-preview {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border: 1px solid #e6eaf0;
+  border-radius: 7px;
+  background: #f6f7f9;
+}
+
+.admin-application-private-document > .admin-review-request-controls {
+  grid-column: 1 / -1;
+}
+
+.admin-review-document-preview img,
+.admin-review-document-preview iframe {
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  border: 0;
+  object-fit: contain;
+}
+
+.admin-review-document-preview iframe {
+  height: 380px;
+  background: #fff;
 }
 
 .admin-settings-panel {

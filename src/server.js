@@ -2108,6 +2108,32 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    const deleteServiceAgreement = pathname.match(/^\/api\/admin\/reporter-service-agreements\/(\d+)$/);
+    if (deleteServiceAgreement && request.method === "DELETE") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_delete_reporter_service_agreement", {
+        method: "POST",
+        token,
+        body: { target_agreement: Number(deleteServiceAgreement[1]) }
+      });
+      if (!result.response.ok) {
+        sendJson(response, result.response.status, {
+          error: apiErrorMessage(result.payload, "Service agreement could not be deleted.")
+        });
+        return;
+      }
+      try {
+        await removeReporterAgreementPdf(result.payload, token);
+        sendJson(response, 200, { success: true });
+      } catch (error) {
+        console.error(`Could not remove the private PDF for deleted service agreement ${deleteServiceAgreement[1]}:`, error.message);
+        sendJson(response, 207, {
+          success: true,
+          cleanup_warning: "The agreement was deleted, but its private PDF could not be removed from storage. Contact support for cleanup."
+        });
+      }
+      return;
+    }
+
     const publishServiceAgreement = pathname.match(/^\/api\/admin\/reporter-service-agreements\/(\d+)\/publish$/);
     if (publishServiceAgreement && request.method === "POST") {
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_publish_reporter_service_agreement", {

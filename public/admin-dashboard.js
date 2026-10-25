@@ -908,7 +908,7 @@ async function openReporterAssignmentDialog(reporter, refresh) {
       "Assign reporter"
     );
   } catch (error) {
-    window.alert(error.message);
+    void showAdminMessage("Template could not be loaded", error.message);
   }
 }
 
@@ -1191,7 +1191,7 @@ async function openReporterServiceAgreementTemplateDialog() {
         preview.addEventListener("click", async () => {
           const previewWindow = window.open("about:blank", "_blank");
           if (!previewWindow) {
-            window.alert("Allow pop-ups to open the generated PDF preview.");
+            void showAdminMessage("Preview unavailable", "Allow pop-ups to open the generated PDF preview.");
             return;
           }
           previewWindow.opener = null;
@@ -1212,7 +1212,7 @@ async function openReporterServiceAgreementTemplateDialog() {
             previewWindow.location.replace(previewUrl);
           } catch (error) {
             previewWindow.close();
-            window.alert(error.message);
+            void showAdminMessage("Preview failed", error.message);
           } finally {
             preview.disabled = false;
           }
@@ -1743,7 +1743,7 @@ function rowButton(container, label, handler, style = "admin-row-button") {
   container.append(button);
 }
 
-function confirmAdminAction(title, message, confirmLabel = "Delete") {
+function confirmAdminAction(title, message, confirmLabel = "Delete", destructive = true) {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "admin-json-dialog admin-confirm-dialog";
@@ -1758,7 +1758,11 @@ function confirmAdminAction(title, message, confirmLabel = "Delete") {
     cancel.type = "button";
     cancel.autofocus = true;
     cancel.addEventListener("click", () => dialog.close("cancel"));
-    const confirm = makeElement("button", "admin-primary-button admin-confirm-danger", confirmLabel);
+    const confirm = makeElement(
+      "button",
+      destructive ? "admin-primary-button admin-confirm-danger" : "admin-primary-button",
+      confirmLabel
+    );
     confirm.type = "button";
     confirm.addEventListener("click", () => dialog.close("confirm"));
     actions.append(cancel, confirm);
@@ -1771,6 +1775,28 @@ function confirmAdminAction(title, message, confirmLabel = "Delete") {
     }, { once: true });
     dialog.showModal();
   });
+}
+
+function showAdminMessage(title, message) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "admin-json-dialog admin-message-dialog";
+  const body = makeElement("section", "admin-json-form admin-confirm-content");
+  body.append(
+    makeElement("span", "admin-eyebrow", "CHOWK ADMIN"),
+    makeElement("h2", "", title),
+    makeElement("p", "admin-dialog-help", message)
+  );
+  const actions = makeElement("div", "admin-dialog-actions");
+  const close = makeElement("button", "admin-primary-button", "Close");
+  close.type = "button";
+  close.autofocus = true;
+  close.addEventListener("click", () => dialog.close());
+  actions.append(close);
+  body.append(actions);
+  dialog.append(body);
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  dialog.showModal();
 }
 
 function recordId(row) {
@@ -2005,9 +2031,15 @@ function addRowActions(container, row, section) {
       rowButton(container, "Publish", () => {
         const replacesPublished = row._published_version;
         const message = `Publish service agreement version ${row.version}? Admins will preview and issue an exact reporter-specific PDF; the reporter must accept that issued copy before credentials can be issued. The current published version will be archived.`;
-        if (window.confirm(replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message)) {
+        void confirmAdminAction(
+          "Publish service agreement?",
+          replacesPublished ? `${message}\n\nCurrent version: ${replacesPublished}` : message,
+          "Publish",
+          false
+        ).then((confirmed) => {
+          if (!confirmed) return;
           void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/publish`, "POST", {}), refresh);
-        }
+        });
       });
     }
     if (row.status === "draft" || row.status === "published") {
@@ -2017,9 +2049,31 @@ function addRowActions(container, row, section) {
         const message = isPublished
           ? `Archive current version ${row.version}? ${effect} Historical acceptance records remain unchanged.`
           : `Archive draft version ${row.version}? The record and document will be retained in history.`;
-        if (window.confirm(message)) {
+        void confirmAdminAction(
+          isPublished ? "Archive published agreement?" : "Archive agreement draft?",
+          message,
+          "Archive",
+          true
+        ).then((confirmed) => {
+          if (!confirmed) return;
           void runAction(() => apiRequest(`admin/reporter-service-agreements/${id}/archive`, "POST", {}), refresh);
-        }
+        });
+      }, "admin-row-button danger");
+    }
+    if (row.status !== "published") {
+      rowButton(container, "Delete", () => {
+        void confirmAdminAction(
+          "Delete service agreement?",
+          `Permanently delete agreement version ${row.version}? This cannot be undone. Versions with reporter acceptance, issuance, application, or credential history cannot be deleted.`,
+          "Delete",
+          true
+        ).then((confirmed) => {
+          if (!confirmed) return;
+          void runAction(
+            () => apiRequest(`admin/reporter-service-agreements/${id}`, "DELETE"),
+            refresh
+          );
+        });
       }, "admin-row-button danger");
     }
     return;
@@ -2874,9 +2928,14 @@ async function runAction(action, reload) {
   try {
     const result = await action();
     await reload();
-    if (result?.cleanup_warning) window.alert(result.cleanup_warning);
+    if (result?.cleanup_warning) {
+      void showAdminMessage("Action completed with a warning", result.cleanup_warning);
+    }
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : "The action could not be completed.");
+    void showAdminMessage(
+      "Action could not be completed",
+      error instanceof Error ? error.message : "The action could not be completed."
+    );
   }
 }
 

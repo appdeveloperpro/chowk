@@ -137,6 +137,7 @@ function createReporterAgreementPdf(template, data, { preview = false, allowedTo
       .fillColor("#e7e7e7")
       .text("ADMIN PREVIEW", 70, 370, { align: "center", width: 450 });
     document.restore();
+    document.y = document.page.margins.top;
   }
 
   const lines = normalizeAgreementLines(rendered);

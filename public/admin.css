@@ -508,6 +508,10 @@
   width: min(460px, calc(100% - 28px));
 }
 
+.admin-message-dialog {
+  width: min(460px, calc(100% - 28px));
+}
+
 .admin-confirm-content h2 {
   font-size: 18px;
 }

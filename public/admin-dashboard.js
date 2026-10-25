@@ -581,7 +581,7 @@ function renderReporterAdminSection(section, root, data) {
       city: application.rto?.city_name && application.rto?.rto_code
         ? `${application.rto.city_name} (${application.rto.rto_code})`
         : application.rto?.city_name || application.rto?.rto_code || "—",
-      area_coverage: application.private_details?.coverage_area?.name || "—",
+      area_coverage: application.coverage_area_name || "—",
       details_confirmed: application.applicant_details_confirmed ? "Confirmed" : "Not recorded"
     }));
     reporterPanel(root, "Reporter applications", rows, section);

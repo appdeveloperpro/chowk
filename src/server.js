@@ -949,7 +949,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),private_details:reporter_application_private_details!reporter_application_private_details_application_id_fkey(coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name)),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
+        select: "id,user_id,reporter_type_id,location_id,state_id,rto_office_id,applicant_details_confirmed,agreement_accepted,agreement_version,agreement_sha256,agreement_document_url,agreement_signer_name,agreement_acceptance_statement,agreement_accepted_at,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(name,type_code),acceptances:reporter_agreement_acceptances(agreement_version,agreement_sha256,signer_name,acceptance_statement,accepted_at)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -1884,6 +1884,51 @@ async function adminRoute(request, response, requestUrl, session) {
       if (collection.table === "article_reports") query.set("status", "eq.open");
       if (collection.table === "comments") query.set("is_approved", "eq.false");
       const result = await supabaseRequest(`/rest/v1/${collection.table}?${query}`, { token });
+      if (result.response.ok && collection.table === "reporter_applications") {
+        const applications = Array.isArray(result.payload) ? result.payload : [];
+        const applicationIds = applications
+          .map((application) => Number(application.id))
+          .filter((id) => Number.isSafeInteger(id) && id > 0);
+        if (applicationIds.length) {
+          const privateDetails = await supabaseRequest(
+            `/rest/v1/reporter_application_private_details?select=application_id,coverage_area_id&application_id=in.(${applicationIds.join(",")})`,
+            { token }
+          );
+          if (!privateDetails.response.ok) {
+            sendJson(response, privateDetails.response.status, {
+              error: apiErrorMessage(privateDetails.payload, "Reporter application coverage areas could not be loaded.")
+            });
+            return;
+          }
+          const coverageAreaIds = [...new Set((privateDetails.payload || [])
+            .map((details) => Number(details.coverage_area_id))
+            .filter((id) => Number.isSafeInteger(id) && id > 0))];
+          let coverageAreasById = new Map();
+          if (coverageAreaIds.length) {
+            const coverageAreas = await supabaseRequest(
+              `/rest/v1/locations?select=id,name&id=in.(${coverageAreaIds.join(",")})`,
+              { token }
+            );
+            if (!coverageAreas.response.ok) {
+              sendJson(response, coverageAreas.response.status, {
+                error: apiErrorMessage(coverageAreas.payload, "Reporter application coverage areas could not be loaded.")
+              });
+              return;
+            }
+            coverageAreasById = new Map((coverageAreas.payload || [])
+              .map((area) => [Number(area.id), area.name]));
+          }
+          const areaNameByApplicationId = new Map((privateDetails.payload || [])
+            .map((details) => [
+              Number(details.application_id),
+              coverageAreasById.get(Number(details.coverage_area_id)) || null
+            ]));
+          result.payload = applications.map((application) => ({
+            ...application,
+            coverage_area_name: areaNameByApplicationId.get(Number(application.id)) || null
+          }));
+        }
+      }
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
         : { error: apiErrorMessage(result.payload, `${collection.table} could not be loaded.`) });
@@ -3375,11 +3420,13 @@ const server = http.createServer((request, response) => {
             }
             const requiredDocuments = ["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"];
             if (!Array.isArray(body.application_documents)
-                || body.application_documents.length !== requiredDocuments.length
-                || requiredDocuments.some((type) =>
-                  body.application_documents.filter((document) => document?.document_type === type).length !== 1
-                )) {
-              sendJson(response, 400, { error: "Upload the profile photo, both Aadhaar sides, PAN card and bank proof." });
+                || body.application_documents.length > requiredDocuments.length
+                || body.application_documents.some((document) =>
+                  !document || !requiredDocuments.includes(document.document_type)
+                )
+                || new Set(body.application_documents.map((document) => document.document_type)).size
+                  !== body.application_documents.length) {
+              sendJson(response, 400, { error: "The submitted document replacements are invalid or duplicated." });
               return;
             }
             const stateId = Number(body.state_id);
@@ -3419,6 +3466,58 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Choose an active Coverage Area within the selected District." });
               return;
             }
+            const currentApplication = await supabaseRequest(
+              `/rest/v1/reporter_applications?select=id&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
+              { token: session.token }
+            );
+            if (!currentApplication.response.ok) {
+              sendJson(response, currentApplication.response.status, {
+                error: apiErrorMessage(currentApplication.payload, "Your existing reporter application could not be checked.")
+              });
+              return;
+            }
+            const applicationId = currentApplication.payload?.[0]?.id;
+            const existingDocuments = applicationId
+              ? await supabaseRequest(
+                `/rest/v1/reporter_application_documents?select=document_type,storage_path,mime_type,sha256&application_id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}`,
+                { token: session.token }
+              )
+              : { response: { ok: true }, payload: [] };
+            if (!existingDocuments.response.ok) {
+              sendJson(response, existingDocuments.response.status, {
+                error: apiErrorMessage(existingDocuments.payload, "Your existing reporter documents could not be loaded.")
+              });
+              return;
+            }
+            const documentsByType = new Map(
+              (existingDocuments.payload || []).map((document) => [document.document_type, document])
+            );
+            for (const replacement of body.application_documents) {
+              if (typeof replacement.storage_path !== "string"
+                  || !replacement.storage_path.startsWith(`applications/${session.identity.id}/${replacement.document_type}/`)
+                  || !/^[a-f0-9]{64}$/.test(replacement.sha256 || "")
+                  || !["image/jpeg", "image/png", "application/pdf"].includes(replacement.mime_type)
+                  || (replacement.document_type === "profile_photo" && replacement.mime_type === "application/pdf")) {
+                sendJson(response, 400, { error: "A replacement document is invalid. Upload the requested document again." });
+                return;
+              }
+              documentsByType.set(replacement.document_type, replacement);
+            }
+            const missingDocuments = requiredDocuments.filter((type) => !documentsByType.has(type));
+            if (missingDocuments.length) {
+              const labels = {
+                profile_photo: "profile photo",
+                aadhaar_front: "Aadhaar front",
+                aadhaar_back: "Aadhaar back",
+                pan_card: "PAN card",
+                bank_proof: "bank proof"
+              };
+              sendJson(response, 400, {
+                error: `Your application is missing ${missingDocuments.map((type) => labels[type]).join(", ")}. Upload only the missing document${missingDocuments.length === 1 ? "" : "s"} before resubmitting.`
+              });
+              return;
+            }
+            body.application_documents = [...documentsByType.values()];
             const typeResult = await supabaseRequest(
               "/rest/v1/reporter_types?select=id,type_code&is_active=eq.true&order=type_code.asc&limit=500",
               { token: session.token }

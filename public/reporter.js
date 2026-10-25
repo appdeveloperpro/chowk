@@ -642,6 +642,10 @@ function renderApplicationForm(action, existing = null) {
     cropper = createReporterPhotoCropper(photoGroup);
     cropper.input.required = !applicationFiles.has("profile_photo")
       || requestedFields.get("profile_photo")?.kind === "reupload";
+    if (applicationFiles.has("profile_photo")
+        && requestedFields.get("profile_photo")?.kind !== "reupload") {
+      photoGroup.append(element("small", "reporter-field-help", "Your current profile photo is already on file; no new upload is needed."));
+    }
     highlightRequestedField("profile_photo", cropper.input);
     documentsStep.append(photoGroup);
     const addDocumentInput = (type, labelText, helpText) => {
@@ -665,6 +669,9 @@ function renderApplicationForm(action, existing = null) {
         applicationFiles.set(type, file);
       });
       label.append(input, element("small", "reporter-field-help", helpText));
+      if (applicationFiles.has(type) && requestedFields.get(type)?.kind !== "reupload") {
+        label.append(element("small", "reporter-field-help", "This document is already on file; no new upload is needed."));
+      }
       highlightRequestedField(type, input);
       documentsStep.append(label);
     };
@@ -676,6 +683,7 @@ function renderApplicationForm(action, existing = null) {
     maskedAadhaarConfirmed.type = "checkbox";
     maskedAadhaarConfirmed.name = "masked_aadhaar_confirmed";
     maskedAadhaarConfirmed.required = true;
+    maskedAadhaarConfirmed.checked = existing?.private_details?.masked_aadhaar_confirmed === true;
     maskedAadhaarCheck.append(maskedAadhaarConfirmed, element("span", "", "I confirm both Aadhaar sides are masked, with only the last four digits visible."));
     documentsStep.append(maskedAadhaarCheck);
     const privacyConsent = document.createElement("label");
@@ -684,6 +692,7 @@ function renderApplicationForm(action, existing = null) {
     privacyConsentInput.type = "checkbox";
     privacyConsentInput.name = "document_processing_consent";
     privacyConsentInput.required = true;
+    privacyConsentInput.checked = existing?.private_details?.document_processing_consent === true;
     privacyConsent.append(
       privacyConsentInput,
       element("span", "", "I consent to Chowk securely storing and using these documents only for application review, identity verification and reporter onboarding. I understand that authorized admins can review them.")
@@ -860,8 +869,6 @@ function renderApplicationForm(action, existing = null) {
             })).data;
             uploadedDocuments.push(uploaded);
             newlyUploadedDocuments.push(uploaded);
-          } else {
-            uploadedDocuments.push(file);
           }
         }
         const payload = {

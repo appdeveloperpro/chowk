@@ -1,8 +1,14 @@
 const content = document.querySelector("#admin-content");
 const navItems = [...document.querySelectorAll(".admin-nav-item")];
+const agreementPreviewUrls = new Set();
 const sectionLabels = Object.fromEntries(
   navItems.map((item) => [item.dataset.section, item.textContent.trim()])
 );
+
+window.addEventListener("beforeunload", () => {
+  agreementPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+  agreementPreviewUrls.clear();
+});
 
 const modules = {
   articles: {
@@ -1196,7 +1202,7 @@ function openReporterServiceAgreementTemplateEditor(template) {
   try {
     const dialog = openFormDialog(
       "Approved reporter service agreement",
-      "Edit the single template used for new reporter agreements. Review all legal terms with counsel and replace every square-bracket drafting placeholder. Publishing a change creates a retained version; previously issued or accepted PDFs remain unchanged.",
+      "Edit the template used for new reporter agreements. Save a draft at any time, including while legal terms are unfinished. Publishing is separate and requires all drafting placeholders to be resolved; previous versions and issued agreements remain preserved.",
       (form) => {
         const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
         contentLabel.append(makeElement("span", "", "Service agreement text"));
@@ -1215,6 +1221,33 @@ function openReporterServiceAgreementTemplateEditor(template) {
         fields.append(makeElement("summary", "", "Available personalization fields"));
         fields.append(makeElement("p", "admin-dialog-help", (template.supported_fields || []).join("  ·  ")));
         form.append(fields);
+
+        const saveDraft = makeElement("button", "admin-secondary-button", "Save draft");
+        saveDraft.type = "button";
+        saveDraft.addEventListener("click", async () => {
+          const templateContent = content.value.trim();
+          if (templateContent.length < 1000 || templateContent.length > 50000) {
+            void showAdminMessage("Draft not saved", "The template must contain between 1,000 and 50,000 characters.");
+            return;
+          }
+          saveDraft.disabled = true;
+          saveDraft.textContent = "Saving draft…";
+          try {
+            await saveReporterServiceAgreementDraft(templateContent);
+            dialog.close();
+            await loadSection("reporter-service-agreements");
+            void showAdminMessage(
+              "Draft saved",
+              "Your template is saved. You can preview it for review; reporters cannot receive it until all legal terms are finalized and the template is published."
+            );
+          } catch (error) {
+            void showAdminMessage("Draft could not be saved", error.message);
+          } finally {
+            saveDraft.disabled = false;
+            saveDraft.textContent = "Save draft";
+          }
+        });
+        form.append(saveDraft);
 
         const preview = makeElement("button", "admin-secondary-button", "Preview generated PDF");
         preview.type = "button";
@@ -1255,16 +1288,12 @@ function openReporterServiceAgreementTemplateEditor(template) {
           [...templateContent.matchAll(/\[([^\]]+)\]/g)].map((match) => match[0])
         )];
         if (placeholders.length) {
-          throw new Error(`Replace all square-bracket drafting placeholders before publishing: ${placeholders.slice(0, 5).join(", ")}${placeholders.length > 5 ? ", …" : ""}`);
+          throw new Error(`This draft cannot be published yet. Save it as a draft, then resolve these legal terms before publishing: ${placeholders.slice(0, 5).join(", ")}${placeholders.length > 5 ? ", …" : ""}`);
         }
         if (templateContent.length < 1000 || templateContent.length > 50000) {
           throw new Error("The service agreement must contain between 1,000 and 50,000 characters.");
         }
-        const version = `service-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const saved = await apiRequest("admin/reporter-service-agreements/template", "POST", {
-          version,
-          template_content: templateContent
-        });
+        const saved = await saveReporterServiceAgreementDraft(templateContent);
         const agreementId = saved.data?.id;
         if (!Number.isSafeInteger(agreementId) || agreementId < 1) {
           throw new Error("The template draft was saved, but its version could not be identified for publishing. Refresh the page and try again.");
@@ -1276,7 +1305,7 @@ function openReporterServiceAgreementTemplateEditor(template) {
         }
         await loadSection("reporter-service-agreements");
       },
-      "Save and publish"
+      "Publish approved template"
     );
     dialog.addEventListener("close", () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -1284,6 +1313,14 @@ function openReporterServiceAgreementTemplateEditor(template) {
   } catch (error) {
     void showAdminMessage("Template editor could not be opened", error.message);
   }
+}
+
+async function saveReporterServiceAgreementDraft(templateContent) {
+  const version = `service-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return apiRequest("admin/reporter-service-agreements/template", "POST", {
+    version,
+    template_content: templateContent
+  });
 }
 
 function openReporterOrganizationProfileDialog(profile) {
@@ -2377,45 +2414,33 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   const publish = makeElement("button", "admin-primary-button", "Issue agreement to reporter");
   publish.type = "button";
   publish.disabled = true;
-  const openSetup = makeElement("button", "admin-secondary-button", "Service agreement setup");
-  openSetup.type = "button";
-  openSetup.addEventListener("click", () => {
-    dialog.close();
-    void loadSection("reporter-service-agreements");
-  });
-  const manageCompany = makeElement("button", "admin-secondary-button", "Manage company legal details");
-  manageCompany.type = "button";
-  manageCompany.addEventListener("click", async () => {
-    try {
-      const setup = await apiRequest("admin/reporter-options");
-      openReporterOrganizationProfileDialog(setup.data?.organization_profile);
-    } catch (error) {
-      status.textContent = `Company legal details could not be loaded: ${error.message}`;
-    }
-  });
   const status = makeElement("p", "admin-dialog-help");
   status.setAttribute("role", "status");
   status.textContent = "Generate the personalized PDF, review it, then issue it to this reporter. The reporter must accept this exact document before credentials can be issued.";
-  const frame = document.createElement("iframe");
-  frame.title = "Personalized reporter service agreement preview";
-  frame.hidden = true;
-  frame.style.width = "100%";
-  frame.style.height = "65vh";
-  frame.style.border = "1px solid #d8dde6";
   let previewUrl = "";
+  let previewWindow = null;
   let previewToken = "";
   let previewIsPublished = false;
   preview.addEventListener("click", async () => {
+    const nextPreviewWindow = window.open("about:blank", "_blank");
+    if (!nextPreviewWindow) {
+      void showAdminMessage("Preview unavailable", "Allow pop-ups to open the agreement PDF in a new tab.");
+      return;
+    }
+    nextPreviewWindow.opener = null;
     preview.disabled = true;
     publish.disabled = true;
     previewToken = "";
     previewIsPublished = false;
-    frame.hidden = true;
-    frame.removeAttribute("src");
+    if (previewWindow && !previewWindow.closed) previewWindow.close();
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
+      agreementPreviewUrls.delete(previewUrl);
       previewUrl = "";
     }
+    previewWindow = nextPreviewWindow;
+    previewWindow.document.title = "Preparing service agreement preview…";
+    previewWindow.document.body.textContent = "Generating the personalized agreement PDF…";
     status.textContent = "Generating a personalized preview from the current template and reporter details…";
     try {
       const response = await fetch(proxyUrl(`admin/reporter-applications/${application.id}/service-agreement/preview`), {
@@ -2439,15 +2464,16 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
       }
       previewToken = token;
       previewIsPublished = publishedHeader === "true";
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
       previewUrl = URL.createObjectURL(pdf);
-      frame.src = previewUrl;
-      frame.hidden = false;
+      agreementPreviewUrls.add(previewUrl);
+      previewWindow.location.replace(previewUrl);
       publish.disabled = !previewIsPublished;
       status.textContent = previewIsPublished
-        ? "Preview generated from the published template. Review the PDF above before issuing it to this reporter."
-        : "Draft preview only. The template is not published, so this PDF cannot be issued. Finalize the legal terms in Service agreement setup and publish, then generate a fresh preview.";
+        ? "Preview opened in a new tab. Review the full-size PDF, then return here to issue this exact copy to the reporter."
+        : "Draft preview opened in a new tab for review. It cannot be issued until the template is finalized and published.";
     } catch (error) {
+      if (previewWindow && !previewWindow.closed) previewWindow.close();
+      previewWindow = null;
       status.textContent = `Preview failed: ${error.message}`;
     } finally {
       preview.disabled = false;
@@ -2467,7 +2493,8 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
         preview_token: previewToken
       });
       status.textContent = "The personalized agreement was issued and is now available to the reporter.";
-      dialog.close();
+      publish.disabled = true;
+      previewToken = "";
       await refresh();
     } catch (error) {
       previewToken = "";
@@ -2479,10 +2506,9 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   const close = makeElement("button", "admin-secondary-button", "Close");
   close.type = "button";
   close.addEventListener("click", () => dialog.close());
-  body.append(openSetup, manageCompany, preview, publish, close, status, frame);
+  body.append(preview, publish, close, status);
   dialog.append(body);
   dialog.addEventListener("close", () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
     dialog.remove();
   }, { once: true });
   document.body.append(dialog);

@@ -209,6 +209,31 @@ function apiErrorMessage(payload, fallback) {
     payload?.error || fallback;
 }
 
+function validateReporterDesignationRecord(record, isCreate) {
+  if (isCreate || record.name !== undefined) {
+    if (typeof record.name !== "string" || record.name.trim().length < 2 || record.name.trim().length > 80) {
+      return "Reporter designation must contain between 2 and 80 characters.";
+    }
+    record.name = record.name.trim();
+  }
+  if (isCreate || record.designation_code !== undefined) {
+    if (typeof record.designation_code !== "string" || !/^\d{2}$/.test(record.designation_code.trim())) {
+      return "Reporter designation code must contain exactly 2 digits.";
+    }
+    record.designation_code = record.designation_code.trim();
+  }
+  if (record.description !== undefined) {
+    if (typeof record.description !== "string" || record.description.trim().length > 300) {
+      return "Designation description must be 300 characters or fewer.";
+    }
+    record.description = record.description.trim();
+  }
+  if (record.is_active !== undefined && typeof record.is_active !== "boolean") {
+    return "Choose whether this reporter designation is active.";
+  }
+  return null;
+}
+
 function getCookie(request, name) {
   const cookieHeader = request.headers.cookie || "";
   const cookie = cookieHeader.split(";").map((item) => item.trim())
@@ -612,6 +637,7 @@ async function reporterAgreementContext(session, requested = {}) {
     "reporter.reporter_code": reporterProfile.payload?.[0]?.reporter_code || "Assigned after application approval",
     "reporter.rto": selectedRto.rto_code,
     "reporter.state": selectedState.state_name,
+    "reporter.designation": "",
     "reporter.type": ""
   };
   return { agreement: currentAgreement, tokens };
@@ -633,16 +659,22 @@ async function reporterServiceAgreementContext(session) {
     throw Object.assign(new Error("Only an approved reporter can review the service agreement."), { statusCode: 403 });
   }
 
-  const [agreement, organization, profile, privateDetails, state, rto, reporterProfile] = await Promise.all([
+  const [
+    agreement, organization, profile, privateDetails, state, rto, reporterProfile, designationResult
+  ] = await Promise.all([
     supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256,template_content&status=eq.published&limit=1", { token: session.token }),
     supabaseRequest("/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified&id=eq.true&limit=1", { token: session.token }),
     supabaseRequest(`/rest/v1/profiles?select=full_name,phone&id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/reporter_application_private_details?select=father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,mobile_number,date_of_birth&application_id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/states?select=id,state_name,state_code&id=eq.${application.state?.id}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/rto_offices?select=id,state_id,rto_code,city_name&id=eq.${application.rto?.id}&state_id=eq.${application.state?.id}&limit=1`, { token: session.token }),
-    supabaseRequest(`/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token })
+    supabaseRequest(`/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
+    supabaseRequest(
+      `/rest/v1/reporter_applications?select=reporter_designation:reporter_designations(name)&id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
+      { token: session.token }
+    )
   ]);
-  for (const result of [agreement, organization, profile, privateDetails, state, rto, reporterProfile]) {
+  for (const result of [agreement, organization, profile, privateDetails, state, rto, reporterProfile, designationResult]) {
     if (!result.response.ok) {
       throw Object.assign(
         new Error(apiErrorMessage(result.payload, "Personalized reporter service agreement details could not be loaded.")),
@@ -667,6 +699,12 @@ async function reporterServiceAgreementContext(session) {
   const details = privateDetails.payload?.[0];
   const selectedState = state.payload?.[0];
   const selectedRto = rto.payload?.[0];
+  const designation = designationResult.payload?.[0]?.reporter_designation?.name;
+  if (!designation) {
+    throw Object.assign(new Error("An administrator must assign your reporter designation before the service agreement is prepared."), {
+      statusCode: 409
+    });
+  }
   if (!company?.is_verified || !reporter || !details || !selectedState || !selectedRto) {
     throw Object.assign(
       new Error("Verified organization details and complete reporter application details are required to generate the service agreement."),
@@ -703,6 +741,7 @@ async function reporterServiceAgreementContext(session) {
     "reporter.reporter_code": reporterProfile.payload?.[0]?.reporter_code || "Assigned after onboarding",
     "reporter.rto": selectedRto.rto_code,
     "reporter.state": selectedState.state_name,
+    "reporter.designation": designation,
     "reporter.type": "",
     "reporter.father_first_name": details.father_first_name || "Not provided",
     "reporter.father_last_name": details.father_last_name || "Not provided",
@@ -764,7 +803,7 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
   const agreement = await ensureReporterServiceAgreementTemplate(session);
   const [applicationResult, organizationResult] = await Promise.all([
     supabaseRequest(
-      `/rest/v1/reporter_applications?select=id,user_id,status,state_id,rto_office_id,created_at&id=eq.${applicationId}&limit=1`,
+      `/rest/v1/reporter_applications?select=id,user_id,status,state_id,rto_office_id,reporter_designation_id,service_agreement_issue_id,reporter_designation:reporter_designations(id,name)&id=eq.${applicationId}&limit=1`,
       { token: session.token }
     ),
     supabaseRequest(
@@ -784,6 +823,12 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
   if (!application || !["approved", "active"].includes(application.status)) {
     throw Object.assign(new Error("Only an approved reporter can receive a service agreement."), { statusCode: 409 });
   }
+  if (!application.reporter_designation?.name) {
+    throw Object.assign(
+      new Error("Assign an active reporter designation before generating the service agreement."),
+      { statusCode: 409 }
+    );
+  }
   if (!agreement.template_content) {
     throw Object.assign(
       new Error("The service-agreement template is empty. Open Admin → Service agreement setup and add the approved terms."),
@@ -792,6 +837,12 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
   }
   if (!agreement.sha256) {
     agreement.sha256 = createHash("sha256").update(agreement.template_content, "utf8").digest("hex");
+  }
+  if (!agreement.template_content.includes("{{reporter.designation}}")) {
+    throw Object.assign(
+      new Error("Add {{reporter.designation}} to the service-agreement template and publish it before preparing reporter agreements."),
+      { statusCode: 409 }
+    );
   }
   if (requirePublished && agreement.status !== "published") {
     throw Object.assign(
@@ -861,6 +912,7 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
     "reporter.reporter_code": reporterProfileResult.payload?.[0]?.reporter_code || "Assigned after approval",
     "reporter.rto": rto.rto_code,
     "reporter.state": state.state_name,
+    "reporter.designation": application.reporter_designation.name,
     "reporter.type": "",
     "reporter.father_first_name": details.father_first_name || "Not provided",
     "reporter.father_last_name": details.father_last_name || "Not provided",
@@ -1230,9 +1282,15 @@ async function adminRoute(request, response, requestUrl, session) {
         order: "name.asc",
         fields: ["name", "type_code", "description", "is_active"]
       },
+      "reporter-designations": {
+        table: "reporter_designations",
+        select: "id,name,designation_code,description,is_active,created_at",
+        order: "name.asc",
+        fields: ["name", "designation_code", "description", "is_active"]
+      },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,location_id,state_id,rto_office_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name)",
+        select: "id,user_id,location_id,state_id,rto_office_id,reporter_type_id,reporter_designation_id,service_agreement_issue_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_designation:reporter_designations(id,name,designation_code)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -1268,7 +1326,7 @@ async function adminRoute(request, response, requestUrl, session) {
     if (pathname === "/api/admin/reporter-directory" && request.method === "GET") {
       const [reporters, assignments] = await Promise.all([
         supabaseRequest("/rest/v1/reporter_profiles?select=user_id,reporter_code,created_at,user:profiles!reporter_profiles_user_id_fkey(id,email,full_name,phone,role,created_at)&order=created_at.desc&limit=1000", { token }),
-        supabaseRequest("/rest/v1/reporter_assignments?select=id,user_id,rto_office_id,reporter_type_id,effective_from,effective_to,rto:rto_offices(rto_code,city_name,state:states(state_code,state_name)),reporter_type:reporter_types(name,type_code)&order=effective_from.desc&limit=2000", { token })
+        supabaseRequest("/rest/v1/reporter_assignments?select=id,user_id,rto_office_id,reporter_type_id,reporter_designation_id,effective_from,effective_to,rto:rto_offices(rto_code,city_name,state:states(state_code,state_name)),reporter_type:reporter_types(name,type_code),reporter_designation:reporter_designations(id,name)&order=effective_from.desc&limit=2000", { token })
       ]);
       for (const result of [reporters, assignments]) {
         if (!result.response.ok) {
@@ -1295,14 +1353,14 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-options" && request.method === "GET") {
-      const [states, rtos, types, serviceAgreements, organizationProfile] = await Promise.all([
+      const [states, rtos, designations, serviceAgreements, organizationProfile] = await Promise.all([
         supabaseRequest("/rest/v1/states?select=id,state_code,state_name,is_active&order=state_name.asc&limit=500", { token }),
         supabaseRequest("/rest/v1/rto_offices?select=id,state_id,rto_code,city_name,is_active&order=rto_code.asc&limit=1000", { token }),
-        supabaseRequest("/rest/v1/reporter_types?select=id,name,type_code,description,is_active&order=name.asc&limit=500", { token }),
+        supabaseRequest("/rest/v1/reporter_designations?select=id,name,designation_code,description,is_active&order=name.asc&limit=500", { token }),
         supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,document_url,status,published_at&template_content=not.is.null&order=created_at.desc&limit=100", { token }),
         supabaseRequest("/rest/v1/reporter_organization_profile?select=id,legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified,updated_at&limit=1", { token })
       ]);
-      for (const result of [states, rtos, types, serviceAgreements, organizationProfile]) {
+      for (const result of [states, rtos, designations, serviceAgreements, organizationProfile]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Reporter configuration could not be loaded.")
@@ -1313,7 +1371,7 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 200, { success: true, data: {
         states: states.payload || [],
         rtos: rtos.payload || [],
-        reporter_types: types.payload || [],
+        reporter_designations: designations.payload || [],
         service_agreements: serviceAgreements.payload || [],
         organization_profile: organizationProfile.payload?.[0] || null
       } });
@@ -1401,6 +1459,7 @@ async function adminRoute(request, response, requestUrl, session) {
         "reporter.reporter_code": "Assigned after approval",
         "reporter.rto": "Sample reporting area",
         "reporter.state": "Sample State",
+        "reporter.designation": "District Reporter",
         "reporter.type": ""
       };
       const pdf = await createReporterAgreementPdf(body.template_content, sampleData, { preview: true });
@@ -1479,6 +1538,7 @@ async function adminRoute(request, response, requestUrl, session) {
         "reporter.reporter_code": "Assigned after onboarding",
         "reporter.rto": "Sample reporting area",
         "reporter.state": "Sample State",
+        "reporter.designation": "District Reporter",
         "reporter.type": "",
         "reporter.father_first_name": "Sample",
         "reporter.father_last_name": "Parent",
@@ -1671,9 +1731,23 @@ async function adminRoute(request, response, requestUrl, session) {
     if (reporterAssignment && request.method === "POST") {
       const body = await readJsonBody(request);
       const rto = Number(body.rto_office_id);
-      const type = Number(body.reporter_type_id);
-      if (!Number.isSafeInteger(rto) || rto < 1 || !Number.isSafeInteger(type) || type < 1) {
-        sendJson(response, 400, { error: "Choose an active RTO and reporter type." });
+      if (!Number.isSafeInteger(rto) || rto < 1) {
+        sendJson(response, 400, { error: "Choose an active RTO / reporting area." });
+        return;
+      }
+      const currentAssignment = await supabaseRequest(
+        `/rest/v1/reporter_assignments?select=reporter_type_id&user_id=eq.${reporterAssignment[1]}&effective_to=is.null&limit=1`,
+        { token }
+      );
+      if (!currentAssignment.response.ok) {
+        sendJson(response, currentAssignment.response.status, {
+          error: apiErrorMessage(currentAssignment.payload, "The reporter's current reporter-ID category could not be loaded.")
+        });
+        return;
+      }
+      const type = Number(currentAssignment.payload?.[0]?.reporter_type_id);
+      if (!Number.isSafeInteger(type) || type < 1) {
+        sendJson(response, 409, { error: "The reporter must have an active designation before their reporting area can be updated." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_reporter", {
@@ -1684,6 +1758,28 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
         : { error: apiErrorMessage(result.payload, "Reporter assignment could not be changed.") });
+      return;
+    }
+
+    const reporterDirectoryDesignation = pathname.match(/^\/api\/admin\/reporter-directory\/([0-9a-f-]{36})\/designation$/i);
+    if (reporterDirectoryDesignation && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const designation = Number(body.designation_id);
+      if (!Number.isSafeInteger(designation) || designation < 1) {
+        sendJson(response, 400, { error: "Choose an active reporter designation." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_reporter_designation_for_user", {
+        method: "POST",
+        token,
+        body: {
+          target_user: reporterDirectoryDesignation[1],
+          target_designation: designation
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Reporter designation could not be updated.") });
       return;
     }
 
@@ -2029,6 +2125,7 @@ async function adminRoute(request, response, requestUrl, session) {
           "reporter.reporter_code": "Assigned after approval",
           "reporter.rto": "Sample reporting area",
           "reporter.state": "Sample State",
+          "reporter.designation": "District Reporter",
           "reporter.type": "",
           "reporter.father_first_name": "Sample",
           "reporter.father_last_name": "Parent",
@@ -2247,7 +2344,7 @@ async function adminRoute(request, response, requestUrl, session) {
         return !Number.isNaN(parsedDate.getTime()) && parsedDate.toISOString().slice(0, 10) === value;
       };
       const auditedTables = [
-        "profiles", "articles", "categories", "locations", "reporter_types",
+        "profiles", "articles", "categories", "locations", "reporter_types", "reporter_designations",
         "reporter_applications", "live_streams", "article_reports", "comments", "media_catalog",
         "states", "rto_offices", "reporter_agreement_versions", "reporter_agreement_acceptances",
         "reporter_service_agreement_versions", "reporter_service_agreement_acceptances",
@@ -2302,7 +2399,7 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    const collectionMatch = pathname.match(/^\/api\/admin\/(locations|reporter-types|reporter-applications|live-streams|reports|comments|media|audit-logs)$/);
+    const collectionMatch = pathname.match(/^\/api\/admin\/(locations|reporter-types|reporter-designations|reporter-applications|live-streams|reports|comments|media|audit-logs)$/);
     const collection = collectionMatch && collections[collectionMatch[1]];
     if (collection && request.method === "GET") {
       const query = new URLSearchParams({
@@ -2369,6 +2466,13 @@ async function adminRoute(request, response, requestUrl, session) {
       const record = Object.fromEntries(collection.fields
         .filter((field) => body[field] !== undefined)
         .map((field) => [field, body[field]]));
+      if (collection.table === "reporter_designations") {
+        const validationError = validateReporterDesignationRecord(record, true);
+        if (validationError) {
+          sendJson(response, 400, { error: validationError });
+          return;
+        }
+      }
       if (collection.table === "reporter_types" &&
           (typeof record.type_code !== "string" || !/^\d{2}$/.test(record.type_code))) {
         sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
@@ -2395,7 +2499,9 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload?.[0] }
-        : { error: apiErrorMessage(result.payload, `The ${collection.table} record could not be created.`) });
+        : { error: collection.table === "reporter_designations" && result.payload?.code === "23505"
+          ? "That designation name or code is already in use."
+          : apiErrorMessage(result.payload, `The ${collection.table} record could not be created.`) });
       return;
     }
 
@@ -2459,7 +2565,7 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    const collectionRecord = pathname.match(/^\/api\/admin\/(locations|reporter-types|live-streams|reports|comments|media)\/(\d+)$/);
+    const collectionRecord = pathname.match(/^\/api\/admin\/(locations|reporter-types|reporter-designations|live-streams|reports|comments|media)\/(\d+)$/);
     if (collectionRecord && ["PATCH", "DELETE"].includes(request.method)) {
       const config = collections[collectionRecord[1]];
       if (!config.fields && request.method === "PATCH") {
@@ -2470,6 +2576,13 @@ async function adminRoute(request, response, requestUrl, session) {
       const record = Object.fromEntries((config.fields || [])
         .filter((field) => body[field] !== undefined)
         .map((field) => [field, body[field]]));
+      if (config.table === "reporter_designations") {
+        const validationError = validateReporterDesignationRecord(record, false);
+        if (validationError) {
+          sendJson(response, 400, { error: validationError });
+          return;
+        }
+      }
       if (config.table === "reporter_types" && record.type_code !== undefined &&
           (typeof record.type_code !== "string" || !/^\d{2}$/.test(record.type_code))) {
         sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
@@ -2499,7 +2612,9 @@ async function adminRoute(request, response, requestUrl, session) {
       );
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
-        : { error: apiErrorMessage(result.payload, "The newsroom record could not be updated.") });
+        : { error: config.table === "reporter_designations" && result.payload?.code === "23505"
+          ? "That designation name or code is already in use."
+          : apiErrorMessage(result.payload, "The newsroom record could not be updated.") });
       return;
     }
 
@@ -2532,6 +2647,30 @@ async function adminRoute(request, response, requestUrl, session) {
         success: true,
         data: { details: details.payload?.[0] || null, documents: signedDocuments }
       });
+      return;
+    }
+
+    const reporterDesignation = pathname.match(
+      /^\/api\/admin\/reporter-applications\/(\d+)\/designation$/
+    );
+    if (reporterDesignation && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const designationId = Number(body.designation_id);
+      if (!Number.isSafeInteger(designationId) || designationId < 1) {
+        sendJson(response, 400, { error: "Choose an active reporter designation." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_reporter_designation", {
+        method: "POST",
+        token,
+        body: {
+          target_application: Number(reporterDesignation[1]),
+          target_designation: designationId
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Reporter designation could not be assigned.") });
       return;
     }
 
@@ -2719,7 +2858,13 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Field requests can only be sent with a request-for-information decision." });
         return;
       }
-      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_review_reporter_application", {
+      const designationId = decision === "approved" ? Number(body.designation_id) : null;
+      if (decision === "approved"
+          && (!Number.isSafeInteger(designationId) || designationId < 1)) {
+        sendJson(response, 400, { error: "Choose a reporter designation before approving the application." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_review_reporter_application_with_designation", {
         method: "POST",
         token,
         body: {
@@ -2729,7 +2874,8 @@ async function adminRoute(request, response, requestUrl, session) {
           signer_name: reviewerName,
           signer_designation: reviewerDesignation,
           signature_accepted: body.signature_accepted === true,
-          requested_fields: reviewRequests
+          requested_fields: reviewRequests,
+          target_designation: designationId
         }
       });
       sendJson(response, result.response.status, result.response.ok
@@ -3009,18 +3155,17 @@ async function adminRoute(request, response, requestUrl, session) {
       const body = await readJsonBody(request);
       const stateId = Number(body.state_id);
       const rtoId = Number(body.rto_office_id);
-      const reporterTypeId = Number(body.reporter_type_id);
-      if (![stateId, rtoId, reporterTypeId].every((value) => Number.isSafeInteger(value) && value > 0)) {
-        sendJson(response, 400, { error: "Choose an active state, RTO/reporting area, and reporter type." });
+      if (![stateId, rtoId].every((value) => Number.isSafeInteger(value) && value > 0)) {
+        sendJson(response, 400, { error: "Choose an active state and RTO/reporting area." });
         return;
       }
-      const [profile, state, rto, reporterType] = await Promise.all([
+      const [profile, state, rto, currentAssignment] = await Promise.all([
         supabaseRequest(`/rest/v1/profiles?select=role&id=eq.${reporterAssignmentItem[1]}&limit=1`, { token }),
         supabaseRequest(`/rest/v1/states?select=id&id=eq.${stateId}&is_active=eq.true&limit=1`, { token }),
         supabaseRequest(`/rest/v1/rto_offices?select=id,state_id&id=eq.${rtoId}&is_active=eq.true&limit=1`, { token }),
-        supabaseRequest(`/rest/v1/reporter_types?select=id&id=eq.${reporterTypeId}&is_active=eq.true&limit=1`, { token })
+        supabaseRequest(`/rest/v1/reporter_assignments?select=reporter_type_id&user_id=eq.${reporterAssignmentItem[1]}&effective_to=is.null&limit=1`, { token })
       ]);
-      for (const result of [profile, state, rto, reporterType]) {
+      for (const result of [profile, state, rto, currentAssignment]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Reporter account options could not be validated.")
@@ -3032,9 +3177,11 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 404, { error: "User account not found." });
         return;
       }
-      if (!state.payload?.[0] || !rto.payload?.[0] || !reporterType.payload?.[0]
+      const reporterTypeId = Number(currentAssignment.payload?.[0]?.reporter_type_id);
+      if (!state.payload?.[0] || !rto.payload?.[0]
+          || !Number.isSafeInteger(reporterTypeId) || reporterTypeId < 1
           || Number(rto.payload[0].state_id) !== stateId) {
-        sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state and an active reporter type." });
+        sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state. The current designation must also be assigned." });
         return;
       }
       if (profile.payload[0].role !== "reporter") {

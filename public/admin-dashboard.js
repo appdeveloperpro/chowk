@@ -61,7 +61,7 @@ const modules = {
   },
   "reporter-options": {
     path: "admin/reporter-options",
-    description: "Configure states, RTO/reporting areas, and reporter type codes."
+    description: "Configure states, reporting areas, and reporter designations."
   },
   media: {
     path: "admin/media",
@@ -112,14 +112,14 @@ const modules = {
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
   },
-  "reporter-types": {
-    path: "admin/reporter-types",
-    description: "Configure reporter classifications used by applications.",
-    createPath: "admin/reporter-types",
+  "reporter-designations": {
+    path: "admin/reporter-designations",
+    description: "Add and edit reporter positions and their unique two-digit reporter-ID codes. New IDs use state-RTO-code-number (for example, UP-80-01-0001). Existing IDs never change. Deactivate a designation to remove it from future choices while preserving history.",
+    createPath: "admin/reporter-designations",
     formFields: [
-      { name: "name", label: "Reporter type", type: "text" },
-      { name: "type_code", label: "Reporter type code (2 digits)", type: "text", pattern: "[0-9]{2}", maxLength: 2 },
-      { name: "description", label: "Description", type: "textarea", required: false },
+      { name: "name", label: "Reporter designation", type: "text", minLength: 2, maxLength: 80 },
+      { name: "designation_code", label: "Designation code (exactly 2 digits)", type: "text", minLength: 2, maxLength: 2, pattern: "[0-9]{2}" },
+      { name: "description", label: "Description", type: "textarea", required: false, maxLength: 300 },
       { name: "is_active", label: "Active", type: "checkbox" }
     ]
   },
@@ -405,7 +405,8 @@ function renderModule(section, results) {
     content.replaceChildren(root);
     return;
   }
-  if (section.startsWith("reporter-") && section !== "reporter-types") {
+  if (section.startsWith("reporter-")
+      && !["reporter-types", "reporter-designations"].includes(section)) {
     renderReporterAdminSection(section, root, results[0].data);
     content.replaceChildren(root);
     return;
@@ -600,13 +601,14 @@ function renderReporterAdminSection(section, root, data) {
         email: reporter.user?.email || "—",
         reporter_code: reporter.reporter_code,
         current_assignment: current
-          ? `${current.rto?.state?.state_code || ""}${current.rto?.rto_code || ""} · ${current.reporter_type?.name || ""}`
+          ? `${current.rto?.state?.state_code || ""}${current.rto?.rto_code || ""} · ${current.reporter_designation?.name || "Designation not assigned"}`
           : "No current assignment",
         assignment_history: assignments.map((assignment) =>
-          `${assignment.rto?.state?.state_code || ""}${assignment.rto?.rto_code || ""} · ${assignment.reporter_type?.name || ""} · ${assignment.effective_to ? formatDate(assignment.effective_from) + " – " + formatDate(assignment.effective_to) : "Current"}`
+          `${assignment.rto?.state?.state_code || ""}${assignment.rto?.rto_code || ""} · ${assignment.reporter_designation?.name || "Designation not assigned"} · ${assignment.effective_to ? formatDate(assignment.effective_from) + " – " + formatDate(assignment.effective_to) : "Current"}`
         ).join(" | ") || "No assignment history",
         role: reporter.user?.role || "—",
         assignments: assignments.length,
+        _current_designation_id: current?.reporter_designation_id || "",
         user_id: reporter.user_id
       };
     });
@@ -725,7 +727,7 @@ function renderReporterSetup(root, data) {
     .forEach((view) => view.remove());
   const states = data.states || [];
   const rtos = data.rtos || [];
-  const types = data.reporter_types || [];
+  const designations = data.reporter_designations || [];
   const serviceAgreements = data.service_agreements || [];
   const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
   const organizationProfile = data.organization_profile;
@@ -750,9 +752,9 @@ function renderReporterSetup(root, data) {
     },
     {
       key: "types",
-      title: "Reporter types",
-      count: types.length,
-      detail: `${types.filter((type) => type.is_active).length} active · Roles available to applicants.`
+      title: "Reporter designations",
+      count: designations.length,
+      detail: `${designations.filter((designation) => designation.is_active).length} active · Two-digit designation codes are used in new state-RTO-code-number IDs.`
     },
     {
       key: "service_agreement",
@@ -832,7 +834,7 @@ function renderReporterSetup(root, data) {
   } else if (reporterSetupView === "rtos") {
     rowButton(actions, "Add RTO / area", () => openRtoDialog(states), "admin-primary-button reporter-setup-add");
   } else if (reporterSetupView === "types") {
-    rowButton(actions, "Add reporter type", () => openConfiguredRecordDialog("reporter-types", null), "admin-primary-button reporter-setup-add");
+    rowButton(actions, "Add designation", () => openConfiguredRecordDialog("reporter-designations", null), "admin-primary-button reporter-setup-add");
   } else if (reporterSetupView === "organization_profile") {
     rowButton(
       actions,
@@ -899,13 +901,13 @@ function renderReporterSetup(root, data) {
       id: rto.id
     }));
   } else {
-    tableSection = "reporter-types";
-    rows = types.map((type) => ({
-      name: type.name,
-      type_code: type.type_code,
-      description: type.description || "—",
-      is_active: type.is_active,
-      id: type.id
+    tableSection = "reporter-designations";
+    rows = designations.map((designation) => ({
+      name: designation.name,
+      designation_code: designation.designation_code,
+      description: designation.description || "—",
+      is_active: designation.is_active,
+      id: designation.id
     }));
   }
   const tableHeader = makeElement("div", "admin-panel-heading reporter-setup-table-heading");
@@ -922,20 +924,16 @@ async function openReporterAssignmentDialog(reporter, refresh) {
     const result = await apiRequest("admin/reporter-options");
     const options = unwrapData(result) || {};
     const activeRtos = (options.rtos || []).filter((rto) => rto.is_active);
-    const activeTypes = (options.reporter_types || []).filter((type) => type.is_active);
     openFormDialog(
       "Assign reporter area",
       `Reporter ID ${reporter.reporter_code} stays the same after reassignment. The new area is added to the reporter's assignment history.`,
       (form) => {
         appendReporterSelect(form, "rto_office_id", "RTO / reporting area", activeRtos,
           (rto) => `${rto.rto_code} · ${rto.city_name || "Reporting area"}`);
-        appendReporterSelect(form, "reporter_type_id", "Reporter type", activeTypes,
-          (type) => `${type.name} (${type.type_code})`);
       },
       async (values) => {
         await apiRequest(`admin/reporter-directory/${reporter.user_id}/assignment`, "POST", {
-          rto_office_id: Number(values.get("rto_office_id")),
-          reporter_type_id: Number(values.get("reporter_type_id"))
+          rto_office_id: Number(values.get("rto_office_id"))
         });
         await refresh();
       },
@@ -944,6 +942,52 @@ async function openReporterAssignmentDialog(reporter, refresh) {
   } catch (error) {
     void showAdminMessage("Template editor could not be opened", error.message);
   }
+}
+
+async function openReporterDesignationDialog(reporter, refresh) {
+  let options;
+  try {
+    options = unwrapData(await apiRequest("admin/reporter-options")) || {};
+  } catch (error) {
+    window.alert(`Reporter designations could not be loaded: ${error.message}`);
+    return;
+  }
+  const designations = (options.reporter_designations || [])
+    .filter((designation) => designation.is_active);
+  if (!designations.length) {
+    window.alert("Add an active reporter designation before changing this reporter's position.");
+    return;
+  }
+
+  openFormDialog(
+    "Change reporter designation",
+    "This updates the reporter's current position. If it changes, a new dated assignment-history record is created. Any previously issued service-agreement PDF remains unchanged and continues to show the designation recorded when it was issued.",
+    (form) => {
+      form.append(makeElement(
+        "p",
+        "admin-dialog-help",
+        `${reporter.full_name || reporter.email} · Reporter ID ${reporter.reporter_code}`
+      ));
+      const select = appendReporterSelect(
+        form,
+        "designation_id",
+        "Reporter designation",
+        designations,
+        (designation) => `${designation.name} · Code ${designation.designation_code}`
+      );
+      const currentId = String(reporter._current_designation_id || "");
+      if (designations.some((designation) => String(designation.id) === currentId)) {
+        select.value = currentId;
+      }
+    },
+    async (values) => {
+      await apiRequest(`admin/reporter-directory/${reporter.user_id}/designation`, "POST", {
+        designation_id: Number(values.get("designation_id"))
+      });
+      await refresh();
+    },
+    "Update designation"
+  );
 }
 
 function openCoverageDialog(data) {
@@ -1408,7 +1452,7 @@ function openStateDialog() {
 function openRtoDialog(states) {
   openFormDialog(
     "Add RTO / reporting area",
-    "Enter the RTO code without the State prefix (for example, 80); the system combines the State, RTO, and reporter type codes for reporter IDs.",
+    "Enter the RTO code without the State prefix (for example, 80); the system combines the State, RTO, and designation codes for reporter IDs.",
     (form) => {
       appendReporterSelect(form, "state_id", "State", states.filter((state) => state.is_active),
         (state) => `${state.state_name} (${state.state_code})`);
@@ -1458,7 +1502,8 @@ function renderAuditHistory(root, result) {
     ["articles", "Articles"],
     ["categories", "Categories"],
     ["locations", "Locations"],
-    ["reporter_types", "Reporter types"],
+    ["reporter_types", "Reporter ID categories"],
+    ["reporter_designations", "Reporter designations"],
     ["reporter_applications", "Reporter applications"],
     ["live_streams", "Live streams"],
     ["article_reports", "Article reports"],
@@ -1930,6 +1975,7 @@ function addRowActions(container, row, section) {
         window.alert("Reporter access is granted only after the applicant completes the reporter onboarding steps.");
         return;
       }
+
       try {
         await apiRequest(`admin/users/${id}/role`, "PATCH", { role: role.value });
         await refresh();
@@ -1944,6 +1990,16 @@ function addRowActions(container, row, section) {
         void openReporterAssignmentDialog(row, refresh);
       });
     }
+    return;
+  }
+
+  if (section === "reporter-directory") {
+    rowButton(container, "Change designation", () => {
+      void openReporterDesignationDialog(row, refresh);
+    });
+    rowButton(container, "Update assignment", () => {
+      void openReporterAssignmentDialog(row, refresh);
+    });
     return;
   }
 
@@ -2118,10 +2174,10 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (section === "reporter-types") {
+  if (section === "reporter-designations") {
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, row.is_active ? "Deactivate" : "Activate", () =>
-      void runAction(() => apiRequest(`admin/reporter-types/${id}`, "PATCH", { is_active: !row.is_active }), refresh)
+      void runAction(() => apiRequest(`admin/reporter-designations/${id}`, "PATCH", { is_active: !row.is_active }), refresh)
     );
   }
 }
@@ -2227,6 +2283,7 @@ function openConfiguredRecordDialog(section, existing) {
         input.name = field.name;
         if (field.type !== "textarea" && field.type !== "select") input.type = field.type;
         input.required = field.required !== false;
+        if (field.minLength) input.minLength = field.minLength;
         if (field.pattern) input.pattern = field.pattern;
         if (field.maxLength) input.maxLength = field.maxLength;
         if (field.type === "select") {
@@ -2252,6 +2309,9 @@ function openConfiguredRecordDialog(section, existing) {
     },
     async (formData) => {
       const payload = Object.fromEntries(formData.entries());
+      if (section === "reporter-designations") {
+        payload.is_active = form.elements.is_active.checked;
+      }
       if (section === "articles" && isEditing) {
         const reason = window.prompt("Reason for this admin article edit (required for audit history)");
         if (!reason || reason.trim().length < 2) {
@@ -2411,6 +2471,20 @@ async function openReporterPrivateDetailsDialog(application) {
 }
 
 async function openReporterServiceAgreementIssueDialog(application, refresh) {
+  let options;
+  try {
+    options = unwrapData(await apiRequest("admin/reporter-options")) || {};
+  } catch (error) {
+    window.alert(`Reporter designations could not be loaded: ${error.message}`);
+    return;
+  }
+  const designations = (options.reporter_designations || [])
+    .filter((item) => item.is_active);
+  if (!designations.length) {
+    window.alert("Configure at least one active reporter designation before issuing a service agreement.");
+    return;
+  }
+
   const dialog = document.createElement("dialog");
   dialog.className = "admin-json-dialog";
   const body = makeElement("section", "admin-json-form");
@@ -2420,9 +2494,23 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
     makeElement(
       "p",
       "admin-dialog-help",
-      "Preview a personalized PDF generated from the current template, verified company details, and this reporter's approved application. Draft templates can be previewed for review, but only a published template can be issued. Issuing does not itself record reporter acceptance."
+      "Assign or confirm the reporter's current position before generating the PDF. The PDF records the designation at issue time; later admin changes update the current designation without altering previously issued PDFs. Draft templates can be previewed, but only a published template can be issued."
     )
   );
+  const designationSelect = appendReporterSelect(
+    body,
+    "designation_id",
+    "Reporter designation",
+    designations,
+    (item) => `${item.name} · Code ${item.designation_code}`
+  );
+  const currentDesignationId = String(application.reporter_designation_id || application.reporter_designation?.id || "");
+  if (currentDesignationId) designationSelect.value = currentDesignationId;
+  body.append(makeElement(
+    "p",
+    "admin-dialog-help",
+    "This choice updates the reporter's current assignment history before the PDF is generated. It does not change account permissions or the stable reporter ID; previously issued PDFs remain unchanged."
+  ));
   const preview = makeElement("button", "admin-secondary-button", "Generate and preview reporter PDF");
   preview.type = "button";
   const publish = makeElement("button", "admin-primary-button", "Issue agreement to reporter");
@@ -2430,7 +2518,7 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   publish.disabled = true;
   const status = makeElement("p", "admin-dialog-help");
   status.setAttribute("role", "status");
-  status.textContent = "Generate the personalized PDF, review it, then issue it to this reporter. The reporter must accept this exact document before credentials can be issued.";
+  status.textContent = "Choose the designation, generate the personalized PDF, review it, then issue this exact document. The reporter must accept it before credentials can be issued.";
   let previewUrl = "";
   let previewWindow = null;
   let previewToken = "";
@@ -2457,6 +2545,15 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
     previewWindow.document.body.textContent = "Generating the personalized agreement PDF…";
     status.textContent = "Generating a personalized preview from the current template and reporter details…";
     try {
+      const designationId = Number(designationSelect.value);
+      if (!Number.isSafeInteger(designationId) || designationId < 1) {
+        throw new Error("Choose an active reporter designation before generating the agreement.");
+      }
+      await apiRequest(`admin/reporter-applications/${application.id}/designation`, "POST", {
+        designation_id: designationId
+      });
+      application.reporter_designation_id = designationId;
+      application.reporter_designation = designations.find((item) => Number(item.id) === designationId) || null;
       const response = await fetch(proxyUrl(`admin/reporter-applications/${application.id}/service-agreement/preview`), {
         cache: "no-store"
       });
@@ -2531,8 +2628,13 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
 
 async function openReporterReviewDialog(application, refresh) {
   try {
-    const result = await apiRequest(`admin/reporter-applications/${application.id}/private-details`);
+    const [result, optionsResult] = await Promise.all([
+      apiRequest(`admin/reporter-applications/${application.id}/private-details`),
+      apiRequest("admin/reporter-options")
+    ]);
     const privateData = result.data || {};
+    const options = unwrapData(optionsResult) || {};
+    const designations = (options.reporter_designations || []).filter((item) => item.is_active);
     const details = privateData.details || {};
     const documents = Array.isArray(privateData.documents) ? privateData.documents : [];
     const requestControls = [];
@@ -2544,12 +2646,36 @@ async function openReporterReviewDialog(application, refresh) {
         decisionLabel.append(makeElement("span", "", "Decision"));
         const decision = document.createElement("select");
         decision.name = "decision";
-        [["needs_information", "Request more information"], ["approve", "Approve"], ["reject", "Reject"]].forEach(([value, text]) => {
-          decision.append(new Option(text, value));
-        });
+        decision.append(new Option("Request more information", "needs_information"));
+        const approveOption = new Option("Approve", "approve");
+        approveOption.disabled = designations.length === 0;
+        decision.append(approveOption, new Option("Reject", "reject"));
         decisionLabel.append(decision);
         form.append(decisionLabel);
         addField(form, "Review note", "note", "text", "", { required: false, maxLength: 1000 });
+        const designationField = makeElement("div", "admin-application-designation-field");
+        const designationSelect = appendReporterSelect(
+          designationField,
+          "designation_id",
+          "Reporter designation",
+          designations,
+          (item) => `${item.name} · Code ${item.designation_code}`
+        );
+        const currentDesignationId = String(
+          application.reporter_designation_id || application.reporter_designation?.id || ""
+        );
+        if (designations.some((item) => String(item.id) === currentDesignationId)) {
+          designationSelect.value = currentDesignationId;
+        }
+        designationField.hidden = true;
+        form.append(designationField);
+        form.append(makeElement(
+          "p",
+          "admin-dialog-help",
+          designations.length
+            ? "Required when approving. This is the reporter's position, not an account permission. Its two-digit code is used in the new reporter ID (state-RTO-code-number) and the designation appears in the service agreement."
+            : "No active reporter designations are configured. Add one before approving an application."
+        ));
 
         const reviewerName = sessionIdentity?.full_name || sessionIdentity?.name || "Reviewer profile name missing";
         const reviewerDesignation = sessionIdentity?.role === "super_admin" ? "Super Administrator" : "Administrator";
@@ -2662,6 +2788,8 @@ async function openReporterReviewDialog(application, refresh) {
         const updateRequirements = () => {
           const approval = decision.value === "approve";
           const requestEnabled = decision.value === "needs_information";
+          designationField.hidden = !approval;
+          designationSelect.required = approval;
           form.elements.note.required = !approval;
           signature.required = approval;
           form.elements.note.placeholder = requestEnabled
@@ -2853,18 +2981,15 @@ async function openReporterAssignmentDialog(user, refresh) {
   }
   const states = (options.states || []).filter((state) => state.is_active);
   const rtos = (options.rtos || []).filter((rto) => rto.is_active);
-  const types = (options.reporter_types || []).filter((type) => type.is_active);
   openFormDialog(
     "Update reporter assignment",
-    "This changes the RTO and reporter type for an already-onboarded reporter. It does not grant reporter access or bypass the reporter application, service agreement, ID card, or authority-letter steps.",
+    "This changes the reporting area for an already-onboarded reporter while preserving their current designation and assignment history.",
     (form) => {
       form.append(makeElement("p", "admin-dialog-help", `${user.full_name || user.email} · ${user.email}`));
       const stateSelect = appendReporterSelect(form, "state_id", "State / UT", states,
         (state) => `${state.state_name} (${state.state_code})`);
       const rtoSelect = appendReporterSelect(form, "rto_office_id", "RTO / reporting area", [],
         (rto) => `${rto.rto_code}${rto.city_name ? ` · ${rto.city_name}` : ""}`);
-      appendReporterSelect(form, "reporter_type_id", "Reporter type", types,
-        (type) => `${type.name} (${type.type_code})`);
       stateSelect.addEventListener("change", () => {
         replaceValueOptions(
           rtoSelect,
@@ -2877,8 +3002,7 @@ async function openReporterAssignmentDialog(user, refresh) {
     async (values) => {
       const result = await apiRequest(`admin/users/${user.id}/reporter-assignment`, "POST", {
         state_id: Number(values.get("state_id")),
-        rto_office_id: Number(values.get("rto_office_id")),
-        reporter_type_id: Number(values.get("reporter_type_id"))
+        rto_office_id: Number(values.get("rto_office_id"))
       });
       await refresh();
       window.alert(`Reporter assignment updated. Reporter ID: ${result.data.reporter_code}`);

@@ -16,6 +16,7 @@ const tokenValues = new Set([
   "reporter.reporter_code",
   "reporter.rto",
   "reporter.state",
+  "reporter.designation",
   "reporter.type",
   "reporter.father_first_name",
   "reporter.father_last_name",

@@ -66,7 +66,7 @@ Requires Node.js 18 or newer.
    dated history, treats coverage areas as divisions under districts or cities,
    and connects admin reporter assignment updates and staff coverage to that
    hierarchy. Migration 0009 seeds states, the legacy Uttar Pradesh RTO
-   reporting areas, and the Tehsil Reporter type. Migration 0010 separates
+   reporting areas, and the legacy Tehsil Reporter reporter-ID category. Migration 0010 separates
    account signup from reporter applications, adds applicant-visible
    information requests, versioned service-agreement acceptance, and requires
    authority-letter acknowledgement before an approved reporter receives the
@@ -227,7 +227,7 @@ key and authenticated user tokens.
   profile editing, and password updates.
 - Admin management screens for reporter application review, moderation of
   article reports and comments, media catalog entries, YouTube stream listings,
-  locations, reporter types, and searchable, paginated, read-only audit history
+  locations, reporter designations, and searchable, paginated, read-only audit history
   with actor snapshots, request context, reasons, before/after field diffs, and
   CSV export of up to 10,000 filtered events per export.
 - Reporter desk for signed-in applicants to submit and track applications,
@@ -236,7 +236,7 @@ key and authenticated user tokens.
   credentials, and acknowledge authority letters. Public credential
   verification exposes only the credential record, status, and limited
   identity/scope details.
-- Reporter administration for application review, state/RTO/type-code setup,
+- Reporter administration for application review, state/RTO/reporter-ID category-code setup,
   stable reporter ID allocation, assignment and coverage history, personalized
   service-agreement template editing and generated-PDF previews, immutable
   versioning,
@@ -278,8 +278,23 @@ reviewed by counsel before publication. Editing and publishing replaces the
 active template for future issues, while previous versions and issued or
 accepted PDFs remain retained as legal history. To prepare an agreement, open
 the approved reporter's application and use **Preview / issue agreement**.
-Reporter type remains an internal assignment setting and is not shown in
-reporter-facing pages or documents. Review the seeded states and legacy Uttar
+Reporter designation is a position label, separate from account permissions.
+The admin must choose an active designation in the approval dialog; its
+two-digit code is used for new reporter IDs and the designation itself is
+included in the personalized service-agreement PDF. New reporter IDs use the
+format `state-RTO-code-number`, for example `up-80-01-0001`. Admins configure
+a unique two-digit code in **Reporter designations**, similar to the old
+reporter-type code. The legacy reporter-type field remains separate and does
+not determine the ID code. Codes are used with a per-RTO sequence, and old
+reporter IDs are never rewritten when a code changes. Admins can add and edit
+designations and deactivate labels that should no longer be offered for new
+assignments; existing reporter and agreement history is retained. The
+agreement template explains that designation is an
+administrative newsroom title that may change based on performance or newsroom
+needs, without by itself changing compensation or other agreement terms.
+Review this clause with counsel and publish an updated template before it takes
+effect; already-issued agreements remain unchanged historical records. Review
+the seeded states and legacy Uttar
 Pradesh RTOs; add RTO/reporting areas for other states as needed. Applicants create and
 verify a subscriber account, then complete the four-step reporter application:
 profile and emergency contact; State, City, and Area Coverage; cropped profile
@@ -300,13 +315,21 @@ request information, or approve/reject it. Approval creates the stable reporter
 code and assignment but does not activate newsroom access. A current issued service agreement must be accepted before credentials can be issued; the reporter
 acknowledges the valid authority letter before their account becomes a
 reporter. Admins cannot create or directly promote reporter accounts; they can
-update assignments for reporters who have completed onboarding. The recorded
+assign a designation while approving the application and update reporting
+areas or designation for any reporter who has completed onboarding. Designation
+changes create a new dated assignment-history record, including when an
+agreement has already been issued. Previously issued PDFs remain unchanged and
+show the designation recorded when they were issued; designation updates do not
+change account permissions or the stable reporter ID. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
 Coverage and reporter assignments are retained as dated history. Applying the
 SQL migrations is a manual Supabase dashboard step; apply all migrations in
 order, including 0040 (stored application-age snapshot), 0041 (per-reporter
-service-agreement issues), 0042 (single service-agreement workflow), and 0043
-(safe admin deletion of unused agreement versions), before deploying the
+service-agreement issues), 0042 (single service-agreement workflow), 0043
+(safe admin deletion of unused agreement versions), 0044 (admin-assigned
+reporter designations in service agreements), 0045 (admin updates to reporter
+designations and dated assignment history), and 0046 (designation codes and
+reporter-ID generation), before deploying the
 matching application code. The
 public site,
 account, reporter, credential, and newsroom pages use one shared site header and

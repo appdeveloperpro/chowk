@@ -42,6 +42,16 @@ the same area. The Reporter Code and any identity card remain Chowk’s property
 be used only for Chowk assignments, and must be returned or deactivated on request.
 2.4 The Reporter bears his or her own equipment, travel, communication, tax and
 personal-safety costs unless Chowk approves an expense in writing in advance.
+2.5 Any designation shown in Schedule A or on the Platform is an administrative
+newsroom title only. Chowk may assign, revise or withdraw a designation based on
+performance, experience, qualifications, editorial or coverage needs, or
+organizational requirements. A designation change does not by itself amend this
+Agreement, change the independent-contractor relationship, alter fees or the
+Assigned Area, or guarantee assignments or compensation. Any change to those
+terms must be made as provided elsewhere in this Agreement or in a separate
+written agreement. A previously issued agreement remains an unchanged record of
+the designation shown when it was issued; it does not prevent a later
+administrative designation change.
 3. Reporting standards
 3.1 The Reporter shall report only what he or she has personally seen or heard, or has
 verified through reliable sources.
@@ -263,6 +273,7 @@ costs are borne by {{company.trade_name}}.
 Schedule A - Reporter and engagement details
 Reporter ID: {{reporter.reporter_code}}
 Reporter name: {{reporter.full_name}}
+Designation: {{reporter.designation}}
 Parent's name: {{reporter.father_first_name}} {{reporter.father_last_name}}
 Permanent address: {{reporter.permanent_address}}
 Contact: {{reporter.phone}} · {{reporter.email}}

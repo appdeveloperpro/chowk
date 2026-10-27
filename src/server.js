@@ -9,6 +9,7 @@ const QRCode = require("qrcode");
 const {
   createReporterAgreementPdf,
   defaultReporterAgreementTemplate,
+  normalizeReporterServiceAgreementTemplate,
   reporterAgreementTemplateFields,
   reporterServiceAgreementTemplateFields,
   reporterServiceAgreementTokens,
@@ -665,9 +666,9 @@ async function reporterServiceAgreementContext(session) {
     supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256,template_content&status=eq.published&limit=1", { token: session.token }),
     supabaseRequest("/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified&id=eq.true&limit=1", { token: session.token }),
     supabaseRequest(`/rest/v1/profiles?select=full_name,phone&id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
-    supabaseRequest(`/rest/v1/reporter_application_private_details?select=father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,mobile_number,date_of_birth&application_id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/reporter_application_private_details?select=coverage_area_id,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,mobile_number,date_of_birth&application_id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/states?select=id,state_name,state_code&id=eq.${application.state?.id}&limit=1`, { token: session.token }),
-    supabaseRequest(`/rest/v1/rto_offices?select=id,state_id,rto_code,city_name&id=eq.${application.rto?.id}&state_id=eq.${application.state?.id}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/rto_offices?select=id,state_id,rto_code,city_name,location_id&id=eq.${application.rto?.id}&state_id=eq.${application.state?.id}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
     supabaseRequest(
       `/rest/v1/reporter_applications?select=reporter_designation:reporter_designations(name)&id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`,
@@ -699,6 +700,11 @@ async function reporterServiceAgreementContext(session) {
   const details = privateDetails.payload?.[0];
   const selectedState = state.payload?.[0];
   const selectedRto = rto.payload?.[0];
+  const assignedArea = await reporterAgreementCoverageArea(
+    session,
+    details?.coverage_area_id,
+    selectedRto?.location_id
+  );
   const designation = designationResult.payload?.[0]?.reporter_designation?.name;
   if (!designation) {
     throw Object.assign(new Error("An administrator must assign your reporter designation before the service agreement is prepared."), {
@@ -735,6 +741,8 @@ async function reporterServiceAgreementContext(session) {
     "company.trade_name": company.trade_name,
     "company.website_url": company.website_url || "Not provided",
     "reporter.city": selectedRto.city_name || selectedState.state_name,
+    "reporter.coverage_area": assignedArea.coverageArea,
+    "reporter.district": assignedArea.district,
     "reporter.email": session.identity.email || "Not provided",
     "reporter.full_name": reporter.full_name || session.identity.name || "Name not provided",
     "reporter.phone": reporter.phone || "Not provided",
@@ -794,6 +802,45 @@ async function ensureReporterServiceAgreementTemplate(session) {
     )),
     { statusCode: inserted.response.status }
   );
+}
+
+async function reporterAgreementCoverageArea(session, coverageAreaId, districtId) {
+  const ids = [coverageAreaId, districtId].map(Number);
+  if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+    throw Object.assign(
+      new Error("The approved application is missing its assigned Coverage Area or District. Review the reporter's application before preparing the agreement."),
+      { statusCode: 409 }
+    );
+  }
+  const [coverageAreaResult, districtResult] = await Promise.all([
+    supabaseRequest(
+      `/rest/v1/locations?select=id,name,location_type,parent_id&id=eq.${ids[0]}&limit=1`,
+      { token: session.token }
+    ),
+    supabaseRequest(
+      `/rest/v1/locations?select=id,name,location_type&id=eq.${ids[1]}&limit=1`,
+      { token: session.token }
+    )
+  ]);
+  for (const result of [coverageAreaResult, districtResult]) {
+    if (!result.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(result.payload, "The reporter's assigned Coverage Area and District could not be loaded.")),
+        { statusCode: result.response.status }
+      );
+    }
+  }
+  const coverageArea = coverageAreaResult.payload?.[0];
+  const district = districtResult.payload?.[0];
+  if (coverageArea?.location_type !== "coverage_area"
+      || district?.location_type !== "district"
+      || Number(coverageArea.parent_id) !== Number(district.id)) {
+    throw Object.assign(
+      new Error("The approved application's Coverage Area does not belong to its assigned District. Review the reporter's application before preparing the agreement."),
+      { statusCode: 409 }
+    );
+  }
+  return { coverageArea: coverageArea.name, district: district.name };
 }
 
 async function reporterServiceAgreementAdminContext(session, applicationId, { requirePublished = false } = {}) {
@@ -860,11 +907,11 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
   const [profileResult, detailsResult, stateResult, rtoResult, reporterProfileResult] = await Promise.all([
     supabaseRequest(`/rest/v1/profiles?select=id,full_name,email,phone&id=eq.${encodeURIComponent(application.user_id)}&limit=1`, { token: session.token }),
     supabaseRequest(
-      `/rest/v1/reporter_application_private_details?select=mobile_number,date_of_birth,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code&application_id=eq.${application.id}&user_id=eq.${encodeURIComponent(application.user_id)}&limit=1`,
+      `/rest/v1/reporter_application_private_details?select=coverage_area_id,mobile_number,date_of_birth,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code&application_id=eq.${application.id}&user_id=eq.${encodeURIComponent(application.user_id)}&limit=1`,
       { token: session.token }
     ),
     supabaseRequest(`/rest/v1/states?select=id,state_name,state_code&id=eq.${application.state_id}&limit=1`, { token: session.token }),
-    supabaseRequest(`/rest/v1/rto_offices?select=id,state_id,rto_code,city_name&id=eq.${application.rto_office_id}&state_id=eq.${application.state_id}&limit=1`, { token: session.token }),
+    supabaseRequest(`/rest/v1/rto_offices?select=id,state_id,rto_code,city_name,location_id&id=eq.${application.rto_office_id}&state_id=eq.${application.state_id}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/reporter_profiles?select=reporter_code&user_id=eq.${encodeURIComponent(application.user_id)}&limit=1`, { token: session.token })
   ]);
   for (const result of [profileResult, detailsResult, stateResult, rtoResult, reporterProfileResult]) {
@@ -885,6 +932,11 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
       { statusCode: 409 }
     );
   }
+  const assignedArea = await reporterAgreementCoverageArea(
+    session,
+    details.coverage_area_id,
+    rto.location_id
+  );
   const address = [
     details.permanent_address_line1,
     details.permanent_address_line2,
@@ -906,6 +958,8 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
     "company.trade_name": company.trade_name,
     "company.website_url": company.website_url || "Not provided",
     "reporter.city": rto.city_name || state.state_name,
+    "reporter.coverage_area": assignedArea.coverageArea,
+    "reporter.district": assignedArea.district,
     "reporter.email": profile.email || "Not provided",
     "reporter.full_name": profile.full_name || "Name not provided",
     "reporter.phone": profile.phone || details.mobile_number || "Not provided",
@@ -1483,7 +1537,9 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 200, {
         success: true,
         data: {
-          template_content: latestTemplate?.template_content || defaultReporterAgreementTemplate(),
+          template_content: normalizeReporterServiceAgreementTemplate(
+            latestTemplate?.template_content || defaultReporterAgreementTemplate()
+          ),
           based_on_version: latestTemplate?.version || null,
           latest_status: latestTemplate?.status || null,
           published_version: publishedTemplate?.version || null,
@@ -1532,6 +1588,8 @@ async function adminRoute(request, response, requestUrl, session) {
         "company.trade_name": company.trade_name,
         "company.website_url": company.website_url || "Not provided",
         "reporter.city": "Sample City",
+        "reporter.coverage_area": "Sample Coverage Area",
+        "reporter.district": "Sample District",
         "reporter.email": "sample.reporter@example.invalid",
         "reporter.full_name": "Sample Reporter",
         "reporter.phone": "0000000000",
@@ -1552,10 +1610,14 @@ async function adminRoute(request, response, requestUrl, session) {
         "reporter.date_of_birth": "1990-01-01",
         "reporter.mobile_number": "0000000000"
       };
-      const pdf = await createReporterAgreementPdf(body.template_content, sampleTokens, {
-        preview: true,
-        allowedTokens: reporterServiceAgreementTokens
-      });
+      const pdf = await createReporterAgreementPdf(
+        normalizeReporterServiceAgreementTemplate(body.template_content),
+        sampleTokens,
+        {
+          preview: true,
+          allowedTokens: reporterServiceAgreementTokens
+        }
+      );
       sendPdf(response, pdf, "reporter-service-agreement-admin-preview.pdf");
       return;
     }
@@ -1578,7 +1640,7 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: `Unknown dynamic agreement fields: ${unknownTokens.join(", ")}` });
         return;
       }
-      const template = body.template_content.trim();
+      const template = normalizeReporterServiceAgreementTemplate(body.template_content).trim();
       const result = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
         method: "POST",
         token,
@@ -2119,6 +2181,8 @@ async function adminRoute(request, response, requestUrl, session) {
           "company.trade_name": company.trade_name,
           "company.website_url": company.website_url || "Not provided",
           "reporter.city": "Sample City",
+          "reporter.coverage_area": "Sample Coverage Area",
+          "reporter.district": "Sample District",
           "reporter.email": "sample.reporter@example.invalid",
           "reporter.full_name": "Sample Reporter",
           "reporter.phone": "0000000000",
@@ -2679,10 +2743,14 @@ async function adminRoute(request, response, requestUrl, session) {
     );
     if (serviceAgreementIssue && request.method === "GET" && serviceAgreementIssue[2] === "preview") {
       const context = await reporterServiceAgreementAdminContext(session, Number(serviceAgreementIssue[1]));
-      const pdf = await createReporterAgreementPdf(context.agreement.template_content, context.tokens, {
-        preview: context.agreement.status !== "published",
-        allowedTokens: reporterServiceAgreementRenderTokens
-      });
+      const pdf = await createReporterAgreementPdf(
+        normalizeReporterServiceAgreementTemplate(context.agreement.template_content),
+        context.tokens,
+        {
+          preview: context.agreement.status !== "published",
+          allowedTokens: reporterServiceAgreementRenderTokens
+        }
+      );
       const now = Date.now();
       for (const [key, cachedPreview] of reporterServiceAgreementPreviews) {
         if (cachedPreview.expires_at <= now) reporterServiceAgreementPreviews.delete(key);
@@ -4526,7 +4594,11 @@ const server = http.createServer((request, response) => {
               sendJson(response, 400, { error: "Enter your account full name as the agreement signer." });
               return;
             }
-            const pdf = await createReporterAgreementPdf(context.agreement.template_content, context.tokens);
+            const pdf = await createReporterAgreementPdf(
+              normalizeReporterServiceAgreementTemplate(context.agreement.template_content),
+              context.tokens,
+              { allowedTokens: reporterServiceAgreementRenderTokens }
+            );
             const generatedDocument = await uploadReporterAgreementAcceptancePdf(
               pdf,
               session.identity.id,

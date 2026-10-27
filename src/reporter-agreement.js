@@ -32,6 +32,8 @@ const tokenValues = new Set([
 ]);
 const serviceTokenValues = new Set([
   ...[...tokenValues].filter((token) => token !== "reporter.type"),
+  "reporter.coverage_area",
+  "reporter.district",
   "company.official_email",
   "company.official_phone",
   "company.website_url",
@@ -57,6 +59,13 @@ const devanagariBoldFont = path.join(fontDirectory, "noto-sans-devanagari-devana
 
 function defaultReporterAgreementTemplate() {
   return fs.readFileSync(templatePath, "utf8");
+}
+
+function normalizeReporterServiceAgreementTemplate(template) {
+  return template.replace(
+    /^([ \t]*Assigned area:[ \t]*)\{\{reporter\.state\}\}[ \t]*\/[ \t]*\{\{reporter\.rto\}\}[ \t]*\/[ \t]*\{\{reporter\.city\}\}([ \t]*)\r?$/gim,
+    "$1{{reporter.coverage_area}} / {{reporter.district}} / {{reporter.state}}$2"
+  );
 }
 
 function unknownTemplateTokens(template, allowedTokens = tokenValues) {
@@ -161,6 +170,7 @@ function createReporterAgreementPdf(template, data, { preview = false, allowedTo
 module.exports = {
   createReporterAgreementPdf,
   defaultReporterAgreementTemplate,
+  normalizeReporterServiceAgreementTemplate,
   reporterAgreementTemplateFields: [...tokenValues]
     .filter((token) => token !== "reporter.type")
     .map((token) => `{{${token}}}`),

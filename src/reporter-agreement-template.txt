@@ -277,7 +277,7 @@ Designation: {{reporter.designation}}
 Parent's name: {{reporter.father_first_name}} {{reporter.father_last_name}}
 Permanent address: {{reporter.permanent_address}}
 Contact: {{reporter.phone}} · {{reporter.email}}
-Assigned area: {{reporter.state}} / {{reporter.rto}} / {{reporter.city}}
+Assigned area: {{reporter.coverage_area}} / {{reporter.district}} / {{reporter.state}}
 Fees: [Enter fees per accepted story or monthly retainer]
 Payment cycle: [Enter payment cycle]
 Payment details: Held securely on the Platform, not written here

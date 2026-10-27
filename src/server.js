@@ -104,24 +104,32 @@ async function credentialCardDetails(credential, token) {
   if (typeof userId !== "string"
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
     return {
-      coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", photo: "",
+      coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", memberSince: "—", photo: "",
       companyAddress: "", companyPhone: "", companyEmail: "", companyName: ""
     };
   }
 
-  const organizationResult = await supabaseRequest(
-    "/rest/v1/reporter_organization_profile?select=legal_name,registered_address,official_email,official_phone,is_verified&id=eq.true&limit=1",
-    { token }
-  );
-  if (!organizationResult.response.ok) {
+  const [organizationResult, profileResult] = await Promise.all([
+    supabaseRequest(
+      "/rest/v1/reporter_organization_profile?select=legal_name,registered_address,official_email,official_phone,is_verified&id=eq.true&limit=1",
+      { token }
+    ),
+    supabaseRequest(`/rest/v1/profiles?select=created_at&id=eq.${encodeURIComponent(userId)}&limit=1`, { token })
+  ]);
+  if (!organizationResult.response.ok || !profileResult.response.ok) {
+    const failedResult = !organizationResult.response.ok ? organizationResult : profileResult;
     throw Object.assign(
-      new Error(apiErrorMessage(organizationResult.payload, "Organization contact details could not be loaded for the ID card.")),
-      { statusCode: organizationResult.response.status }
+      new Error(apiErrorMessage(failedResult.payload, "ID card details could not be loaded.")),
+      { statusCode: failedResult.response.status }
     );
   }
   const organization = organizationResult.payload?.[0] || {};
+  const memberSinceValue = credential.member_since_snapshot || profileResult.payload?.[0]?.created_at || "";
   const fields = {
     coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", photo: "",
+    memberSince: memberSinceValue && !Number.isNaN(Date.parse(memberSinceValue))
+      ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(memberSinceValue))
+      : "—",
     companyAddress: organization.is_verified ? organization.registered_address || "" : "",
     companyPhone: organization.is_verified ? organization.official_phone || "" : "",
     companyEmail: organization.is_verified ? organization.official_email || "" : "",
@@ -161,11 +169,7 @@ async function credentialCardDetails(credential, token) {
         );
       }
       const details = privateDetails.payload?.[0] || {};
-      fields.emergencyContact = [
-        details.emergency_contact_name,
-        details.emergency_contact_relationship ? `(${details.emergency_contact_relationship})` : "",
-        details.emergency_contact_phone
-      ].filter(Boolean).join(" · ");
+      fields.emergencyContact = details.emergency_contact_phone || "";
       fields.bloodGroup = details.blood_group || "";
       applicationCoverageAreaId = details.coverage_area_id || "";
       photoPath = documents.payload?.[0]?.storage_path || "";
@@ -182,11 +186,7 @@ async function credentialCardDetails(credential, token) {
       );
     }
     const details = onboarding.payload?.[0] || {};
-    fields.emergencyContact = [
-      details.emergency_contact_name,
-      details.emergency_contact_relationship ? `(${details.emergency_contact_relationship})` : "",
-      details.emergency_contact_phone
-    ].filter(Boolean).join(" · ");
+    fields.emergencyContact = details.emergency_contact_phone || "";
     photoPath = details.profile_photo_path || "";
   }
 
@@ -261,11 +261,65 @@ async function credentialPrintPage(credential, request, token) {
   const cardDetails = credential.credential_type === "id_card"
     ? await credentialCardDetails(credential, token)
     : {
-      coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", photo: "",
+      coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", memberSince: "—", photo: "",
       companyAddress: "", companyPhone: "", companyEmail: "", companyName: ""
     };
   const isAuthorityLetter = credential.credential_type === "authority_letter";
+  if (isAuthorityLetter) {
+    const application = await supabaseRequest(
+      `/rest/v1/reporter_applications?select=id&user_id=eq.${encodeURIComponent(credential.subject_user_id_snapshot)}&status=in.(approved,active)&limit=1`,
+      { token }
+    );
+    if (!application.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(application.payload, "Reporter assignment details could not be loaded for the authority letter.")),
+        { statusCode: application.response.status }
+      );
+    }
+    const applicationId = application.payload?.[0]?.id;
+    if (applicationId) {
+      const details = await supabaseRequest(
+        `/rest/v1/reporter_application_private_details?select=coverage_area_id&application_id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(credential.subject_user_id_snapshot)}&limit=1`,
+        { token }
+      );
+      if (!details.response.ok) {
+        throw Object.assign(
+          new Error(apiErrorMessage(details.payload, "Reporter coverage could not be loaded for the authority letter.")),
+          { statusCode: details.response.status }
+        );
+      }
+      let locationId = details.payload?.[0]?.coverage_area_id || "";
+      for (let depth = 0; locationId && depth < 8; depth += 1) {
+        const location = await supabaseRequest(
+          `/rest/v1/locations?select=id,name,location_type,parent_id&id=eq.${encodeURIComponent(locationId)}&limit=1`,
+          { token }
+        );
+        if (!location.response.ok) {
+          throw Object.assign(
+            new Error(apiErrorMessage(location.payload, "Reporter coverage hierarchy could not be loaded for the authority letter.")),
+            { statusCode: location.response.status }
+          );
+        }
+        const row = location.payload?.[0];
+        if (!row) break;
+        if (row.location_type === "coverage_area") cardDetails.coverageArea = row.name || "";
+        if (row.location_type === "district") cardDetails.district = row.name || "";
+        if (row.location_type === "state") cardDetails.state = row.name || "";
+        locationId = row.parent_id || "";
+      }
+    }
+  }
   const authorityPending = credential.status === "pending_acceptance";
+  const authorityStatusLabel = authorityPending
+    ? "PENDING REPORTER ACKNOWLEDGMENT — THIS AUTHORITY IS NOT YET EFFECTIVE"
+    : credential.status === "active"
+      ? "STATUS: ACTIVE"
+      : `STATUS: ${String(credential.status || "UNKNOWN").replaceAll("_", " ").toUpperCase()}`;
+  const authorityDescription = authorityPending
+    ? "being issued this authority, subject to the reporter’s acknowledgment"
+    : credential.status === "active"
+      ? "authorized"
+      : `issued this authority, but it is currently ${String(credential.status || "unknown").replaceAll("_", " ")}`;
   const validFrom = escapeHtml(credential.valid_from);
   const validUntil = escapeHtml(credential.valid_until);
   const issuer = escapeHtml(credential.issued_by_name || credential.issued_by_name_snapshot || "CHOWK NEWSROOM");
@@ -279,17 +333,76 @@ async function credentialPrintPage(credential, request, token) {
     : `<div class="portrait portrait-empty" aria-label="Profile photo unavailable">CHOWK</div>`;
   const printStyles = isAuthorityLetter
     ? `@media print{body{padding:0;background:#fff}.card{width:100%;height:auto;min-height:0;margin:0;overflow:visible;border-radius:0;box-shadow:none}.actions{display:none}}`
-    : `@page{size:85.6mm 54mm;margin:0}@media print{body{padding:0;background:#fff}.card{width:85.6mm;height:54mm;min-height:0;margin:0;border:1px solid #d4d9e1;border-radius:3mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}.topline{height:1.4mm}header{height:11mm;padding:2.4mm 3mm}h1{font-size:11pt}header p{font-size:5.5pt;margin-top:1mm}.reference{font-size:5.5pt}.body{height:34mm;grid-template-columns:17mm minmax(0,1fr) 13mm;gap:2mm;padding:2.5mm 3mm}.portrait{width:17mm;height:23mm;border-width:.5mm;border-radius:1mm}.portrait-empty{font-size:5pt}.staff-name{font-size:8pt;margin-bottom:.5mm}.staff-role{font-size:5pt;margin-bottom:1.5mm}dl{grid-template-columns:19mm minmax(0,1fr);gap:1mm 1mm}dt{font-size:4.7pt}dd{font-size:4.8pt}.qr{width:12mm;height:12mm;padding:.5mm;border-radius:1mm}.qr-label{font-size:4pt;margin-top:.5mm}.footer{margin:0 3mm 1.5mm;padding-top:1mm;font-size:4pt;line-height:1.2}.actions{display:none}}`;
+    : `@page{size:54mm 85.6mm;margin:0}@media print{
+      body{padding:0;background:#fff}
+      .card{width:54mm;height:85.6mm;min-height:0;aspect-ratio:auto;margin:0;border:1px solid #d4d9e1;border-radius:3mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+      .topline{height:1.5mm}
+      .card-front>header{height:13mm;padding:2mm 2.5mm}
+      .card-front>header h1{font-size:9pt}
+      .card-front>header p{font-size:4pt;margin-top:.7mm;letter-spacing:.1em}
+      .reference{max-width:22mm;font-size:4pt;overflow-wrap:anywhere}
+      .card-front>.body{height:59mm;grid-template-columns:18mm minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto minmax(0,1fr);align-content:stretch;gap:1.5mm;padding:2.5mm}
+      .body>.portrait{grid-area:photo;width:18mm;height:27mm;border-width:.5mm;border-radius:1mm}
+      .portrait-empty{font-size:5pt}
+      .details{grid-area:details}
+      .staff-name{font-size:7.5pt;margin-bottom:.5mm}
+      .staff-role{font-size:4.2pt;margin-bottom:1.2mm}
+      dl{grid-template-columns:13mm minmax(0,1fr);gap:.8mm .5mm}
+      dt{font-size:4.1pt}
+      dd{font-size:4.2pt;line-height:1.2}
+      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 15mm;align-items:stretch;gap:1.5mm;min-height:0;padding:2mm;border:1px solid #e3e7ed;border-radius:1.5mm;background:#f8f9fb}
+      .card-meta{grid-template-columns:13mm minmax(0,1fr);align-content:space-evenly;align-self:stretch;gap:.8mm .5mm}
+      .qr-wrap{justify-self:end;align-self:center}
+      .qr{width:15mm;height:15mm;padding:.5mm;border-radius:1mm}
+      .qr-label{font-size:3.5pt;margin-top:.5mm}
+      .footer{margin:auto 2.5mm 2mm;padding-top:1mm;font-size:3.8pt;line-height:1.25}
+      .back-header{height:13mm;min-height:0;padding:2mm 2.5mm}
+      .back-header h1{font-size:8pt}
+      .back-header p{font-size:3.8pt;margin-top:.7mm}
+      .back-card{display:flex;flex-direction:column}
+      .terms{height:53mm;flex:none;grid-template-columns:1fr;align-content:start;gap:1.5mm;padding:2.5mm}
+      .terms p{font-size:5.2pt;line-height:1.25}
+      .terms b{margin-right:.5mm}
+      .back-contact{height:14mm;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1mm;margin:0 2.5mm 1mm;padding-top:1mm}
+      .contact-details,.signature-block,.issue-details{gap:.4mm;font-size:4pt;line-height:1.15}
+      .contact-details strong,.signature-block strong{font-size:4pt}
+      .signature-line{width:20mm;margin-bottom:.3mm}
+      .issue-details{text-align:left}
+      .issue-details strong{font-size:4pt}
+      .actions{display:none}
+    }`;
   const authorityContent = isAuthorityLetter
-    ? `<section class="authority-copy">
-        <h2>LETTER OF AUTHORITY</h2>
-        <p>${authorityPending
-          ? `This letter is issued to <strong>${escapeHtml(credential.name || credential.name_snapshot)}</strong> for acknowledgment. It does not take effect until the reporter acknowledges it.`
-          : `This letter confirms that <strong>${escapeHtml(credential.name || credential.name_snapshot)}</strong> is authorized to carry out reporting duties for CHOWK NEWSROOM within the coverage shown in this document, subject to the accepted service terms.`}</p>
-        <p>This authority is valid from <strong>${validFrom}</strong> through <strong>${validUntil}</strong>, is limited to the stated reporting coverage, and may be withdrawn or superseded by CHOWK NEWSROOM.</p>
-        <p>This letter is not proof of identity and does not grant account permissions. Verify its current status using the QR code and an independently verified newsroom contact channel.</p>
-        <div class="signature"><strong>${escapeHtml(credential.authorized_signer_name || "—")}</strong><span>${escapeHtml(credential.authorized_signer_designation || "Authorized signatory")}</span><span>${escapeHtml(credential.return_address || "—")}</span></div>
-      </section>`
+    ? `<article class="authority-letter">
+        <header class="authority-header">
+          <div><p class="authority-brand">CHOWK NEWSROOM</p><p class="authority-subtitle">OFFICIAL REPORTER AUTHORIZATION</p></div>
+          <div class="authority-qr"><img src="${qrImage}" alt="Scan to verify authority letter"><span>SCAN TO VERIFY</span></div>
+        </header>
+        <section class="authority-title">
+          <h1>LETTER OF AUTHORITY</h1>
+          <p>Reference: <strong>${escapeHtml(credential.reference_code)}</strong></p>
+        </section>
+        <p class="authority-alert${credential.status === "active" ? " authority-active" : ""}">${escapeHtml(authorityStatusLabel)}</p>
+        <p class="authority-date">Issued: <strong>${issuedDate}</strong></p>
+        <p>To whom it may concern,</p>
+        <p>CHOWK NEWSROOM confirms that <strong>${escapeHtml(credential.name || credential.name_snapshot)}</strong>${credential.reporter_code_snapshot ? ` (Reporter ID <strong>${escapeHtml(credential.reporter_code_snapshot)}</strong>)` : ""} is ${escapeHtml(authorityDescription)} to carry out reporting duties on behalf of CHOWK NEWSROOM, subject to the applicable service agreement and the limits below.</p>
+        <section class="authority-scope">
+          <h2>ASSIGNED COVERAGE</h2>
+          <dl>
+            <dt>Coverage area</dt><dd>${escapeHtml(cardDetails.coverageArea || "Not recorded")}</dd>
+            <dt>District</dt><dd>${escapeHtml(cardDetails.district || "Not recorded")}</dd>
+            <dt>State</dt><dd>${escapeHtml(cardDetails.state || scope.state_name || "Not recorded")}</dd>
+            <dt>Designation</dt><dd>${escapeHtml(scope.reporter_type || "Reporter")}</dd>
+            <dt>Service agreement</dt><dd>${escapeHtml(credential.service_agreement_version || "Not recorded")}</dd>
+          </dl>
+        </section>
+        <p>This authority is valid from <strong>${validFrom}</strong> through <strong>${validUntil}</strong>, only while its status is active, and may be withdrawn or superseded by CHOWK NEWSROOM. It is not government accreditation, does not grant police, administrative or legal powers, and does not confer any special privilege.</p>
+        <p>The holder must not seek or accept money, gifts or favours in exchange for coverage. Report any such request to the newsroom. Return this letter on request or when the engagement ends.</p>
+        <p>Verify the current status by scanning the QR code. This letter is not proof of identity; confirm the holder’s identity using an independently verified newsroom contact channel.</p>
+        <section class="authority-signature">
+          <div><span class="authority-signature-line"></span><strong>${escapeHtml(credential.authorized_signer_name || "—")}</strong><span>${escapeHtml(credential.authorized_signer_designation || "Authorized signatory")}</span></div>
+          <div class="authority-office"><strong>CHOWK NEWSROOM</strong><span>${escapeHtml(credential.return_address || "—")}</span></div>
+        </section>
+      </article>`
     : "";
   const backCard = isAuthorityLetter ? "" : `<article class="card back-card">
       <header class="back-header"><div><h1>Terms of this card</h1><p>${escapeHtml(cardDetails.companyName || "CHOWK NEWSROOM")}</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
@@ -314,38 +427,59 @@ async function credentialPrintPage(credential, request, token) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHOWK credential ${escapeHtml(credential.reference_code)}</title>
     <style>
       *{box-sizing:border-box}body{margin:0;padding:32px;background:#eef1f5;color:#18253d;font:14px Arial,sans-serif}
-      .card{width:min(820px,100%);min-height:460px;margin:24px auto;overflow:hidden;border:1px solid #dfe4ec;border-radius:16px;background:#fff;box-shadow:0 18px 48px #14233b20}
+      .card{width:min(360px,100%);height:auto;min-height:0;aspect-ratio:54/85.6;margin:24px auto;overflow:hidden;border:1px solid #dfe4ec;border-radius:16px;background:#fff;box-shadow:0 18px 48px #14233b20}
       .topline{height:8px;background:#ef6b2e}
-      header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 24px;background:#12213a;color:#fff}
-      h1{margin:0;font-size:21px;letter-spacing:.045em}header p{margin:5px 0 0;color:#d4dbe6;font-size:10px;font-weight:700;letter-spacing:.16em}
-      .reference{font-size:11px;font-weight:700;letter-spacing:.04em;text-align:right}
-      .body{display:grid;grid-template-columns:138px minmax(0,1fr) 116px;gap:20px;align-items:center;padding:22px 24px}
-      .portrait{display:block;width:138px;height:166px;object-fit:cover;border:3px solid #f2a06f;border-radius:10px;background:#f4f5f7}
+      header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;background:#12213a;color:#fff}
+      h1{margin:0;font-size:18px;letter-spacing:.045em}header p{margin:5px 0 0;color:#d4dbe6;font-size:9px;font-weight:700;letter-spacing:.12em}
+      .reference{max-width:145px;font-size:9px;font-weight:700;letter-spacing:.04em;text-align:right;overflow-wrap:anywhere}
+      .card-front{display:flex;flex-direction:column}
+      .card-front>.body{display:grid;flex:1;grid-template-columns:110px minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto minmax(0,1fr);align-content:stretch;align-items:stretch;gap:12px;padding:14px}
+      .body>.portrait{grid-area:photo;display:block;width:110px;height:135px;object-fit:cover;border:3px solid #f2a06f;border-radius:10px;background:#f4f5f7}
       .portrait-empty{display:grid;place-items:center;color:#8b96a8;font-size:13px;font-weight:800;letter-spacing:.08em}
-      .details{min-width:0}.staff-name{margin:0 0 4px;color:#17233a;font-size:20px;font-weight:800}
-      .staff-role{margin:0 0 14px;color:#df5f28;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-      dl{display:grid;grid-template-columns:112px minmax(0,1fr);gap:8px 10px;margin:0}
-      dt{color:#68758a;font-size:10px}dd{margin:0;overflow-wrap:anywhere;font-size:11px;font-weight:700}
-      .qr-wrap{text-align:center}.qr{width:108px;height:108px;padding:5px;border:1px solid #e1e6ed;border-radius:8px}
-      .qr-label{margin:5px 0 0;color:#68758a;font-size:9px;font-weight:700;letter-spacing:.08em}
-      .footer{margin:0 24px 20px;padding-top:12px;border-top:1px solid #e6e9ef;color:#68758a;font-size:9px;line-height:1.5}
-      .back-header{min-height:76px}.back-header h1{font-size:20px}.back-header p{margin-top:5px}
-      .terms{display:grid;grid-template-columns:1fr 1fr;gap:7px 22px;padding:20px 24px 12px}
-      .terms p{margin:0;color:#354258;font-size:12px;line-height:1.45}.terms b{color:#e9652b;margin-right:3px}
-      .back-contact{display:grid;grid-template-columns:1.4fr 1fr auto;gap:16px;align-items:end;margin:0 24px 18px;padding-top:12px;border-top:1px solid #e2e6ed}
-      .contact-details,.signature-block,.issue-details{display:grid;gap:4px;min-width:0;color:#526078;font-size:10px;line-height:1.35}
-      .contact-details strong,.signature-block strong{color:#18253d;font-size:9px;letter-spacing:.04em}
+      .details{grid-area:details;min-width:0}.staff-name{margin:0 0 4px;color:#17233a;font-size:18px;font-weight:800}
+      .staff-role{margin:0 0 9px;color:#df5f28;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+      dl{display:grid;grid-template-columns:66px minmax(0,1fr);gap:6px 6px;margin:0}
+      dt{color:#68758a;font-size:8px}dd{margin:0;overflow-wrap:anywhere;font-size:8px;line-height:1.25;font-weight:700}
+      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 82px;align-items:stretch;gap:12px;min-height:145px;padding:14px;border:1px solid #e3e7ed;border-radius:10px;background:#f8f9fb}
+      .card-meta{grid-template-columns:92px minmax(0,1fr);align-content:space-evenly;align-self:stretch;gap:8px}
+      .qr-wrap{justify-self:end;align-self:center;text-align:center}.qr{width:82px;height:82px;padding:5px;border:1px solid #e1e6ed;border-radius:8px}
+      .qr-label{margin:5px 0 0;color:#68758a;font-size:8px;font-weight:700;letter-spacing:.08em}
+      .footer{margin:auto 14px 14px;padding-top:9px;border-top:1px solid #e6e9ef;color:#68758a;font-size:8px;line-height:1.4}
+      .back-header{min-height:68px}.back-header h1{font-size:16px}.back-header p{margin-top:4px}
+      .back-card{display:flex;flex-direction:column}
+      .terms{display:grid;grid-template-columns:1fr;gap:9px;padding:16px 18px 10px}
+      .back-card .terms{flex:1;align-content:space-evenly}
+      .terms p{margin:0;color:#354258;font-size:10px;line-height:1.35}.terms b{color:#e9652b;margin-right:3px}
+      .back-contact{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;margin:0 18px 14px;padding-top:10px;border-top:1px solid #e2e6ed}
+      .contact-details,.signature-block,.issue-details{display:grid;gap:4px;min-width:0;color:#526078;font-size:9px;line-height:1.3}
+      .contact-details{grid-column:1/-1}
+      .contact-details strong,.signature-block strong{color:#18253d;font-size:8px;letter-spacing:.04em}
       .contact-details span,.signature-block span,.issue-details span{overflow-wrap:anywhere}
       .signature-line{width:125px;height:1px;margin-bottom:3px;background:#58657a}
-      .issue-details{text-align:right;white-space:nowrap}.issue-details strong{color:#18253d;font-size:10px}
-      .authority-copy{margin-top:28px;line-height:1.65}.authority-copy h2{font-size:16px;letter-spacing:.08em}.authority-copy p{margin:12px 0}
-      .signature{display:grid;gap:4px;margin-top:32px;padding-top:12px;border-top:1px solid #9aa3b2;max-width:320px}.signature span{color:#596579;font-size:12px}
+      .issue-details{text-align:right;white-space:normal}.issue-details strong{color:#18253d;font-size:9px}
+      .authority-letter{width:min(820px,100%);min-height:920px;margin:24px auto;padding:52px 60px;background:#fff;border:1px solid #dfe4ec;border-top:8px solid #ef6b2e;box-shadow:0 18px 48px #14233b20;font-size:14px;line-height:1.7}
+      .authority-header{display:flex;justify-content:space-between;align-items:center;padding:0 0 18px;border-bottom:2px solid #e8ebf0;background:#fff;color:#18253d}
+      .authority-brand{margin:0;color:#12213a;font-size:22px;font-weight:800;letter-spacing:.04em}
+      .authority-subtitle{margin:3px 0 0;color:#68758a;font-size:10px;font-weight:700;letter-spacing:.14em}
+      .authority-qr{display:grid;justify-items:center;gap:4px}.authority-qr img{width:88px;height:88px;padding:4px;border:1px solid #e1e6ed;border-radius:6px}.authority-qr span{font-size:8px;font-weight:700;letter-spacing:.08em;color:#68758a}
+      .authority-title{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-top:28px}
+      .authority-title h1{color:#12213a;font-size:20px;letter-spacing:.06em}.authority-title p,.authority-date{color:#526078;font-size:11px}
+      .authority-alert{margin:18px 0;padding:10px 12px;border-left:4px solid #df5f28;background:#fff3ec;color:#9a3914;font-size:11px;font-weight:800;letter-spacing:.04em}
+      .authority-active{border-color:#238253;background:#eef8f1;color:#17633f}
+      .authority-scope{margin:20px 0;padding:16px 18px;border:1px solid #dfe4ec;border-radius:8px;background:#f8f9fb}
+      .authority-scope h2{margin:0 0 10px;color:#df5f28;font-size:11px;letter-spacing:.1em}
+      .authority-scope dl{grid-template-columns:145px 1fr;gap:8px 14px}.authority-scope dt{font-size:12px}.authority-scope dd{font-size:12px}
+      .authority-signature{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:44px}
+      .authority-signature>div{display:grid;align-content:start;gap:3px;color:#526078;font-size:11px}
+      .authority-signature strong{color:#18253d}.authority-signature-line{width:220px;max-width:100%;height:1px;margin:0 0 7px;background:#526078}
+      .authority-office{padding-top:8px}
       .actions{display:flex;justify-content:center;margin:18px auto}.actions button{padding:12px 18px;border:0;border-radius:8px;background:#ed6b2e;color:#fff;font-weight:700;cursor:pointer}
-      @media screen and (max-width:640px){body{padding:10px}.card{margin:10px auto}.body{grid-template-columns:92px minmax(0,1fr);gap:14px;padding:18px}.portrait{width:92px;height:112px}.qr-wrap{grid-column:1;grid-row:2}.qr{width:82px;height:82px}.details{grid-column:2;grid-row:1 / span 2}dl{grid-template-columns:88px minmax(0,1fr);gap:8px 7px}.staff-name{font-size:17px}header{padding:15px 18px}.reference{max-width:110px;overflow-wrap:anywhere}}
-      @media screen and (max-width:640px){.terms{grid-template-columns:1fr;padding:18px}.back-contact{grid-template-columns:1fr 1fr}.contact-details{grid-column:1/-1}.issue-details{text-align:left}}
-      ${printStyles}
-      ${isAuthorityLetter ? "" : `@media print{.card-front{break-after:page;page-break-after:always}.back-card{break-after:auto;page-break-after:auto}.back-header{height:11mm;min-height:0;padding:2.4mm 3mm}.back-header h1{font-size:11pt}.back-header p{font-size:5pt}.terms{height:30mm;grid-template-columns:1fr 1fr;gap:1.2mm 3mm;padding:2mm 3mm 1mm}.terms p{font-size:5.3pt;line-height:1.25}.terms b{margin-right:.5mm}.back-contact{height:11mm;grid-template-columns:1.45fr 1fr auto;gap:2mm;margin:0 3mm 1mm;padding-top:1.2mm}.contact-details,.signature-block,.issue-details{gap:.5mm;font-size:4.5pt;line-height:1.2}.contact-details strong,.signature-block strong{font-size:4.5pt}.signature-line{width:22mm;margin-bottom:.5mm}.issue-details{text-align:right}.issue-details strong{font-size:4.5pt}}`}
-    </style></head><body><article class="card card-front">
+      @media screen and (max-width:640px){body{padding:10px}.card{width:min(360px,calc(100vw - 20px));margin:10px auto}.card-front>.body{grid-template-columns:88px minmax(0,1fr);gap:10px;padding:12px}.body>.portrait{width:88px;height:108px}.card-bottom{min-height:145px;gap:8px;padding:10px}.card-meta{grid-template-columns:82px minmax(0,1fr);gap:8px 5px}.staff-name{font-size:16px}header{padding:13px 14px}.reference{max-width:125px}}
+      ${isAuthorityLetter ? `@media screen and (max-width:640px){.authority-letter{min-height:0;margin:10px auto;padding:24px 20px}.authority-title{display:block}.authority-title p{margin-bottom:0}.authority-scope dl{grid-template-columns:110px 1fr}.authority-signature{grid-template-columns:1fr;gap:24px}}
+      @page{size:A4;margin:16mm}@media print{body{padding:0;background:#fff}.authority-letter{width:100%;min-height:0;margin:0;padding:0;border:0;border-top:5px solid #ef6b2e;box-shadow:none;font-size:10pt;line-height:1.55;print-color-adjust:exact;-webkit-print-color-adjust:exact}.authority-header{padding-bottom:10px}.authority-brand{font-size:18pt}.authority-subtitle{font-size:8pt}.authority-qr img{width:22mm;height:22mm}.authority-title{margin-top:18px}.authority-title h1{font-size:15pt}.authority-title p,.authority-date{font-size:8pt}.authority-alert{margin:12px 0;padding:7px 9px;font-size:8pt}.authority-scope{margin:14px 0;padding:10px 12px}.authority-scope h2{font-size:8pt}.authority-scope dl{grid-template-columns:36mm 1fr;gap:5px 10px}.authority-scope dt,.authority-scope dd{font-size:9pt}.authority-signature{margin-top:34px}.authority-signature>div{font-size:8pt}.actions{display:none}}`
+        : printStyles}
+      ${isAuthorityLetter ? "" : `@media print{.card-front{break-after:page;page-break-after:always}.back-card{break-after:auto;page-break-after:auto}.back-header{height:13mm;min-height:0;padding:2mm 2.5mm}.back-header h1{font-size:8pt}.back-header p{font-size:3.8pt}.terms{height:53mm;grid-template-columns:1fr;gap:1.5mm;padding:2.5mm}.terms p{font-size:5.2pt;line-height:1.25}.terms b{margin-right:.5mm}.back-contact{height:14mm;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1mm;margin:0 2.5mm 1mm;padding-top:1mm}.contact-details,.signature-block,.issue-details{gap:.4mm;font-size:4pt;line-height:1.15}.contact-details strong,.signature-block strong{font-size:4pt}.signature-line{width:20mm;margin-bottom:.3mm}.issue-details{text-align:left}.issue-details strong{font-size:4pt}}`}
+    </style></head><body>${isAuthorityLetter ? authorityContent : `<article class="card card-front">
       <div class="topline"></div>
       <header><div><h1>CHOWK NEWSROOM</h1><p>OFFICIAL STAFF ${escapeHtml(credential.credential_type || "CREDENTIAL").replaceAll("_", " ").toUpperCase()}</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
       <section class="body">${photo}<div class="details">
@@ -356,14 +490,15 @@ async function credentialPrintPage(credential, request, token) {
           <dt>Coverage area</dt><dd>${escapeHtml(cardDetails.coverageArea || "—")}</dd>
           <dt>District</dt><dd>${escapeHtml(cardDetails.district || "—")}</dd>
           <dt>State</dt><dd>${escapeHtml(cardDetails.state || scope.state_name || "—")}</dd>
+        </dl></div><div class="card-bottom"><dl class="card-meta">
           <dt>Emergency contact</dt><dd>${escapeHtml(cardDetails.emergencyContact || "—")}</dd>
           <dt>Blood group</dt><dd>${escapeHtml(cardDetails.bloodGroup || "Not provided")}</dd>
+          <dt>Member since</dt><dd>${escapeHtml(cardDetails.memberSince || "—")}</dd>
           <dt>Valid</dt><dd>${validFrom} – ${validUntil}</dd>
-          ${isAuthorityLetter ? `<dt>Service terms</dt><dd>Version ${escapeHtml(credential.service_agreement_version || "—")}</dd><dt>Authorized by</dt><dd>${escapeHtml(credential.authorized_signer_name || "—")} · ${escapeHtml(credential.authorized_signer_designation || "—")}</dd><dt>Contact</dt><dd>${escapeHtml(credential.return_address || "—")}</dd>` : ""}
-        </dl></div><div class="qr-wrap"><img class="qr" src="${qrImage}" alt="Credential verification QR code"><p class="qr-label">SCAN TO VERIFY</p></div></section>
-      ${authorityContent}
-      ${isAuthorityLetter ? "" : `<p class="footer">Credential status: ${escapeHtml(String(credential.status).replaceAll("_", " "))} · Issued by ${issuer}. Scan the QR code to verify current status; this ID card does not by itself establish the holder’s identity.</p>`}
-    </article>${backCard}<div class="actions"><button type="button" onclick="window.print()">Print / Save ${isAuthorityLetter ? "PDF" : "Both Sides"}</button></div></body></html>`;
+          <dt>Status</dt><dd>${escapeHtml(String(credential.status).replaceAll("_", " "))}</dd>
+        </dl><div class="qr-wrap"><img class="qr" src="${qrImage}" alt="Credential verification QR code"><p class="qr-label">SCAN TO VERIFY</p></div></div></section>
+      <p class="footer">Credential status: ${escapeHtml(String(credential.status).replaceAll("_", " "))} · Issued by ${issuer}. Scan the QR code to verify current status; this ID card does not by itself establish the holder’s identity.</p>
+    </article>${backCard}`}<div class="actions"><button type="button" onclick="window.print()">Print / Save ${isAuthorityLetter ? "Authority Letter" : "Both Sides"}</button></div></body></html>`;
 }
 
 async function renderVerifiedCredentialPrintPage(credential, request, token) {
@@ -2725,7 +2860,7 @@ async function adminRoute(request, response, requestUrl, session) {
     const printCredential = pathname.match(/^\/api\/admin\/reporter-credentials\/(\d+)\/print$/);
     if (printCredential && request.method === "GET") {
       const result = await supabaseRequest(
-        `/rest/v1/staff_credentials?select=credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,subject_user_id_snapshot,valid_from,valid_until,issued_by_name_snapshot,issued_by_role_snapshot,issued_at,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version:service_agreement_version_snapshot&id=eq.${printCredential[1]}&limit=1`,
+        `/rest/v1/staff_credentials?select=credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,subject_user_id_snapshot,member_since_snapshot,valid_from,valid_until,issued_by_name_snapshot,issued_by_role_snapshot,issued_at,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version:service_agreement_version_snapshot&id=eq.${printCredential[1]}&limit=1`,
         { token }
       );
       if (!result.response.ok || !result.payload?.[0]) {

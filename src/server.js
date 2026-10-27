@@ -336,13 +336,17 @@ async function credentialPrintPage(credential, request, token) {
     : `@page{size:54mm 85.6mm;margin:0}@media print{
       body{padding:0;background:#fff}
       .card{width:54mm;height:85.6mm;min-height:0;aspect-ratio:auto;margin:0;border:1mm solid #c9141d;border-radius:3mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-      .topline{height:1.5mm;background:#c9141d}
+      .topline{height:1.5mm;flex-shrink:0;background:#c9141d}
       .card>header,.back-header{background:#c9141d;color:#fff}
-      .card-front>header{height:13mm;padding:2mm 2.5mm}
-      .card-front>header h1{font-size:9pt}
-      .card-front>header p{font-size:4pt;margin-top:.7mm;letter-spacing:.1em}
+      .card-front>header{position:relative;height:11.5mm;flex-shrink:0;padding:1mm 2.5mm;justify-content:flex-start;text-align:left}
+      .card-front>header>div{display:flex;height:100%;flex-direction:column;justify-content:center;transform:translateY(-.75mm)}
+      .card-front>header h1{font-size:8pt}
+      .card-front>header p{font-size:3.5pt;margin-top:.4mm;letter-spacing:.1em}
+      .card-front>header .reference{position:absolute;right:2.5mm}
+      .card-brand{height:12.5mm;padding:1.5mm 2mm 0}
+      .card-brand img{max-width:36mm;max-height:10mm}
       .reference{max-width:22mm;font-size:4pt;overflow-wrap:anywhere}
-      .card-front>.body{height:59mm;grid-template-columns:18mm minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto minmax(0,1fr);align-content:stretch;gap:1.5mm;padding:2.5mm}
+      .card-front>.body{height:51mm;grid-template-columns:18mm minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto auto;align-content:space-between;gap:1mm;padding:1.5mm 2.5mm}
       .body>.portrait{grid-area:photo;width:18mm;height:27mm;border-width:.5mm;border-radius:1mm}
       .portrait-empty{font-size:5pt}
       .details{grid-area:details}
@@ -351,9 +355,9 @@ async function credentialPrintPage(credential, request, token) {
       dl{grid-template-columns:13mm minmax(0,1fr);gap:.8mm .5mm}
       dt{font-size:4.1pt}
       dd{font-size:4.2pt;line-height:1.2}
-      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 15mm;align-items:stretch;gap:1.5mm;min-height:0;padding:2mm;border:1px solid #f0c4c6;border-radius:1.5mm;background:#fff}
-      .card-meta{grid-template-columns:13mm minmax(0,1fr);align-content:space-evenly;align-self:stretch;gap:.8mm .5mm}
-      .qr-wrap{justify-self:end;align-self:center}
+      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 15mm;align-items:start;gap:1.5mm;min-height:0;padding:1.5mm;border:1px solid #f0c4c6;border-radius:1.5mm;background:#fff}
+      .card-meta{grid-template-columns:13mm minmax(0,1fr);align-content:start;align-self:start;gap:.8mm .5mm}
+      .qr-wrap{justify-self:end;align-self:start}
       .qr{width:15mm;height:15mm;padding:.5mm;border-radius:1mm}
       .qr-label{font-size:3.5pt;margin-top:.5mm}
       .footer{margin:auto 2.5mm 2mm;padding-top:1mm;border-color:#f0c4c6;font-size:3.8pt;line-height:1.25}
@@ -435,16 +439,22 @@ async function credentialPrintPage(credential, request, token) {
       h1{margin:0;font-size:18px;letter-spacing:.045em}header p{margin:5px 0 0;color:#d4dbe6;font-size:9px;font-weight:700;letter-spacing:.12em}
       .reference{max-width:145px;font-size:9px;font-weight:700;letter-spacing:.04em;text-align:right;overflow-wrap:anywhere}
       .card-front{display:flex;flex-direction:column}
-      .card-front>.body{display:grid;flex:1;grid-template-columns:110px minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto minmax(0,1fr);align-content:stretch;align-items:stretch;gap:12px;padding:14px}
+      .card-front>header{position:relative;height:60px;flex-shrink:0;padding:8px 14px;justify-content:flex-start;text-align:left}
+      .card-front>header>div{display:flex;height:100%;flex-direction:column;justify-content:center;transform:translateY(-4px)}
+      .card-front>header .reference{position:absolute;right:14px}
+      .card-front>header p{margin:3px 0 0;color:#fff;font-size:8px;letter-spacing:.1em}
+      .card-brand{display:flex;justify-content:center;align-items:center;height:100px;padding:10px 12px 0;background:#fff}
+      .card-brand img{display:block;width:260px;max-width:100%;height:auto;max-height:86px;object-fit:contain}
+      .card-front>.body{display:grid;flex:1;grid-template-columns:110px minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto auto;align-content:start;align-items:stretch;gap:12px;padding:14px}
       .body>.portrait{grid-area:photo;display:block;width:110px;height:135px;object-fit:cover;border:3px solid #c9141d;border-radius:10px;background:#f4f5f7}
       .portrait-empty{display:grid;place-items:center;color:#8b96a8;font-size:13px;font-weight:800;letter-spacing:.08em}
       .details{grid-area:details;min-width:0}.staff-name{margin:0 0 4px;color:#17233a;font-size:18px;font-weight:800}
       .staff-role{margin:0 0 9px;color:#c9141d;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
       dl{display:grid;grid-template-columns:66px minmax(0,1fr);gap:6px 6px;margin:0}
       dt{color:#68758a;font-size:8px}dd{margin:0;overflow-wrap:anywhere;font-size:8px;line-height:1.25;font-weight:700}
-      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 82px;align-items:stretch;gap:12px;min-height:145px;padding:14px;border:1px solid #f0c4c6;border-radius:10px;background:#fff}
-      .card-meta{grid-template-columns:92px minmax(0,1fr);align-content:space-evenly;align-self:stretch;gap:8px}
-      .qr-wrap{justify-self:end;align-self:center;text-align:center}.qr{width:82px;height:82px;padding:5px;border:1px solid #e1e6ed;border-radius:8px}
+      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 82px;align-items:start;gap:12px;min-height:160px;padding:14px;border:1px solid #f0c4c6;border-radius:10px;background:#fff}
+      .card-meta{grid-template-columns:92px minmax(0,1fr);align-content:start;align-self:start;gap:8px}
+      .qr-wrap{justify-self:end;align-self:start;text-align:center}.qr{width:82px;height:82px;padding:5px;border:1px solid #e1e6ed;border-radius:8px}
       .qr-label{margin:5px 0 0;color:#68758a;font-size:8px;font-weight:700;letter-spacing:.08em}
       .footer{margin:auto 14px 14px;padding-top:9px;border-top:1px solid #f0c4c6;color:#68758a;font-size:8px;line-height:1.4}
       .back-header{min-height:68px}.back-header h1{font-size:16px}.back-header p{margin-top:4px}
@@ -483,7 +493,8 @@ async function credentialPrintPage(credential, request, token) {
       ${isAuthorityLetter ? "" : `@media print{.card-front{break-after:page;page-break-after:always}.back-card{break-after:auto;page-break-after:auto}.back-header{height:13mm;min-height:0;padding:2mm 2.5mm}.back-header h1{font-size:8pt}.back-header p{font-size:3.8pt}.terms{height:53mm;grid-template-columns:1fr;gap:1.5mm;padding:2.5mm}.terms p{font-size:5.2pt;line-height:1.25}.terms b{margin-right:.5mm}.back-contact{height:14mm;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1mm;margin:0 2.5mm 1mm;padding-top:1mm}.contact-details,.signature-block,.issue-details{gap:.4mm;font-size:4pt;line-height:1.15}.contact-details strong,.signature-block strong{font-size:4pt}.signature-line{width:20mm;margin-bottom:.3mm}.issue-details{text-align:left}.issue-details strong{font-size:4pt}}`}
     </style></head><body>${isAuthorityLetter ? authorityContent : `<article class="card card-front">
       <div class="topline"></div>
-      <header><div><h1>CHOWK NEWSROOM</h1><p>OFFICIAL STAFF ${escapeHtml(credential.credential_type || "CREDENTIAL").replaceAll("_", " ").toUpperCase()}</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
+      <header><div><h1>PRESS</h1><p>OFFICIAL STAFF ID CARD</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
+      <div class="card-brand"><img src="/chowk-logo.png" alt="CHOWK News logo"></div>
       <section class="body">${photo}<div class="details">
         <h2 class="staff-name">${escapeHtml(credential.name || credential.name_snapshot)}</h2>
         <p class="staff-role">${escapeHtml(String(credential.role || credential.role_snapshot).replaceAll("_", " "))}${scope.designation ? ` · ${escapeHtml(scope.designation)}` : ""}</p>

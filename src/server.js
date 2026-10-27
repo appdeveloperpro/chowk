@@ -165,6 +165,46 @@ async function supabaseRequest(endpoint, options = {}) {
   return { response: result, payload };
 }
 
+async function deleteSupabaseAuthUser(userId) {
+  const { url } = supabaseConfig();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) {
+    throw Object.assign(
+      new Error("User deletion is not configured. Set SUPABASE_SERVICE_ROLE_KEY in the server environment."),
+      { statusCode: 503 }
+    );
+  }
+  const result = await fetch(`${url}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      Accept: "application/json"
+    },
+    signal: AbortSignal.timeout(apiTimeoutMs),
+    cache: "no-store"
+  });
+  const text = await result.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw Object.assign(
+        new Error(`Supabase Auth returned an invalid response (HTTP ${result.status}).`),
+        { statusCode: result.status }
+      );
+    }
+  }
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(payload, "The Supabase login account could not be deleted.")),
+      { statusCode: result.status }
+    );
+  }
+}
+
+
 async function signedMediaUrl(value, token) {
   if (typeof value !== "string"
       || !/^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:jpg|png|webp|avif|mp4|webm|mp3|m4a|ogg|wav)$/.test(value)) {
@@ -3049,6 +3089,83 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
         : { error: apiErrorMessage(result.payload, "Users could not be loaded.") });
+      return;
+    }
+
+    const userDelete = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+    if (userDelete && request.method === "DELETE") {
+      if (!isSameOrigin(request)) {
+        sendJson(response, 403, { error: "Cross-origin request rejected." });
+        return;
+      }
+
+      const targetUser = userDelete[1];
+      if (targetUser.toLowerCase() === session.identity.id.toLowerCase()) {
+        sendJson(response, 400, { error: "You cannot delete your own account." });
+        return;
+      }
+
+      const assets = await supabaseRequest("/rest/v1/rpc/chowk_admin_user_deletion_assets", {
+        method: "POST",
+        token,
+        body: { target_user: targetUser }
+      });
+      if (!assets.response.ok) {
+        sendJson(response, assets.response.status, {
+          error: apiErrorMessage(assets.payload, "User account could not be prepared for deletion.")
+        });
+        return;
+      }
+      if (assets.payload?.role === "super_admin") {
+        sendJson(response, 403, { error: "Super admin accounts cannot be deleted here." });
+        return;
+      }
+
+      try {
+        await deleteSupabaseAuthUser(targetUser);
+      } catch (error) {
+        sendJson(response, error.statusCode || 502, {
+          error: error.message || "The Supabase login account could not be deleted."
+        });
+        return;
+      }
+
+      const applicationPaths = Array.isArray(assets.payload?.application_document_paths)
+        ? assets.payload.application_document_paths
+        : [];
+      const agreementPaths = Array.isArray(assets.payload?.agreement_document_paths)
+        ? assets.payload.agreement_document_paths
+        : [];
+      const cleanupErrors = [];
+      for (const objectPath of applicationPaths) {
+        try {
+          await removeReporterApplicationDocument(objectPath, targetUser, token, { allowMissing: true });
+        } catch (error) {
+          console.error(`Could not remove a private document for deleted user ${targetUser}:`, error.message);
+          cleanupErrors.push(error);
+        }
+      }
+      for (const objectPath of agreementPaths) {
+        try {
+          if (typeof objectPath !== "string"
+              || !/^(?:application|service)\/[0-9a-f-]{36}\.pdf$|^acceptance\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.pdf$/.test(objectPath)) {
+            throw new Error("The stored agreement document reference is invalid.");
+          }
+          await removeReporterAgreementPdf(objectPath, token);
+        } catch (error) {
+          console.error(`Could not remove an agreement document for deleted user ${targetUser}:`, error.message);
+          cleanupErrors.push(error);
+        }
+      }
+      if (cleanupErrors.length) {
+        sendJson(response, 207, {
+          success: false,
+          user_deleted: true,
+          cleanup_warning: "The login and profile were deleted, but one or more private files could not be removed from storage. Contact support for cleanup."
+        });
+        return;
+      }
+      sendJson(response, 200, { success: true });
       return;
     }
 

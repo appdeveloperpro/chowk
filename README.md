@@ -16,11 +16,13 @@ Requires Node.js 18 or newer.
    ```dotenv
    SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
    SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
+   SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_SERVICE_ROLE_KEY
    ```
 
-   Never use a `service_role` or `sb_secret_...` key in the browser, this app,
-   or Git. The Node server uses only the publishable/anon key; PostgreSQL RLS
-   enforces access.
+   The service-role key is required only for permanent admin user deletion. Keep
+   it in the server environment only; never expose it to browser code or commit
+   it to Git. Normal database requests continue to use the publishable/anon key
+   with PostgreSQL RLS.
 
 3. In the Supabase dashboard for the blank Chowk project, open **SQL Editor**,
    create a new query, paste `supabase/migrations/0001_chowk_portal.sql`, and
@@ -92,9 +94,8 @@ Requires Node.js 18 or newer.
    never accept an unmasked copy. Migration 0016 makes preferred reporting
    locations mandatory while leaving existing application records intact.
    Migration 0017 adds audited admin deletion for applications that have not
-   been approved; deletion also removes their private uploads. Approved or
-   active reporters are not deletable from the application queue so their
-   access and credential history cannot be accidentally orphaned. Migration
+   been approved; migration 0052 extends this to approved applications while
+   ending reporter access and revoking credentials. Migration
    0018 adds Range as a parentable level in the admin newsroom location
    directory without changing the separate State and City/RTO reporter data.
    Migration 0019 requires new or updated range locations to have an active
@@ -159,7 +160,13 @@ Requires Node.js 18 or newer.
    service-agreement templates and acceptance receipts; 0040 stores age
    calculated at the application date; 0041 adds admin-issued, per-reporter
    service-agreement PDFs and gates credential issuance on acceptance of the
-   current issued copy.
+   current issued copy. Migration 0051 repairs persistence of required reporter
+   mobile, date-of-birth and Coverage Area fields. Migration 0052 permits
+   confirmed deletion of approved reporter applications while revoking access
+   and credentials. Migration 0053 enables admin deletion of non-super-admin
+   accounts, cascades account-owned records, and retains audit/history records
+   where their foreign keys already support anonymization. Apply 0051, 0052
+   and 0053 in order.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -348,13 +355,14 @@ non-production Supabase project first.
 ## Environment and deployment
 
 `.env` is ignored by Git. `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` must be
-set in Hostinger's private application environment before deployment. Do not
-commit `.env`, database passwords, service-role keys, or other secrets. Keep
-local development on the same project only while it is still empty or after
-confirming its data is backed up.
+set in Hostinger's private application environment before deployment.
+`SUPABASE_SERVICE_ROLE_KEY` is additionally required for permanent admin user
+deletion and must remain server-only. Do not commit `.env`, database passwords,
+service-role keys, or other secrets. Keep local development on the same project
+only while it is still empty or after confirming its data is backed up.
 
 Configure Hostinger to deploy the dedicated Chowk portal repository with
-`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
-`NODE_ENV=production` in the hosting environment, install dependencies with
-`npm ci`, and use the host-provided `PORT`. Do not upload `.env` or commit it
-to Git.
+`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `NODE_ENV=production` in the hosting
+environment, install dependencies with `npm ci`, and use the host-provided
+`PORT`. Do not upload `.env` or commit it to Git.

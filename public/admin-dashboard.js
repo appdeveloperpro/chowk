@@ -1985,6 +1985,21 @@ function addRowActions(container, row, section) {
       }
     });
     container.append(role);
+    if (row.role !== "super_admin"
+        && String(row.id).toLowerCase() !== sessionIdentity?.id?.toLowerCase()) {
+      rowButton(container, "Delete user", () => {
+        const displayName = row.full_name && row.full_name !== "\u2014"
+          ? row.full_name
+          : row.email || id;
+        void confirmAdminAction(
+          "Permanently delete user account?",
+          `Delete ${displayName}'s ${row.role.replace("_", " ")} login and profile permanently? Reporter applications and private documents will be removed. Article and comment history will be retained without identifying the account where possible. Super admin accounts and your own account cannot be deleted. This cannot be undone.`
+        ).then((confirmed) => {
+          if (!confirmed) return;
+          void runAction(() => apiRequest(`admin/users/${id}`, "DELETE"), refresh);
+        });
+      }, "admin-row-button danger");
+    }
     if (row.role === "reporter") {
       rowButton(container, "Update assignment", () => {
         void openReporterAssignmentDialog(row, refresh);
@@ -2120,22 +2135,22 @@ function addRowActions(container, row, section) {
     if (["pending", "needs_information"].includes(row.status)) {
       rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
     }
-    if (["pending", "needs_information", "rejected"].includes(row.status)) {
-      rowButton(container, "Delete application", () => {
-        const applicant = row.applicant_name && row.applicant_name !== "—"
-          ? row.applicant_name
-          : row.email || `application #${id}`;
-        void confirmAdminAction(
-          "Delete reporter application?",
-          `Permanently delete ${applicant}'s ${row.status.replace("_", " ")} application and its private documents? The account itself will remain unchanged. This action cannot be undone.`
-        ).then((confirmed) => {
-          if (!confirmed) return;
-          void runAction(() => apiRequest(`admin/reporter-applications/${id}`, "DELETE"), refresh);
-        });
-      }, "admin-row-button danger");
-    } else {
-      container.append(makeElement("small", "admin-row-note", "Deletion is disabled after approval to preserve reporter access and credential history."));
-    }
+    rowButton(container, "Delete application", () => {
+      const applicant = row.applicant_name && row.applicant_name !== "\u2014"
+        ? row.applicant_name
+        : row.email || `application #${id}`;
+      const approved = ["approved", "active"].includes(row.status);
+      const consequences = approved
+        ? " This also revokes the reporter's credentials, ends active assignments, removes the reporter profile, and returns the account to subscriber access. Credential and assignment history is retained."
+        : " The account itself will remain unchanged.";
+      void confirmAdminAction(
+        "Delete reporter application?",
+        `Permanently delete ${applicant}'s ${row.status.replace("_", " ")} application and its private documents?${consequences} This action cannot be undone.`
+      ).then((confirmed) => {
+        if (!confirmed) return;
+        void runAction(() => apiRequest(`admin/reporter-applications/${id}`, "DELETE"), refresh);
+      });
+    }, "admin-row-button danger");
     return;
   }
 

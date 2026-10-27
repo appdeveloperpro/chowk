@@ -2528,12 +2528,12 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   ));
   const preview = makeElement("button", "admin-secondary-button", "Generate and preview reporter PDF");
   preview.type = "button";
-  const publish = makeElement("button", "admin-primary-button", "Issue agreement to reporter");
+  const publish = makeElement("button", "admin-primary-button", "Generate preview before issuing");
   publish.type = "button";
   publish.disabled = true;
   const status = makeElement("p", "admin-dialog-help");
   status.setAttribute("role", "status");
-  status.textContent = "Choose the designation, generate the personalized PDF, review it, then issue this exact document. The reporter must accept it before credentials can be issued.";
+  status.textContent = "Step 1: choose the designation and select “Generate and preview reporter PDF.” Step 2: review the PDF in the new tab. Step 3: return here to issue it. Issuing stays disabled until a published-template preview succeeds.";
   let previewUrl = "";
   let previewWindow = null;
   let previewToken = "";
@@ -2546,7 +2546,9 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
     }
     nextPreviewWindow.opener = null;
     preview.disabled = true;
+    preview.textContent = "Generating preview…";
     publish.disabled = true;
+    publish.textContent = "Generate preview before issuing";
     previewToken = "";
     previewIsPublished = false;
     if (previewWindow && !previewWindow.closed) previewWindow.close();
@@ -2594,6 +2596,9 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
       agreementPreviewUrls.add(previewUrl);
       previewWindow.location.replace(previewUrl);
       publish.disabled = !previewIsPublished;
+      publish.textContent = previewIsPublished
+        ? "Issue agreement to reporter"
+        : "Publish template before issuing";
       status.textContent = previewIsPublished
         ? "Preview opened in a new tab. Review the full-size PDF, then return here to issue this exact copy to the reporter."
         : "Draft preview opened in a new tab for review. It cannot be issued until the template is finalized and published.";
@@ -2603,31 +2608,36 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
       status.textContent = `Preview failed: ${error.message}`;
     } finally {
       preview.disabled = false;
+      preview.textContent = "Generate and preview reporter PDF";
     }
   });
   publish.addEventListener("click", async () => {
     if (!previewIsPublished || !previewToken) {
       status.textContent = "Only a preview generated from the currently published template can be issued.";
       publish.disabled = true;
+      publish.textContent = "Generate preview before issuing";
       return;
     }
     publish.disabled = true;
     preview.disabled = true;
+    publish.textContent = "Issuing agreement…";
     status.textContent = "Issuing the reviewed agreement to the reporter…";
     try {
       await apiRequest(`admin/reporter-applications/${application.id}/service-agreement/publish`, "POST", {
         preview_token: previewToken
       });
       status.textContent = "The personalized agreement was issued and is now available to the reporter.";
-      publish.disabled = true;
       previewToken = "";
-      await refresh();
+      dialog.close();
     } catch (error) {
       previewToken = "";
       status.textContent = `Publish failed: ${error.message} Generate and review a fresh preview before trying again.`;
       publish.disabled = true;
+      publish.textContent = "Generate a new preview to retry";
       preview.disabled = false;
+      return;
     }
+    await refresh();
   });
   const close = makeElement("button", "admin-secondary-button", "Close");
   close.type = "button";

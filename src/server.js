@@ -99,7 +99,157 @@ function requestOrigin(request) {
     || `${request.headers["x-forwarded-proto"]?.split(",")[0].trim() || (request.socket.encrypted ? "https" : "http")}://${request.headers["x-forwarded-host"]?.split(",")[0].trim() || request.headers.host}`;
 }
 
-async function credentialPrintPage(credential, request) {
+async function credentialCardDetails(credential, token) {
+  const userId = credential.subject_user_id_snapshot;
+  if (typeof userId !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return {
+      coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", photo: "",
+      companyAddress: "", companyPhone: "", companyEmail: "", companyName: ""
+    };
+  }
+
+  const organizationResult = await supabaseRequest(
+    "/rest/v1/reporter_organization_profile?select=legal_name,registered_address,official_email,official_phone,is_verified&id=eq.true&limit=1",
+    { token }
+  );
+  if (!organizationResult.response.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(organizationResult.payload, "Organization contact details could not be loaded for the ID card.")),
+      { statusCode: organizationResult.response.status }
+    );
+  }
+  const organization = organizationResult.payload?.[0] || {};
+  const fields = {
+    coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", photo: "",
+    companyAddress: organization.is_verified ? organization.registered_address || "" : "",
+    companyPhone: organization.is_verified ? organization.official_phone || "" : "",
+    companyEmail: organization.is_verified ? organization.official_email || "" : "",
+    companyName: organization.is_verified ? organization.legal_name || "" : ""
+  };
+  let photoPath = "";
+  let coverageAreaId = "";
+  let applicationCoverageAreaId = "";
+  if (credential.role_snapshot === "reporter") {
+    const application = await supabaseRequest(
+      `/rest/v1/reporter_applications?select=id&user_id=eq.${encodeURIComponent(userId)}&status=in.(approved,active)&limit=1`,
+      { token }
+    );
+    if (!application.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(application.payload, "Reporter identity details could not be loaded for the ID card.")),
+        { statusCode: application.response.status }
+      );
+    }
+    const approvedApplication = application.payload?.[0];
+    if (approvedApplication) {
+      const [privateDetails, documents] = await Promise.all([
+        supabaseRequest(
+          `/rest/v1/reporter_application_private_details?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,blood_group,coverage_area_id&application_id=eq.${encodeURIComponent(approvedApplication.id)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`,
+          { token }
+        ),
+        supabaseRequest(
+          `/rest/v1/reporter_application_documents?select=storage_path&application_id=eq.${encodeURIComponent(approvedApplication.id)}&user_id=eq.${encodeURIComponent(userId)}&document_type=eq.profile_photo&limit=1`,
+          { token }
+        )
+      ]);
+      if (!privateDetails.response.ok || !documents.response.ok) {
+        const failed = !privateDetails.response.ok ? privateDetails : documents;
+        throw Object.assign(
+          new Error(apiErrorMessage(failed.payload, "Reporter ID card details could not be loaded.")),
+          { statusCode: failed.response.status }
+        );
+      }
+      const details = privateDetails.payload?.[0] || {};
+      fields.emergencyContact = [
+        details.emergency_contact_name,
+        details.emergency_contact_relationship ? `(${details.emergency_contact_relationship})` : "",
+        details.emergency_contact_phone
+      ].filter(Boolean).join(" · ");
+      fields.bloodGroup = details.blood_group || "";
+      applicationCoverageAreaId = details.coverage_area_id || "";
+      photoPath = documents.payload?.[0]?.storage_path || "";
+    }
+  } else {
+    const onboarding = await supabaseRequest(
+      `/rest/v1/staff_onboarding?select=emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,profile_photo_path&user_id=eq.${encodeURIComponent(userId)}&limit=1`,
+      { token }
+    );
+    if (!onboarding.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(onboarding.payload, "Staff ID card details could not be loaded.")),
+        { statusCode: onboarding.response.status }
+      );
+    }
+    const details = onboarding.payload?.[0] || {};
+    fields.emergencyContact = [
+      details.emergency_contact_name,
+      details.emergency_contact_relationship ? `(${details.emergency_contact_relationship})` : "",
+      details.emergency_contact_phone
+    ].filter(Boolean).join(" · ");
+    photoPath = details.profile_photo_path || "";
+  }
+
+  const assignment = await supabaseRequest(
+    `/rest/v1/user_coverage_assignments?select=coverage_area_id,district_id,city_id,zone_id&user_id=eq.${encodeURIComponent(userId)}&valid_to=is.null&order=valid_from.desc&limit=1`,
+    { token }
+  );
+  if (!assignment.response.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(assignment.payload, "Assigned coverage could not be loaded for the ID card.")),
+      { statusCode: assignment.response.status }
+    );
+  }
+  const assignedLocation = assignment.payload?.[0];
+  coverageAreaId = assignedLocation?.coverage_area_id
+    || applicationCoverageAreaId
+    || assignedLocation?.district_id
+    || assignedLocation?.city_id
+    || assignedLocation?.zone_id;
+
+  let locationId = coverageAreaId;
+  for (let depth = 0; locationId && depth < 8; depth += 1) {
+    const location = await supabaseRequest(
+      `/rest/v1/locations?select=id,name,location_type,parent_id&id=eq.${encodeURIComponent(locationId)}&limit=1`,
+      { token }
+    );
+    if (!location.response.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(location.payload, "Coverage location details could not be loaded for the ID card.")),
+        { statusCode: location.response.status }
+      );
+    }
+    const row = location.payload?.[0];
+    if (!row) break;
+    if (row.location_type === "coverage_area") fields.coverageArea = row.name || "";
+    if (row.location_type === "district") fields.district = row.name || "";
+    if (row.location_type === "state") fields.state = row.name || "";
+    locationId = row.parent_id || "";
+  }
+
+  if (photoPath) {
+    const imageUrl = credential.role_snapshot === "reporter"
+      ? await signedReporterApplicationDocumentUrl(photoPath, token)
+      : await signedStaffProfilePhotoUrl(photoPath, userId, token);
+    const imageResponse = await fetch(imageUrl, {
+      signal: AbortSignal.timeout(apiTimeoutMs),
+      cache: "no-store"
+    });
+    const contentType = imageResponse.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (!imageResponse.ok || !["image/jpeg", "image/png"].includes(contentType)) {
+      throw new Error("The ID card photo could not be downloaded as a JPEG or PNG image.");
+    }
+    const image = Buffer.from(await imageResponse.arrayBuffer());
+    if (image.length > 5 * 1024 * 1024) {
+      throw new Error("The ID card photo is larger than the allowed 5 MB.");
+    }
+    fields.photo = `data:${contentType};base64,${image.toString("base64")}`;
+  }
+
+  return fields;
+}
+
+async function credentialPrintPage(credential, request, token) {
   const verificationUrl = new URL("/credential", requestOrigin(request));
   verificationUrl.searchParams.set("token", credential.verification_token);
   const qrImage = await QRCode.toDataURL(verificationUrl.toString(), {
@@ -108,15 +258,28 @@ async function credentialPrintPage(credential, request) {
     width: 256
   });
   const scope = credential.scope || credential.scope_snapshot || {};
-  const scopeText = [
-    scope.state_name, scope.rto_code, scope.city_name,
-    scope.coverage_name
-  ].filter(Boolean).join(" · ") || "Newsroom";
+  const cardDetails = credential.credential_type === "id_card"
+    ? await credentialCardDetails(credential, token)
+    : {
+      coverageArea: "", district: "", state: "", emergencyContact: "", bloodGroup: "", photo: "",
+      companyAddress: "", companyPhone: "", companyEmail: "", companyName: ""
+    };
   const isAuthorityLetter = credential.credential_type === "authority_letter";
   const authorityPending = credential.status === "pending_acceptance";
   const validFrom = escapeHtml(credential.valid_from);
   const validUntil = escapeHtml(credential.valid_until);
   const issuer = escapeHtml(credential.issued_by_name || credential.issued_by_name_snapshot || "CHOWK NEWSROOM");
+  const signatoryName = escapeHtml(credential.authorized_signer_name || credential.issued_by_name_snapshot || "Authorized signatory");
+  const signatoryDesignation = escapeHtml(credential.authorized_signer_designation || "Authorized signatory");
+  const issuedDate = credential.issued_at && !Number.isNaN(Date.parse(credential.issued_at))
+    ? escapeHtml(new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(credential.issued_at)))
+    : "—";
+  const photo = cardDetails.photo
+    ? `<img class="portrait" src="${cardDetails.photo}" alt="${escapeHtml(credential.name || credential.name_snapshot)}">`
+    : `<div class="portrait portrait-empty" aria-label="Profile photo unavailable">CHOWK</div>`;
+  const printStyles = isAuthorityLetter
+    ? `@media print{body{padding:0;background:#fff}.card{width:100%;height:auto;min-height:0;margin:0;overflow:visible;border-radius:0;box-shadow:none}.actions{display:none}}`
+    : `@page{size:85.6mm 54mm;margin:0}@media print{body{padding:0;background:#fff}.card{width:85.6mm;height:54mm;min-height:0;margin:0;border:1px solid #d4d9e1;border-radius:3mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}.topline{height:1.4mm}header{height:11mm;padding:2.4mm 3mm}h1{font-size:11pt}header p{font-size:5.5pt;margin-top:1mm}.reference{font-size:5.5pt}.body{height:34mm;grid-template-columns:17mm minmax(0,1fr) 13mm;gap:2mm;padding:2.5mm 3mm}.portrait{width:17mm;height:23mm;border-width:.5mm;border-radius:1mm}.portrait-empty{font-size:5pt}.staff-name{font-size:8pt;margin-bottom:.5mm}.staff-role{font-size:5pt;margin-bottom:1.5mm}dl{grid-template-columns:19mm minmax(0,1fr);gap:1mm 1mm}dt{font-size:4.7pt}dd{font-size:4.8pt}.qr{width:12mm;height:12mm;padding:.5mm;border-radius:1mm}.qr-label{font-size:4pt;margin-top:.5mm}.footer{margin:0 3mm 1.5mm;padding-top:1mm;font-size:4pt;line-height:1.2}.actions{display:none}}`;
   const authorityContent = isAuthorityLetter
     ? `<section class="authority-copy">
         <h2>LETTER OF AUTHORITY</h2>
@@ -128,40 +291,82 @@ async function credentialPrintPage(credential, request) {
         <div class="signature"><strong>${escapeHtml(credential.authorized_signer_name || "—")}</strong><span>${escapeHtml(credential.authorized_signer_designation || "Authorized signatory")}</span><span>${escapeHtml(credential.return_address || "—")}</span></div>
       </section>`
     : "";
+  const backCard = isAuthorityLetter ? "" : `<article class="card back-card">
+      <header class="back-header"><div><h1>Terms of this card</h1><p>${escapeHtml(cardDetails.companyName || "CHOWK NEWSROOM")}</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
+      <section class="terms">
+        <p><b>1.</b> This card is issued to the person named on the front for news gathering only within the assigned area.</p>
+        <p><b>2.</b> This is not government accreditation. It grants no police, administrative or legal powers, and no special privilege.</p>
+        <p><b>3.</b> Chowk News does not sell coverage. Never ask for money, gifts or favours. Report such requests using the newsroom contact below.</p>
+        <p><b>4.</b> The card is valid only while its status is Active. Scan the QR code on the front to check its current status.</p>
+        <p><b>5.</b> Return the card on request or when the engagement ends. Misuse may lead to appropriate action.</p>
+        <p><b>6.</b> If found, return it to the address or contact Chowk News using the details below.</p>
+      </section>
+      <section class="back-contact">
+        <div class="contact-details">
+          <strong>RETURN / NEWSROOM CONTACT</strong>
+          <span>${escapeHtml(cardDetails.companyAddress || "Organization address not verified")}</span>
+          <span>${escapeHtml(cardDetails.companyPhone || "Phone not available")}${cardDetails.companyEmail ? ` · ${escapeHtml(cardDetails.companyEmail)}` : ""}</span>
+        </div>
+        <div class="signature-block"><span class="signature-line"></span><strong>Authorised signatory</strong><span>${signatoryName} · ${signatoryDesignation}</span></div>
+        <div class="issue-details"><strong>Card no. ${escapeHtml(credential.reference_code)}</strong><span>Issued ${issuedDate}</span></div>
+      </section>
+    </article>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHOWK credential ${escapeHtml(credential.reference_code)}</title>
     <style>
-      *{box-sizing:border-box}body{margin:0;padding:32px;background:#f4f5f7;color:#26334b;font:14px Arial,sans-serif}
-      .card{width:min(760px,100%);min-height:420px;margin:24px auto;padding:32px;border:1px solid #e4e7ec;border-top:7px solid #ef6b2e;border-radius:16px;background:#fff;box-shadow:0 18px 48px #27334a18}
-      header{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e9ebef;padding-bottom:18px}
-      h1{margin:0;font-size:22px;letter-spacing:.04em}header p,.muted{color:#778196;font-size:11px}
-      .body{display:grid;grid-template-columns:1fr 190px;gap:28px;align-items:center;padding-top:24px}
-      dl{display:grid;grid-template-columns:120px 1fr;gap:13px;margin:0}dt{color:#7b8494;font-size:11px}dd{margin:0;font-weight:700}
-      .qr{width:180px;height:180px;padding:9px;border:1px solid #e7eaf0;border-radius:10px}
-      .footer{margin-top:26px;padding-top:16px;border-top:1px solid #e9ebef;color:#778196;font-size:10px;line-height:1.6}
+      *{box-sizing:border-box}body{margin:0;padding:32px;background:#eef1f5;color:#18253d;font:14px Arial,sans-serif}
+      .card{width:min(820px,100%);min-height:460px;margin:24px auto;overflow:hidden;border:1px solid #dfe4ec;border-radius:16px;background:#fff;box-shadow:0 18px 48px #14233b20}
+      .topline{height:8px;background:#ef6b2e}
+      header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 24px;background:#12213a;color:#fff}
+      h1{margin:0;font-size:21px;letter-spacing:.045em}header p{margin:5px 0 0;color:#d4dbe6;font-size:10px;font-weight:700;letter-spacing:.16em}
+      .reference{font-size:11px;font-weight:700;letter-spacing:.04em;text-align:right}
+      .body{display:grid;grid-template-columns:138px minmax(0,1fr) 116px;gap:20px;align-items:center;padding:22px 24px}
+      .portrait{display:block;width:138px;height:166px;object-fit:cover;border:3px solid #f2a06f;border-radius:10px;background:#f4f5f7}
+      .portrait-empty{display:grid;place-items:center;color:#8b96a8;font-size:13px;font-weight:800;letter-spacing:.08em}
+      .details{min-width:0}.staff-name{margin:0 0 4px;color:#17233a;font-size:20px;font-weight:800}
+      .staff-role{margin:0 0 14px;color:#df5f28;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+      dl{display:grid;grid-template-columns:112px minmax(0,1fr);gap:8px 10px;margin:0}
+      dt{color:#68758a;font-size:10px}dd{margin:0;overflow-wrap:anywhere;font-size:11px;font-weight:700}
+      .qr-wrap{text-align:center}.qr{width:108px;height:108px;padding:5px;border:1px solid #e1e6ed;border-radius:8px}
+      .qr-label{margin:5px 0 0;color:#68758a;font-size:9px;font-weight:700;letter-spacing:.08em}
+      .footer{margin:0 24px 20px;padding-top:12px;border-top:1px solid #e6e9ef;color:#68758a;font-size:9px;line-height:1.5}
+      .back-header{min-height:76px}.back-header h1{font-size:20px}.back-header p{margin-top:5px}
+      .terms{display:grid;grid-template-columns:1fr 1fr;gap:7px 22px;padding:20px 24px 12px}
+      .terms p{margin:0;color:#354258;font-size:12px;line-height:1.45}.terms b{color:#e9652b;margin-right:3px}
+      .back-contact{display:grid;grid-template-columns:1.4fr 1fr auto;gap:16px;align-items:end;margin:0 24px 18px;padding-top:12px;border-top:1px solid #e2e6ed}
+      .contact-details,.signature-block,.issue-details{display:grid;gap:4px;min-width:0;color:#526078;font-size:10px;line-height:1.35}
+      .contact-details strong,.signature-block strong{color:#18253d;font-size:9px;letter-spacing:.04em}
+      .contact-details span,.signature-block span,.issue-details span{overflow-wrap:anywhere}
+      .signature-line{width:125px;height:1px;margin-bottom:3px;background:#58657a}
+      .issue-details{text-align:right;white-space:nowrap}.issue-details strong{color:#18253d;font-size:10px}
       .authority-copy{margin-top:28px;line-height:1.65}.authority-copy h2{font-size:16px;letter-spacing:.08em}.authority-copy p{margin:12px 0}
       .signature{display:grid;gap:4px;margin-top:32px;padding-top:12px;border-top:1px solid #9aa3b2;max-width:320px}.signature span{color:#596579;font-size:12px}
       .actions{display:flex;justify-content:center;margin:18px auto}.actions button{padding:12px 18px;border:0;border-radius:8px;background:#ed6b2e;color:#fff;font-weight:700;cursor:pointer}
-      @media(max-width:560px){body{padding:10px}.card{padding:22px}.body{grid-template-columns:1fr}.qr{grid-row:1;width:150px;height:150px}dl{grid-template-columns:100px 1fr}}
-      @media print{body{padding:0;background:#fff}.card{width:100%;margin:0;border:1px solid #ddd;border-top:6px solid #ed6b2e;border-radius:0;box-shadow:none}.actions{display:none}}
-    </style></head><body><article class="card">
-      <header><div><h1>CHOWK NEWSROOM</h1><p>OFFICIAL STAFF ${escapeHtml(credential.credential_type || "CREDENTIAL").replaceAll("_", " ").toUpperCase()}</p></div><strong>${escapeHtml(credential.reference_code)}</strong></header>
-      <section class="body"><dl>
-        <dt>Name</dt><dd>${escapeHtml(credential.name || credential.name_snapshot)}</dd>
-        <dt>Role</dt><dd>${escapeHtml(String(credential.role || credential.role_snapshot).replaceAll("_", " "))}</dd>
-        <dt>Reporter ID</dt><dd>${escapeHtml(credential.reporter_code || credential.reporter_code_snapshot || "—")}</dd>
-        ${scope.designation ? `<dt>Designation</dt><dd>${escapeHtml(scope.designation)}</dd>` : ""}
-        <dt>Coverage</dt><dd>${escapeHtml(scopeText)}</dd>
-        <dt>Status</dt><dd>${escapeHtml(String(credential.status).replaceAll("_", " "))}</dd>
-        <dt>Valid</dt><dd>${validFrom} – ${validUntil}</dd>
-        ${isAuthorityLetter ? `<dt>Service terms</dt><dd>Version ${escapeHtml(credential.service_agreement_version || "—")}</dd><dt>Authorized by</dt><dd>${escapeHtml(credential.authorized_signer_name || "—")} · ${escapeHtml(credential.authorized_signer_designation || "—")}</dd><dt>Contact</dt><dd>${escapeHtml(credential.return_address || "—")}</dd>` : ""}
-        <dt>Issued by</dt><dd>${issuer}</dd>
-      </dl><img class="qr" src="${qrImage}" alt="Credential verification QR code"></section>
+      @media screen and (max-width:640px){body{padding:10px}.card{margin:10px auto}.body{grid-template-columns:92px minmax(0,1fr);gap:14px;padding:18px}.portrait{width:92px;height:112px}.qr-wrap{grid-column:1;grid-row:2}.qr{width:82px;height:82px}.details{grid-column:2;grid-row:1 / span 2}dl{grid-template-columns:88px minmax(0,1fr);gap:8px 7px}.staff-name{font-size:17px}header{padding:15px 18px}.reference{max-width:110px;overflow-wrap:anywhere}}
+      @media screen and (max-width:640px){.terms{grid-template-columns:1fr;padding:18px}.back-contact{grid-template-columns:1fr 1fr}.contact-details{grid-column:1/-1}.issue-details{text-align:left}}
+      ${printStyles}
+      ${isAuthorityLetter ? "" : `@media print{.card-front{break-after:page;page-break-after:always}.back-card{break-after:auto;page-break-after:auto}.back-header{height:11mm;min-height:0;padding:2.4mm 3mm}.back-header h1{font-size:11pt}.back-header p{font-size:5pt}.terms{height:30mm;grid-template-columns:1fr 1fr;gap:1.2mm 3mm;padding:2mm 3mm 1mm}.terms p{font-size:5.3pt;line-height:1.25}.terms b{margin-right:.5mm}.back-contact{height:11mm;grid-template-columns:1.45fr 1fr auto;gap:2mm;margin:0 3mm 1mm;padding-top:1.2mm}.contact-details,.signature-block,.issue-details{gap:.5mm;font-size:4.5pt;line-height:1.2}.contact-details strong,.signature-block strong{font-size:4.5pt}.signature-line{width:22mm;margin-bottom:.5mm}.issue-details{text-align:right}.issue-details strong{font-size:4.5pt}}`}
+    </style></head><body><article class="card card-front">
+      <div class="topline"></div>
+      <header><div><h1>CHOWK NEWSROOM</h1><p>OFFICIAL STAFF ${escapeHtml(credential.credential_type || "CREDENTIAL").replaceAll("_", " ").toUpperCase()}</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
+      <section class="body">${photo}<div class="details">
+        <h2 class="staff-name">${escapeHtml(credential.name || credential.name_snapshot)}</h2>
+        <p class="staff-role">${escapeHtml(String(credential.role || credential.role_snapshot).replaceAll("_", " "))}${scope.designation ? ` · ${escapeHtml(scope.designation)}` : ""}</p>
+        <dl>
+          <dt>Reporter ID</dt><dd>${escapeHtml(credential.reporter_code || credential.reporter_code_snapshot || "—")}</dd>
+          <dt>Coverage area</dt><dd>${escapeHtml(cardDetails.coverageArea || "—")}</dd>
+          <dt>District</dt><dd>${escapeHtml(cardDetails.district || "—")}</dd>
+          <dt>State</dt><dd>${escapeHtml(cardDetails.state || scope.state_name || "—")}</dd>
+          <dt>Emergency contact</dt><dd>${escapeHtml(cardDetails.emergencyContact || "—")}</dd>
+          <dt>Blood group</dt><dd>${escapeHtml(cardDetails.bloodGroup || "Not provided")}</dd>
+          <dt>Valid</dt><dd>${validFrom} – ${validUntil}</dd>
+          ${isAuthorityLetter ? `<dt>Service terms</dt><dd>Version ${escapeHtml(credential.service_agreement_version || "—")}</dd><dt>Authorized by</dt><dd>${escapeHtml(credential.authorized_signer_name || "—")} · ${escapeHtml(credential.authorized_signer_designation || "—")}</dd><dt>Contact</dt><dd>${escapeHtml(credential.return_address || "—")}</dd>` : ""}
+        </dl></div><div class="qr-wrap"><img class="qr" src="${qrImage}" alt="Credential verification QR code"><p class="qr-label">SCAN TO VERIFY</p></div></section>
       ${authorityContent}
-      ${isAuthorityLetter ? "" : `<p class="footer">Scan the QR code to check current credential status. This ID card does not by itself establish the identity of its holder. Confirm identity through an independently verified newsroom contact channel.</p>`}
-    </article><div class="actions"><button type="button" onclick="window.print()">Print / Save PDF</button></div></body></html>`;
+      ${isAuthorityLetter ? "" : `<p class="footer">Credential status: ${escapeHtml(String(credential.status).replaceAll("_", " "))} · Issued by ${issuer}. Scan the QR code to verify current status; this ID card does not by itself establish the holder’s identity.</p>`}
+    </article>${backCard}<div class="actions"><button type="button" onclick="window.print()">Print / Save ${isAuthorityLetter ? "PDF" : "Both Sides"}</button></div></body></html>`;
 }
 
-async function renderVerifiedCredentialPrintPage(credential, request) {
+async function renderVerifiedCredentialPrintPage(credential, request, token) {
   const verification = await supabaseRequest("/rest/v1/rpc/chowk_verify_staff_credential", {
     method: "POST",
     body: { verification_code: credential.verification_token }
@@ -179,7 +384,7 @@ async function renderVerifiedCredentialPrintPage(credential, request) {
     ...credential,
     status: verification.payload.status,
     scope: verification.payload.scope || credential.scope || credential.scope_snapshot
-  }, request);
+  }, request, token);
 }
 
 function supabaseConfig() {
@@ -2520,7 +2725,7 @@ async function adminRoute(request, response, requestUrl, session) {
     const printCredential = pathname.match(/^\/api\/admin\/reporter-credentials\/(\d+)\/print$/);
     if (printCredential && request.method === "GET") {
       const result = await supabaseRequest(
-        `/rest/v1/staff_credentials?select=credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,valid_from,valid_until,issued_by_name_snapshot,issued_at,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version:service_agreement_version_snapshot&id=eq.${printCredential[1]}&limit=1`,
+        `/rest/v1/staff_credentials?select=credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,subject_user_id_snapshot,valid_from,valid_until,issued_by_name_snapshot,issued_by_role_snapshot,issued_at,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version:service_agreement_version_snapshot&id=eq.${printCredential[1]}&limit=1`,
         { token }
       );
       if (!result.response.ok || !result.payload?.[0]) {
@@ -2529,7 +2734,7 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         return;
       }
-      const html = await renderVerifiedCredentialPrintPage(result.payload[0], request);
+      const html = await renderVerifiedCredentialPrintPage(result.payload[0], request, token);
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",

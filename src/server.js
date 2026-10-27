@@ -335,8 +335,9 @@ async function credentialPrintPage(credential, request, token) {
     ? `@media print{body{padding:0;background:#fff}.card{width:100%;height:auto;min-height:0;margin:0;overflow:visible;border-radius:0;box-shadow:none}.actions{display:none}}`
     : `@page{size:54mm 85.6mm;margin:0}@media print{
       body{padding:0;background:#fff}
-      .card{width:54mm;height:85.6mm;min-height:0;aspect-ratio:auto;margin:0;border:1px solid #d4d9e1;border-radius:3mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-      .topline{height:1.5mm}
+      .card{width:54mm;height:85.6mm;min-height:0;aspect-ratio:auto;margin:0;border:1mm solid #c9141d;border-radius:3mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+      .topline{height:1.5mm;background:#c9141d}
+      .card>header,.back-header{background:#c9141d;color:#fff}
       .card-front>header{height:13mm;padding:2mm 2.5mm}
       .card-front>header h1{font-size:9pt}
       .card-front>header p{font-size:4pt;margin-top:.7mm;letter-spacing:.1em}
@@ -350,12 +351,12 @@ async function credentialPrintPage(credential, request, token) {
       dl{grid-template-columns:13mm minmax(0,1fr);gap:.8mm .5mm}
       dt{font-size:4.1pt}
       dd{font-size:4.2pt;line-height:1.2}
-      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 15mm;align-items:stretch;gap:1.5mm;min-height:0;padding:2mm;border:1px solid #e3e7ed;border-radius:1.5mm;background:#f8f9fb}
+      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 15mm;align-items:stretch;gap:1.5mm;min-height:0;padding:2mm;border:1px solid #f0c4c6;border-radius:1.5mm;background:#fff}
       .card-meta{grid-template-columns:13mm minmax(0,1fr);align-content:space-evenly;align-self:stretch;gap:.8mm .5mm}
       .qr-wrap{justify-self:end;align-self:center}
       .qr{width:15mm;height:15mm;padding:.5mm;border-radius:1mm}
       .qr-label{font-size:3.5pt;margin-top:.5mm}
-      .footer{margin:auto 2.5mm 2mm;padding-top:1mm;font-size:3.8pt;line-height:1.25}
+      .footer{margin:auto 2.5mm 2mm;padding-top:1mm;border-color:#f0c4c6;font-size:3.8pt;line-height:1.25}
       .back-header{height:13mm;min-height:0;padding:2mm 2.5mm}
       .back-header h1{font-size:8pt}
       .back-header p{font-size:3.8pt;margin-top:.7mm}
@@ -363,10 +364,10 @@ async function credentialPrintPage(credential, request, token) {
       .terms{height:53mm;flex:none;grid-template-columns:1fr;align-content:start;gap:1.5mm;padding:2.5mm}
       .terms p{font-size:5.2pt;line-height:1.25}
       .terms b{margin-right:.5mm}
-      .back-contact{height:14mm;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1mm;margin:0 2.5mm 1mm;padding-top:1mm}
+      .back-contact{height:14mm;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1mm;margin:0 2.5mm 1mm;padding-top:1mm;border-color:#f0c4c6}
       .contact-details,.signature-block,.issue-details{gap:.4mm;font-size:4pt;line-height:1.15}
       .contact-details strong,.signature-block strong{font-size:4pt}
-      .signature-line{width:20mm;margin-bottom:.3mm}
+      .signature-line{width:20mm;margin-bottom:.3mm;background:#c9141d}
       .issue-details{text-align:left}
       .issue-details strong{font-size:4pt}
       .actions{display:none}
@@ -427,35 +428,36 @@ async function credentialPrintPage(credential, request, token) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHOWK credential ${escapeHtml(credential.reference_code)}</title>
     <style>
       *{box-sizing:border-box}body{margin:0;padding:32px;background:#eef1f5;color:#18253d;font:14px Arial,sans-serif}
-      .card{width:min(360px,100%);height:auto;min-height:0;aspect-ratio:54/85.6;margin:24px auto;overflow:hidden;border:1px solid #dfe4ec;border-radius:16px;background:#fff;box-shadow:0 18px 48px #14233b20}
-      .topline{height:8px;background:#ef6b2e}
+      .card{width:min(360px,100%);height:auto;min-height:0;aspect-ratio:54/85.6;margin:24px auto;overflow:hidden;border:2px solid #c9141d;border-radius:16px;background:#fff;box-shadow:0 18px 48px #14233b20}
+      .topline{height:8px;background:#c9141d}
       header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;background:#12213a;color:#fff}
+      .card>header,.back-header{background:#c9141d;color:#fff}
       h1{margin:0;font-size:18px;letter-spacing:.045em}header p{margin:5px 0 0;color:#d4dbe6;font-size:9px;font-weight:700;letter-spacing:.12em}
       .reference{max-width:145px;font-size:9px;font-weight:700;letter-spacing:.04em;text-align:right;overflow-wrap:anywhere}
       .card-front{display:flex;flex-direction:column}
       .card-front>.body{display:grid;flex:1;grid-template-columns:110px minmax(0,1fr);grid-template-areas:"photo details" "bottom bottom";grid-template-rows:auto minmax(0,1fr);align-content:stretch;align-items:stretch;gap:12px;padding:14px}
-      .body>.portrait{grid-area:photo;display:block;width:110px;height:135px;object-fit:cover;border:3px solid #f2a06f;border-radius:10px;background:#f4f5f7}
+      .body>.portrait{grid-area:photo;display:block;width:110px;height:135px;object-fit:cover;border:3px solid #c9141d;border-radius:10px;background:#f4f5f7}
       .portrait-empty{display:grid;place-items:center;color:#8b96a8;font-size:13px;font-weight:800;letter-spacing:.08em}
       .details{grid-area:details;min-width:0}.staff-name{margin:0 0 4px;color:#17233a;font-size:18px;font-weight:800}
-      .staff-role{margin:0 0 9px;color:#df5f28;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+      .staff-role{margin:0 0 9px;color:#c9141d;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
       dl{display:grid;grid-template-columns:66px minmax(0,1fr);gap:6px 6px;margin:0}
       dt{color:#68758a;font-size:8px}dd{margin:0;overflow-wrap:anywhere;font-size:8px;line-height:1.25;font-weight:700}
-      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 82px;align-items:stretch;gap:12px;min-height:145px;padding:14px;border:1px solid #e3e7ed;border-radius:10px;background:#f8f9fb}
+      .card-bottom{grid-area:bottom;display:grid;grid-template-columns:minmax(0,1fr) 82px;align-items:stretch;gap:12px;min-height:145px;padding:14px;border:1px solid #f0c4c6;border-radius:10px;background:#fff}
       .card-meta{grid-template-columns:92px minmax(0,1fr);align-content:space-evenly;align-self:stretch;gap:8px}
       .qr-wrap{justify-self:end;align-self:center;text-align:center}.qr{width:82px;height:82px;padding:5px;border:1px solid #e1e6ed;border-radius:8px}
       .qr-label{margin:5px 0 0;color:#68758a;font-size:8px;font-weight:700;letter-spacing:.08em}
-      .footer{margin:auto 14px 14px;padding-top:9px;border-top:1px solid #e6e9ef;color:#68758a;font-size:8px;line-height:1.4}
+      .footer{margin:auto 14px 14px;padding-top:9px;border-top:1px solid #f0c4c6;color:#68758a;font-size:8px;line-height:1.4}
       .back-header{min-height:68px}.back-header h1{font-size:16px}.back-header p{margin-top:4px}
       .back-card{display:flex;flex-direction:column}
       .terms{display:grid;grid-template-columns:1fr;gap:9px;padding:16px 18px 10px}
       .back-card .terms{flex:1;align-content:space-evenly}
-      .terms p{margin:0;color:#354258;font-size:10px;line-height:1.35}.terms b{color:#e9652b;margin-right:3px}
-      .back-contact{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;margin:0 18px 14px;padding-top:10px;border-top:1px solid #e2e6ed}
+      .terms p{margin:0;color:#354258;font-size:10px;line-height:1.35}.terms b{color:#c9141d;margin-right:3px}
+      .back-contact{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;margin:0 18px 14px;padding-top:10px;border-top:1px solid #f0c4c6}
       .contact-details,.signature-block,.issue-details{display:grid;gap:4px;min-width:0;color:#526078;font-size:9px;line-height:1.3}
       .contact-details{grid-column:1/-1}
       .contact-details strong,.signature-block strong{color:#18253d;font-size:8px;letter-spacing:.04em}
       .contact-details span,.signature-block span,.issue-details span{overflow-wrap:anywhere}
-      .signature-line{width:125px;height:1px;margin-bottom:3px;background:#58657a}
+      .signature-line{width:125px;height:1px;margin-bottom:3px;background:#c9141d}
       .issue-details{text-align:right;white-space:normal}.issue-details strong{color:#18253d;font-size:9px}
       .authority-letter{width:min(820px,100%);min-height:920px;margin:24px auto;padding:52px 60px;background:#fff;border:1px solid #dfe4ec;border-top:8px solid #ef6b2e;box-shadow:0 18px 48px #14233b20;font-size:14px;line-height:1.7}
       .authority-header{display:flex;justify-content:space-between;align-items:center;padding:0 0 18px;border-bottom:2px solid #e8ebf0;background:#fff;color:#18253d}

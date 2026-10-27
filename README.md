@@ -19,10 +19,10 @@ Requires Node.js 18 or newer.
    SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_SERVICE_ROLE_KEY
    ```
 
-   The service-role key is required only for permanent admin user deletion. Keep
-   it in the server environment only; never expose it to browser code or commit
-   it to Git. Normal database requests continue to use the publishable/anon key
-   with PostgreSQL RLS.
+   The service-role key is required for staff invitations and permanent admin
+   user deletion. Keep it in the server environment only; never expose it to
+   browser code or commit it to Git. Normal database requests continue to use
+   the publishable/anon key with PostgreSQL RLS.
 
 3. In the Supabase dashboard for the blank Chowk project, open **SQL Editor**,
    create a new query, paste `supabase/migrations/0001_chowk_portal.sql`, and
@@ -359,6 +359,9 @@ matching application code. Migration 0050 enables Coverage Area and District
 fields in service-agreement templates. Migration 0055 adds Admin-managed
 service-agreement legal terms and immutable per-template term snapshots; apply
 it after migration 0054 and before deploying the matching application code.
+Migration 0056 seeds the categories shown in the homepage design; apply it
+after migration 0055 and before deploying the matching frontend. “All news” is
+a filter control and is not stored as a news category.
 Migration 0057 makes Section 11.7 the only reporter-liability clause in new
 service agreements; apply it after migration 0056 and before deploying the
 matching agreement code. After deployment, admins must publish a new agreement
@@ -366,10 +369,13 @@ template and issue a fresh agreement where needed; existing issued PDF records
 are preserved unchanged. The application also upgrades legacy
 Schedule A assigned-area placeholders when rendering existing templates. The
 public homepage category chips load active categories from the database.
-Migration 0056 seeds the categories shown in the homepage design; apply it
-after migration 0055 and before deploying the matching frontend. “All news” is
-a filter control and is not stored as a news category.
-public site,
+Migration 0058 adds secure moderator/editor invitations, private staff profile
+completion, Admin review, and database-enforced role activation. Apply it after
+migration 0057 and before deploying the matching application code. Staff
+invitations require `SUPABASE_SERVICE_ROLE_KEY` on the server and the
+`/staff-onboarding` URL must be included in Supabase Auth's allowed redirect
+URLs so invite links return to the profile form.
+The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
 Migration 0008 adds legacy-compatible zone/district mapping and coverage. Migration 0007
@@ -387,13 +393,14 @@ non-production Supabase project first.
 
 `.env` is ignored by Git. `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` must be
 set in Hostinger's private application environment before deployment.
-`SUPABASE_SERVICE_ROLE_KEY` is additionally required for permanent admin user
-deletion and must remain server-only. Do not commit `.env`, database passwords,
-service-role keys, or other secrets. Keep local development on the same project
-only while it is still empty or after confirming its data is backed up.
+`SUPABASE_SERVICE_ROLE_KEY` is additionally required for staff invitations and
+permanent admin user deletion and must remain server-only. Do not commit `.env`,
+database passwords, service-role keys, or other secrets. Keep local development
+on the same project only while it is still empty or after confirming its data is
+backed up.
 
 Configure Hostinger to deploy the dedicated Chowk portal repository with
-`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
-`SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, and `NODE_ENV=production` in the hosting
+`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `NODE_ENV=production` in the hosting
 environment, install dependencies with `npm ci`, and use the host-provided
 `PORT`. Do not upload `.env` or commit it to Git.

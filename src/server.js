@@ -262,6 +262,7 @@ async function deleteSupabaseAuthUser(userId) {
       );
     }
   }
+
   if (!result.ok) {
     throw Object.assign(
       new Error(apiErrorMessage(payload, "The Supabase login account could not be deleted.")),
@@ -270,6 +271,125 @@ async function deleteSupabaseAuthUser(userId) {
   }
 }
 
+async function inviteSupabaseStaffUser(email, requestedRole, redirectTo) {
+    const { url } = supabaseConfig();
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!serviceRoleKey) {
+      throw Object.assign(
+        new Error("Staff invitations require SUPABASE_SERVICE_ROLE_KEY in the server environment."),
+        { statusCode: 503 }
+      );
+    }
+    const endpoint = new URL("/auth/v1/invite", url);
+    endpoint.searchParams.set("redirect_to", redirectTo);
+    const result = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        email,
+        data: {
+          account_type: "staff_invitation",
+          requested_staff_role: requestedRole
+        }
+      }),
+      signal: AbortSignal.timeout(apiTimeoutMs),
+      cache: "no-store"
+    });
+    const text = await result.text();
+    let payload = null;
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        throw Object.assign(
+          new Error(`Supabase Auth returned an invalid response (HTTP ${result.status}).`),
+          { statusCode: result.status }
+        );
+      }
+    }
+    if (!result.ok || typeof (payload?.user?.id || payload?.id) !== "string") {
+      throw Object.assign(
+        new Error(apiErrorMessage(payload, "The staff invitation could not be sent.")),
+        { statusCode: result.status || 502 }
+      );
+    }
+    return payload.user || payload;
+  }
+
+async function uploadStaffProfilePhoto(body, userId, token) {
+    if (typeof body.mime_type !== "string"
+        || !["image/jpeg", "image/png"].includes(body.mime_type)
+        || typeof body.file_base64 !== "string"
+        || body.file_base64.length > Math.ceil(5 * 1024 * 1024 / 3) * 4 + 4
+        || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.file_base64)) {
+      throw Object.assign(new Error("Choose a JPG or PNG profile photo no larger than 5 MB."), { statusCode: 400 });
+    }
+    const file = Buffer.from(body.file_base64, "base64");
+    const isJpeg = file.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+    const isPng = file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    if (!file.length || file.length > 5 * 1024 * 1024
+        || (body.mime_type === "image/jpeg" && !isJpeg)
+        || (body.mime_type === "image/png" && !isPng)) {
+      throw Object.assign(new Error("The profile photo contents do not match its file type."), { statusCode: 400 });
+    }
+    const extension = body.mime_type === "image/jpeg" ? "jpg" : "png";
+    const objectPath = `staff/${userId}/profile/${randomUUID()}.${extension}`;
+    const { url, key } = supabaseConfig();
+    const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+    const result = await fetch(`${url}/storage/v1/object/chowk-staff-profiles/${encodedPath}`, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `****** || key}`,
+        "Content-Type": body.mime_type,
+        "x-upsert": "false"
+      },
+      body: file,
+      signal: AbortSignal.timeout(apiTimeoutMs),
+      cache: "no-store"
+    });
+    const payload = await result.json().catch(() => ({}));
+    if (!result.ok) {
+      throw Object.assign(
+        new Error(apiErrorMessage(payload, "The staff profile photo could not be uploaded.")),
+        { statusCode: result.status }
+      );
+    }
+    return objectPath;
+  }
+
+async function signedStaffProfilePhotoUrl(objectPath, userId, token) {
+    if (typeof objectPath !== "string"
+        || !objectPath.startsWith(`staff/${userId}/profile/`)
+        || !/^staff\/[0-9a-f-]{36}\/profile\/[0-9a-f-]{36}\.(jpg|png)$/.test(objectPath)) {
+      throw new Error("The staff profile photo reference is invalid.");
+    }
+    const { url, key } = supabaseConfig();
+    const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+    const result = await fetch(`${url}/storage/v1/object/sign/chowk-staff-profiles/${encodedPath}`, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `****** || key}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ expiresIn: 300 }),
+      signal: AbortSignal.timeout(apiTimeoutMs),
+      cache: "no-store"
+    });
+    const payload = await result.json().catch(() => ({}));
+    if (!result.ok || typeof payload.signedURL !== "string") {
+      throw new Error(apiErrorMessage(payload, "The staff profile photo could not be authorized for preview."));
+    }
+    return /^https?:\/\//i.test(payload.signedURL)
+      ? payload.signedURL
+      : `${url}/storage/v1${payload.signedURL.startsWith("/") ? "" : "/"}${payload.signedURL}`;
+  }
 async function signedMediaUrl(value, token) {
   if (typeof value !== "string"
       || !/^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:jpg|png|webp|avif|mp4|webm|mp3|m4a|ogg|wav)$/.test(value)) {
@@ -1466,6 +1586,156 @@ async function adminRoute(request, response, requestUrl, session) {
   try {
     if (request.method !== "GET" && !isSameOrigin(request)) {
       sendJson(response, 403, { error: "Cross-origin request rejected." });
+      return;
+    }
+    if (pathname === "/api/admin/staff-onboarding" && request.method === "GET") {
+      const onboarding = await supabaseRequest(
+        "/rest/v1/staff_onboarding?select=*&order=submitted_at.desc.nullslast,invited_at.desc&limit=500",
+        { token }
+      );
+      if (!onboarding.response.ok) {
+        sendJson(response, onboarding.response.status, {
+          error: apiErrorMessage(onboarding.payload, "Staff onboarding records could not be loaded.")
+        });
+        return;
+      }
+      const rows = onboarding.payload || [];
+      const userIds = rows.map((row) => row.user_id).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+      const profiles = userIds.length
+        ? await supabaseRequest(
+          `/rest/v1/profiles?select=id,email,full_name,phone&id=in.(${userIds.join(",")})`,
+          { token }
+        )
+        : { response: { ok: true }, payload: [] };
+      if (!profiles.response.ok) {
+        sendJson(response, profiles.response.status, {
+          error: apiErrorMessage(profiles.payload, "Staff member profiles could not be loaded.")
+        });
+        return;
+      }
+      const profilesById = new Map((profiles.payload || []).map((profile) => [profile.id, profile]));
+      const data = await Promise.all(rows.map(async (row) => ({
+        ...row,
+        profile: profilesById.get(row.user_id) || null,
+        profile_photo_url: row.profile_photo_path
+          ? await signedStaffProfilePhotoUrl(row.profile_photo_path, row.user_id, token)
+          : null
+      })));
+      sendJson(response, 200, { success: true, data });
+      return;
+    }
+
+    const staffReview = pathname.match(
+      /^\/api\/admin\/staff-onboarding\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/review$/i
+    );
+    if (staffReview && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const decision = typeof body.decision === "string" ? body.decision : "";
+      const reviewMessage = typeof body.review_message === "string" ? body.review_message.trim() : "";
+      if (!["approve", "request_changes", "reject"].includes(decision)) {
+        sendJson(response, 400, { error: "Choose approve, request changes, or reject." });
+        return;
+      }
+      const reviewed = await supabaseRequest("/rest/v1/rpc/chowk_admin_review_staff_onboarding", {
+        method: "POST",
+        token,
+        body: { target_user: staffReview[1], decision, review_message: reviewMessage }
+      });
+      if (!reviewed.response.ok) {
+        sendJson(response, reviewed.response.status, {
+          error: apiErrorMessage(reviewed.payload, "Staff profile review could not be saved.")
+        });
+        return;
+      }
+      const audit = await supabaseRequest("/rest/v1/rpc/chowk_record_admin_event", {
+        method: "POST",
+        token,
+        body: {
+          event_action: decision === "approve" ? "STAFF_ONBOARDING_APPROVED"
+            : decision === "request_changes" ? "STAFF_ONBOARDING_CHANGES_REQUESTED"
+              : "STAFF_ONBOARDING_REJECTED",
+          target_table: "staff_onboarding",
+          target_record_id: staffReview[1],
+          event_data: { decision }
+        }
+      });
+      if (!audit.response.ok) {
+        sendJson(response, 502, {
+          error: `The profile review was saved, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
+        });
+        return;
+      }
+      sendJson(response, 200, { success: true });
+      return;
+    }
+
+    if (pathname === "/api/admin/staff-invitations" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      const requestedRole = typeof body.requested_role === "string" ? body.requested_role : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+        sendJson(response, 400, { error: "Enter a valid staff member email address." });
+        return;
+      }
+      if (!["moderator", "editor"].includes(requestedRole)) {
+        sendJson(response, 400, { error: "Choose moderator or editor." });
+        return;
+      }
+      let invitedUser;
+      try {
+        invitedUser = await inviteSupabaseStaffUser(
+          email,
+          requestedRole,
+          new URL("/staff-onboarding", requestOrigin(request)).toString()
+        );
+      } catch (error) {
+        sendJson(response, error.statusCode || 502, { error: error.message });
+        return;
+      }
+      const targetUser = invitedUser.id;
+      const invitation = await supabaseRequest(
+        "/rest/v1/rpc/chowk_admin_create_staff_onboarding_invitation",
+        {
+          method: "POST",
+          token,
+          body: { target_user: targetUser, target_role: requestedRole }
+        }
+      );
+      if (!invitation.response.ok) {
+        try {
+          await deleteSupabaseAuthUser(targetUser);
+        } catch (cleanupError) {
+          console.error("Could not clean up an incomplete staff invitation:", cleanupError.message);
+          sendJson(response, 502, {
+            error: `The invitation email was sent, but onboarding setup failed and the new account could not be removed. Contact support with account ${email}.`
+          });
+          return;
+        }
+        sendJson(response, invitation.response.status, {
+          error: apiErrorMessage(invitation.payload, "Staff onboarding could not be initialized. The incomplete invitation was removed.")
+        });
+        return;
+      }
+      const audit = await supabaseRequest("/rest/v1/rpc/chowk_record_admin_event", {
+        method: "POST",
+        token,
+        body: {
+          event_action: "STAFF_ONBOARDING_INVITED",
+          target_table: "staff_onboarding",
+          target_record_id: targetUser,
+          event_data: { email, requested_role: requestedRole }
+        }
+      });
+      if (!audit.response.ok) {
+        sendJson(response, 502, {
+          error: `The staff invitation was sent, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
+        });
+        return;
+      }
+      sendJson(response, 201, {
+        success: true,
+        data: { id: targetUser, email, requested_role: requestedRole, status: "invited" }
+      });
       return;
     }
     if (
@@ -3221,10 +3491,30 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/users" && request.method === "GET") {
-      const result = await supabaseRequest("/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&order=created_at.desc&limit=100", { token });
-      sendJson(response, result.response.status, result.response.ok
-        ? { success: true, data: result.payload }
-        : { error: apiErrorMessage(result.payload, "Users could not be loaded.") });
+      const [result, onboarding] = await Promise.all([
+        supabaseRequest("/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&order=created_at.desc&limit=100", { token }),
+        supabaseRequest("/rest/v1/staff_onboarding?select=user_id,requested_role,status&limit=1000", { token })
+      ]);
+      for (const responseResult of [result, onboarding]) {
+        if (!responseResult.response.ok) {
+          sendJson(response, responseResult.response.status, {
+            error: apiErrorMessage(responseResult.payload, "Users and staff onboarding states could not be loaded.")
+          });
+          return;
+        }
+      }
+      const staffByUserId = new Map((onboarding.payload || []).map((item) => [item.user_id, item]));
+      sendJson(response, 200, {
+        success: true,
+        data: (result.payload || []).map((profile) => {
+          const staff = staffByUserId.get(profile.id);
+          return {
+            ...profile,
+            requested_role: staff?.requested_role || "",
+            staff_status: staff?.status || ""
+          };
+        })
+      });
       return;
     }
 
@@ -3459,6 +3749,24 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Reporter access is granted only after the applicant completes the reporter onboarding steps." });
         return;
       }
+      if (["moderator", "editor"].includes(body.role)) {
+        const currentProfile = await supabaseRequest(
+          `/rest/v1/profiles?select=role&id=eq.${roleItem[1]}&limit=1`,
+          { token }
+        );
+        if (!currentProfile.response.ok) {
+          sendJson(response, currentProfile.response.status, {
+            error: apiErrorMessage(currentProfile.payload, "The current staff role could not be verified.")
+          });
+          return;
+        }
+        if (currentProfile.payload?.[0]?.role !== body.role) {
+          sendJson(response, 400, {
+            error: "Moderator and editor roles can only be assigned by approving a completed staff onboarding profile."
+          });
+          return;
+        }
+      }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
         method: "POST", token, body: { target_user: roleItem[1], new_role: body.role }
       });
@@ -3558,6 +3866,12 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         return;
       }
+      if (["moderator", "editor"].includes(role)) {
+        sendJson(response, 400, {
+          error: "Moderator and editor access is granted only after the invited staff member completes profile onboarding and Admin approves it."
+        });
+        return;
+      }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         sendJson(response, 400, { error: "Enter a valid email address." });
         return;
@@ -3574,7 +3888,7 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Temporary password must be between 8 and 72 characters." });
         return;
       }
-      if (!["subscriber", "moderator", "editor", "publisher", "admin", "super_admin"].includes(role)) {
+      if (!["subscriber", "publisher", "admin", "super_admin"].includes(role)) {
         sendJson(response, 400, { error: "Select a valid account role." });
         return;
       }
@@ -3732,6 +4046,232 @@ async function adminRoute(request, response, requestUrl, session) {
     }
     console.error("Supabase admin request failed:", error.message);
     sendJson(response, 503, { error: "Admin data service is unavailable. Check Supabase configuration and schema." });
+  }
+}
+
+async function staffOnboardingRoute(request, response, requestUrl, session) {
+  const { token, identity } = session;
+  const profilePath = "/rest/v1/staff_onboarding?select=user_id,requested_role,status,date_of_birth,emergency_contact_name,emergency_contact_relationship,emergency_contact_phone,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,preferred_language,experience_years,experience_summary,profile_photo_path,review_note,submitted_at&user_id=eq.";
+  try {
+    if (request.method !== "GET" && !isSameOrigin(request)) {
+      sendJson(response, 403, { error: "Cross-origin request rejected." });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/staff/onboarding" && request.method === "GET") {
+      const result = await supabaseRequest(
+        `${profilePath}${encodeURIComponent(identity.id)}&limit=1`,
+        { token }
+      );
+      if (!result.response.ok) {
+        sendJson(response, result.response.status, {
+          error: apiErrorMessage(result.payload, "Your staff invitation could not be loaded.")
+        });
+        return;
+      }
+      const onboarding = result.payload?.[0];
+      if (!onboarding) {
+        sendJson(response, 404, { error: "There is no staff invitation for this account." });
+        return;
+      }
+      const profilePhotoUrl = onboarding.profile_photo_path
+        ? await signedStaffProfilePhotoUrl(onboarding.profile_photo_path, identity.id, token)
+        : null;
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          ...onboarding,
+          email: identity.email,
+          full_name: identity.full_name,
+          phone: identity.phone,
+          profile_photo_url: profilePhotoUrl
+        }
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/staff/onboarding/photo" && request.method === "POST") {
+      const invitation = await supabaseRequest(
+        `${profilePath}${encodeURIComponent(identity.id)}&limit=1`,
+        { token }
+      );
+      const onboarding = invitation.payload?.[0];
+      if (!invitation.response.ok || !onboarding
+          || !["invited", "changes_requested"].includes(onboarding.status)) {
+        sendJson(response, invitation.response.ok ? 409 : invitation.response.status, {
+          error: "Your staff profile is not open for photo updates."
+        });
+        return;
+      }
+      const body = await readJsonBody(request, 7 * 1024 * 1024);
+      const objectPath = await uploadStaffProfilePhoto(body, identity.id, token);
+      const signedUrl = await signedStaffProfilePhotoUrl(objectPath, identity.id, token);
+      sendJson(response, 201, { success: true, data: { profile_photo_path: objectPath, profile_photo_url: signedUrl } });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/staff/onboarding/profile" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      if (body.profile_confirmed !== true) {
+        sendJson(response, 400, { error: "Confirm that your staff profile information is accurate before submitting." });
+        return;
+      }
+      if (typeof body.password !== "string" || body.password.length < 8 || body.password.length > 72) {
+        sendJson(response, 400, { error: "Set a password between 8 and 72 characters." });
+        return;
+      }
+      if (body.password !== body.confirm_password) {
+        sendJson(response, 400, { error: "Password and confirmation do not match." });
+        return;
+      }
+      const requiredProfileFields = [
+        ["full_name", 2, 120],
+        ["emergency_contact_name", 2, 120],
+        ["emergency_contact_relationship", 2, 80],
+        ["permanent_address_line1", 2, 160],
+        ["permanent_address_city", 2, 100],
+        ["permanent_address_district", 2, 100],
+        ["permanent_address_state", 2, 100]
+      ];
+      const profileFieldIsValid = ([field, minimum, maximum]) =>
+        typeof body[field] === "string"
+        && body[field].trim().length >= minimum
+        && body[field].trim().length <= maximum;
+      if (!requiredProfileFields.every(profileFieldIsValid)
+          || typeof body.phone !== "string"
+          || !/^\+?[1-9][0-9]{6,14}$/.test(body.phone.trim())
+          || typeof body.emergency_contact_phone !== "string"
+          || !/^\+?[1-9][0-9]{6,14}$/.test(body.emergency_contact_phone.trim())
+          || typeof body.permanent_address_postal_code !== "string"
+          || !/^[0-9]{6}$/.test(body.permanent_address_postal_code.trim())
+          || typeof body.permanent_address_line2 !== "string"
+          || body.permanent_address_line2.trim().length > 160
+          || typeof body.preferred_language !== "string"
+          || body.preferred_language.trim().length > 80
+          || typeof body.experience_summary !== "string"
+          || body.experience_summary.trim().length > 2000
+          || (body.experience_years !== "" && body.experience_years !== null
+            && (!Number.isFinite(Number(body.experience_years))
+              || Number(body.experience_years) < 0 || Number(body.experience_years) > 80))) {
+        sendJson(response, 400, { error: "Complete the required staff profile fields with valid values." });
+        return;
+      }
+      const expectedPhotoPath = new RegExp(
+        `^staff/${identity.id}/profile/[0-9a-f-]{36}\\.(jpg|png)$`,
+        "i"
+      );
+      if (typeof body.profile_photo_path !== "string"
+          || !expectedPhotoPath.test(body.profile_photo_path)) {
+        sendJson(response, 400, { error: "Upload a valid profile photo before submitting your profile." });
+        return;
+      }
+      if (body.date_of_birth) {
+        const birthDate = typeof body.date_of_birth === "string"
+          && /^\d{4}-\d{2}-\d{2}$/.test(body.date_of_birth)
+          ? new Date(`${body.date_of_birth}T00:00:00.000Z`)
+          : null;
+        const today = new Date();
+        const earliestBirthDate = new Date(Date.UTC(
+          today.getUTCFullYear() - 100, today.getUTCMonth(), today.getUTCDate()
+        ));
+        if (!birthDate || Number.isNaN(birthDate.getTime())
+            || birthDate.toISOString().slice(0, 10) !== body.date_of_birth
+            || birthDate > new Date()
+            || birthDate < earliestBirthDate) {
+          sendJson(response, 400, { error: "Enter a valid date of birth." });
+          return;
+        }
+      }
+
+      const invitation = await supabaseRequest(
+        `${profilePath}${encodeURIComponent(identity.id)}&limit=1`,
+        { token }
+      );
+      const onboarding = invitation.payload?.[0];
+      if (!invitation.response.ok || !onboarding
+          || !["invited", "changes_requested"].includes(onboarding.status)) {
+        sendJson(response, invitation.response.ok ? 409 : invitation.response.status, {
+          error: "Your staff profile is not open for submission."
+        });
+        return;
+      }
+
+      const passwordUpdate = await supabaseRequest("/auth/v1/user", {
+        method: "PUT",
+        token,
+        body: { password: body.password }
+      });
+      if (!passwordUpdate.response.ok) {
+        sendJson(response, passwordUpdate.response.status, {
+          error: apiErrorMessage(passwordUpdate.payload, "Your account password could not be set.")
+        });
+        return;
+      }
+
+      const profileData = {
+        full_name: body.full_name,
+        phone: body.phone,
+        date_of_birth: body.date_of_birth,
+        emergency_contact_name: body.emergency_contact_name,
+        emergency_contact_relationship: body.emergency_contact_relationship,
+        emergency_contact_phone: body.emergency_contact_phone,
+        permanent_address_line1: body.permanent_address_line1,
+        permanent_address_line2: body.permanent_address_line2,
+        permanent_address_city: body.permanent_address_city,
+        permanent_address_district: body.permanent_address_district,
+        permanent_address_state: body.permanent_address_state,
+        permanent_address_postal_code: body.permanent_address_postal_code,
+        preferred_language: body.preferred_language,
+        experience_years: body.experience_years,
+        experience_summary: body.experience_summary,
+        profile_photo_path: body.profile_photo_path,
+        profile_confirmed: body.profile_confirmed
+      };
+      const submitted = await supabaseRequest("/rest/v1/rpc/chowk_submit_staff_onboarding", {
+        method: "POST",
+        token,
+        body: { profile_data: profileData }
+      });
+      if (!submitted.response.ok) {
+        sendJson(response, submitted.response.status, {
+          error: apiErrorMessage(submitted.payload, "Your staff profile could not be submitted.")
+        });
+        return;
+      }
+
+      let cleanupWarning = "";
+      if (onboarding.profile_photo_path
+          && onboarding.profile_photo_path !== body.profile_photo_path) {
+        const { url, key } = supabaseConfig();
+        const encodedPath = onboarding.profile_photo_path.split("/").map(encodeURIComponent).join("/");
+        const removed = await fetch(`${url}/storage/v1/object/chowk-staff-profiles/${encodedPath}`, {
+          method: "DELETE",
+          headers: { apikey: key, Authorization: `****** || key}` },
+          signal: AbortSignal.timeout(apiTimeoutMs),
+          cache: "no-store"
+        });
+        if (!removed.ok && removed.status !== 404) {
+          const payload = await removed.json().catch(() => ({}));
+          cleanupWarning = apiErrorMessage(payload, "The previous profile photo could not be removed.");
+          console.error(`Could not remove a replaced staff profile photo for ${identity.id}:`, cleanupWarning);
+        }
+      }
+      sendJson(response, 200, {
+        success: true,
+        status: "submitted",
+        ...(cleanupWarning ? { cleanup_warning: cleanupWarning } : {})
+      });
+      return;
+    }
+
+    sendJson(response, 404, { error: "Staff onboarding endpoint not found." });
+  } catch (error) {
+    if (error.statusCode) {
+      sendJson(response, error.statusCode, { error: error.message });
+      return;
+    }
+    console.error("Staff onboarding request failed:", error.message);
+    sendJson(response, 503, { error: "Staff onboarding is temporarily unavailable." });
   }
 }
 
@@ -4083,6 +4623,47 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/auth/staff-invite/accept" && request.method === "POST") {
+    void (async () => {
+      if (!isSameOrigin(request)) {
+        sendJson(response, 403, { error: "Cross-origin request rejected." });
+        return;
+      }
+      try {
+        const body = await readJsonBody(request, 16 * 1024);
+        if (typeof body.access_token !== "string" || body.access_token.length > 8192
+            || typeof body.refresh_token !== "string" || body.refresh_token.length > 8192) {
+          sendJson(response, 400, { error: "The staff invitation link is invalid or incomplete." });
+          return;
+        }
+        const identity = await getIdentity(body.access_token);
+        if (!identity || identity.role !== "subscriber") {
+          sendJson(response, 401, { error: "The invitation could not be verified. Ask an admin to send a new invitation." });
+          return;
+        }
+        const onboarding = await supabaseRequest(
+          `/rest/v1/staff_onboarding?select=user_id,status&user_id=eq.${encodeURIComponent(identity.id)}&limit=1`,
+          { token: body.access_token }
+        );
+        if (!onboarding.response.ok || !onboarding.payload?.[0]
+            || !["invited", "changes_requested"].includes(onboarding.payload[0].status)) {
+          sendJson(response, 403, { error: "This account does not have an active staff invitation." });
+          return;
+        }
+        setSessionCookies(response, userCookie, body.access_token, body.refresh_token);
+        sendJson(response, 200, { success: true });
+      } catch (error) {
+        if (error.statusCode) {
+          sendJson(response, error.statusCode, { error: error.message });
+          return;
+        }
+        console.error("Could not accept staff invitation:", error.message);
+        sendJson(response, 503, { error: "The staff invitation could not be verified right now." });
+      }
+    })();
+    return;
+  }
+
   if (requestUrl.pathname === "/api/auth/register" && request.method === "POST") {
     void handleAuth(request, response, true);
     return;
@@ -4109,6 +4690,13 @@ const server = http.createServer((request, response) => {
 
   if (requestUrl.pathname === "/api/auth/session" && request.method === "DELETE") {
     void handleLogout(request, response, userCookie);
+    return;
+  }
+
+  if (requestUrl.pathname.startsWith("/api/staff/onboarding")) {
+    void requireUser(request, response).then((session) => {
+      if (session) void staffOnboardingRoute(request, response, requestUrl, session);
+    });
     return;
   }
 
@@ -5073,6 +5661,11 @@ const server = http.createServer((request, response) => {
       console.error("Could not verify newsroom workspace access:", error.message);
       sendJson(response, 503, { error: "Newsroom workspace is temporarily unavailable." });
     });
+    return;
+  }
+  if (pathname === "/staff-onboarding") {
+    response.setHeader("Cache-Control", "no-store");
+    serveStatic(response, "/staff-onboarding.html");
     return;
   }
   const staticPath = {

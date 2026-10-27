@@ -26,7 +26,11 @@ const modules = {
   },
   users: {
     path: "admin/users",
-    description: "Create newsroom accounts, review access, and assign role-based permissions."
+    description: "Manage subscriber accounts and send secure invitations to moderator and editor candidates."
+  },
+  "staff-onboarding": {
+    path: "admin/staff-onboarding",
+    description: "Review complete staff profiles before moderator or editor access is activated."
   },
   categories: {
     path: "admin/categories",
@@ -413,6 +417,11 @@ function renderModule(section, results) {
     content.replaceChildren(root);
     return;
   }
+  if (section === "staff-onboarding") {
+    renderStaffOnboarding(root, results[0].data);
+    content.replaceChildren(root);
+    return;
+  }
   if (section.startsWith("reporter-")
       && section !== "reporter-designations") {
     renderReporterAdminSection(section, root, results[0].data);
@@ -428,10 +437,13 @@ function renderModule(section, results) {
 
   const actions = makeElement("div", "admin-page-actions");
   if (section === "users") {
-    const button = makeElement("button", "admin-primary-button admin-create-button", "Add user");
-    button.type = "button";
-    button.addEventListener("click", () => openUserDialog());
-    actions.append(button);
+    const createSubscriber = makeElement("button", "admin-secondary-button admin-create-button", "Create subscriber");
+    createSubscriber.type = "button";
+    createSubscriber.addEventListener("click", () => openUserDialog());
+    const inviteStaff = makeElement("button", "admin-primary-button admin-create-button", "Invite moderator / editor");
+    inviteStaff.type = "button";
+    inviteStaff.addEventListener("click", () => openStaffInvitationDialog());
+    actions.append(createSubscriber, inviteStaff);
   } else if (config.createPath) {
     const button = makeElement("button", "admin-primary-button admin-create-button", `Add ${singular(label)}`);
     button.type = "button";
@@ -682,7 +694,7 @@ function renderReporterAdminSection(section, root, data) {
         id: credential.id
       };
     });
-    reporterActionButton(root, "Issue credential", () => openCredentialDialog(data.staff || []));
+    reporterActionButton(root, "Issue credential", () => void openCredentialDialog(data.staff || []));
     reporterPanel(root, "Issued staff credentials", rows, section);
     return;
   }
@@ -1190,7 +1202,7 @@ async function openDistrictRangeDialog(locations) {
   );
 }
 
-function openCredentialDialog(staff) {
+async function openCredentialDialog(staff) {
   const eligibleStaff = staff.filter((person) => person.onboarding_status
     ? person.can_issue_id_card || person.can_receive_authority_letter
     : ["reporter", "moderator", "editor"].includes(person.role));
@@ -1199,6 +1211,17 @@ function openCredentialDialog(staff) {
       "No eligible staff members",
       "Credential issuance is available for newsroom staff and approved reporters who have accepted the current service agreement."
     );
+    return;
+  }
+  let organizationProfile;
+  try {
+    const options = unwrapData(await apiRequest("admin/reporter-options")) || {};
+    organizationProfile = options.organization_profile;
+    if (!organizationProfile?.registered_address) {
+      throw new Error("Add the registered office address in the company legal details before issuing a credential.");
+    }
+  } catch (error) {
+    void showAdminMessage("Company return address unavailable", error.message);
     return;
   }
   openFormDialog(
@@ -1222,13 +1245,24 @@ function openCredentialDialog(staff) {
       typeLabel.append(makeElement("span", "", "Credential type"), type);
       form.append(typeLabel);
       const today = new Date().toISOString().slice(0, 10);
+      const endDateFor = (startDate) => {
+        const [year, month, day] = startDate.split("-").map(Number);
+        const nextYear = year + 1;
+        const lastDayOfMonth = new Date(Date.UTC(nextYear, month, 0)).getUTCDate();
+        return `${nextYear}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDayOfMonth)).padStart(2, "0")}`;
+      };
       const start = addField(form, "Valid from", "valid_from", "date", today);
       start.min = today;
-      const end = addField(form, "Valid until", "valid_until", "date", today);
+      let defaultEndDate = endDateFor(today);
+      const end = addField(form, "Valid until", "valid_until", "date", defaultEndDate);
       end.min = today;
-      const signer = addField(form, "Authorized signer name", "signer_name", "text", "", { required: false, maxLength: 120 });
-      const designation = addField(form, "Signer designation", "signer_designation", "text", "", { required: false, maxLength: 120 });
-      const address = addField(form, "Return address", "return_address", "text", "", { required: false, maxLength: 500 });
+      const signerName = sessionIdentity?.full_name || sessionIdentity?.name || "";
+      const signerDesignation = sessionIdentity?.role === "super_admin"
+        ? "Super Administrator"
+        : "Administrator";
+      const signer = addField(form, "Authorized signer name", "signer_name", "text", signerName, { required: false, maxLength: 120 });
+      const designation = addField(form, "Signer designation", "signer_designation", "text", signerDesignation, { required: false, maxLength: 120 });
+      const address = addField(form, "Return address", "return_address", "text", organizationProfile.registered_address, { required: false, maxLength: 500 });
       const setKind = () => {
         const selectedStaff = eligibleStaff.find((person) => person.id === userSelect.value);
         authorityOption.disabled = selectedStaff?.onboarding_status
@@ -1242,9 +1276,10 @@ function openCredentialDialog(staff) {
         start.min = today;
         end.min = start.value || today;
         if (start.value) {
-          const maximum = new Date(`${start.value}T00:00:00.000Z`);
-          maximum.setUTCDate(maximum.getUTCDate() + 366);
-          end.max = maximum.toISOString().slice(0, 10);
+          const nextDefaultEndDate = endDateFor(start.value);
+          if (end.value === defaultEndDate) end.value = nextDefaultEndDate;
+          defaultEndDate = nextDefaultEndDate;
+          end.max = nextDefaultEndDate;
         } else {
           end.removeAttribute("max");
         }
@@ -1917,6 +1952,183 @@ function renderTablePanel(title, rows, section) {
   return panel;
 }
 
+function renderStaffOnboarding(root, rows) {
+  addHeading(
+    root,
+    "PEOPLE & ACCESS",
+    "Staff onboarding",
+    "Review moderator and editor profiles before granting newsroom access."
+  );
+  const records = Array.isArray(rows) ? rows : [];
+  const submittedCount = records.filter((row) => row.status === "submitted").length;
+  const summary = makeElement("div", "admin-staff-onboarding-summary");
+  summary.append(
+    makeElement("strong", "", String(submittedCount)),
+    makeElement("span", "", submittedCount === 1 ? "profile waiting for review" : "profiles waiting for review")
+  );
+  root.append(summary);
+  if (!records.length) {
+    root.append(makeElement(
+      "section",
+      "admin-panel admin-staff-onboarding-empty",
+      "No staff invitations yet. Invite a moderator or editor from the Users section."
+    ));
+    return;
+  }
+
+  const grid = makeElement("div", "admin-staff-onboarding-grid");
+  records.forEach((record) => {
+    const profile = record.profile || {};
+    const name = profile.full_name || "Profile not submitted";
+    const card = makeElement("article", "admin-panel admin-staff-onboarding-card");
+    const heading = makeElement("div", "admin-staff-onboarding-card-heading");
+    const headingCopy = makeElement("div");
+    headingCopy.append(
+      makeElement("span", "admin-eyebrow", String(record.requested_role || "staff").replaceAll("_", " ").toUpperCase()),
+      makeElement("h2", "", name),
+      makeElement("p", "", profile.email || "Email unavailable")
+    );
+    const status = makeElement("span", `admin-staff-status ${record.status || "unknown"}`, String(record.status || "unknown").replaceAll("_", " "));
+    heading.append(headingCopy, status);
+    card.append(heading);
+    if (record.status === "submitted") {
+      card.append(makeElement("p", "admin-dialog-help", "Profile submitted for review. Access is still restricted until approval."));
+      const review = makeElement("button", "admin-primary-button", "Review profile");
+      review.type = "button";
+      review.addEventListener("click", () => openStaffReviewDialog(record, () => void loadSection("staff-onboarding")));
+      card.append(review);
+    } else if (record.status === "invited") {
+      card.append(makeElement("p", "admin-dialog-help", `Invitation sent ${formatDate(record.invited_at)}. Waiting for the invitee to verify their email and complete the profile.`));
+    } else if (record.status === "changes_requested") {
+      card.append(
+        makeElement("p", "admin-dialog-help", "Changes requested; waiting for the staff member to resubmit."),
+        makeElement("p", "admin-staff-review-note", record.review_note || "No review note.")
+      );
+    } else if (record.status === "active") {
+      card.append(
+        makeElement("p", "admin-dialog-help", `Approved and active since ${formatDate(record.reviewed_at)}.`),
+        makeElement("span", "admin-staff-contact", `${profile.phone || "Phone unavailable"} · ${record.permanent_address_city || "Address not submitted"}`)
+      );
+    } else {
+      card.append(
+        makeElement("p", "admin-dialog-help", `Invitation status: ${String(record.status || "unknown").replaceAll("_", " ")}.`),
+        record.review_note ? makeElement("p", "admin-staff-review-note", record.review_note) : makeElement("span")
+      );
+    }
+    grid.append(card);
+  });
+  root.append(grid);
+}
+
+function openStaffReviewDialog(record, refresh) {
+  const profile = record.profile || {};
+  const dialog = document.createElement("dialog");
+  dialog.className = "admin-json-dialog admin-staff-review-dialog";
+  const body = makeElement("section", "admin-json-form");
+  body.append(
+    makeElement("span", "admin-eyebrow", `${String(record.requested_role).replaceAll("_", " ").toUpperCase()} CANDIDATE`),
+    makeElement("h2", "", profile.full_name || "Staff profile review"),
+    makeElement("p", "admin-dialog-help", `${profile.email || "Email unavailable"} · ${profile.phone || "Phone unavailable"}`)
+  );
+  const profileLayout = makeElement("div", "admin-staff-review-layout");
+  if (record.profile_photo_url) {
+    const photo = document.createElement("img");
+    photo.className = "admin-staff-profile-photo";
+    photo.src = record.profile_photo_url;
+    photo.alt = `Profile photo for ${profile.full_name || "staff candidate"}`;
+    photo.loading = "lazy";
+    profileLayout.append(photo);
+  }
+  const details = makeElement("dl", "admin-staff-profile-details");
+  [
+    ["Date of birth", record.date_of_birth ? formatDate(record.date_of_birth) : "Not provided"],
+    ["Emergency contact", record.emergency_contact_name],
+    ["Relationship", record.emergency_contact_relationship],
+    ["Emergency phone", record.emergency_contact_phone],
+    ["Address", [
+      record.permanent_address_line1,
+      record.permanent_address_line2,
+      record.permanent_address_city,
+      record.permanent_address_district,
+      record.permanent_address_state,
+      record.permanent_address_postal_code
+    ].filter(Boolean).join(", ")],
+    ["Preferred language", record.preferred_language || "Not provided"],
+    ["Experience", record.experience_years == null ? "Not provided" : `${record.experience_years} years`],
+    ["Experience summary", record.experience_summary || "Not provided"]
+  ].forEach(([label, value]) => {
+    details.append(makeElement("dt", "", label), makeElement("dd", "", value || "—"));
+  });
+  profileLayout.append(details);
+  body.append(profileLayout);
+  if (record.status === "changes_requested" && record.review_note) {
+    body.append(makeElement("p", "admin-staff-review-note", `Previous note: ${record.review_note}`));
+  }
+  const reviewNote = document.createElement("textarea");
+  reviewNote.className = "admin-staff-review-input";
+  reviewNote.name = "review_message";
+  reviewNote.maxLength = 1000;
+  reviewNote.rows = 3;
+  reviewNote.placeholder = "Add a clear reason when requesting changes or rejecting.";
+  body.append(reviewNote);
+  const feedback = makeElement("p", "admin-staff-review-feedback");
+  feedback.setAttribute("role", "alert");
+  feedback.hidden = true;
+  body.append(feedback);
+  const actions = makeElement("div", "admin-dialog-actions admin-staff-review-actions");
+  const close = makeElement("button", "admin-secondary-button", "Close");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  actions.append(close);
+  [
+    ["Request changes", "request_changes", "admin-secondary-button"],
+    ["Reject", "reject", "admin-row-button danger"],
+    ["Approve & activate", "approve", "admin-primary-button"]
+  ].forEach(([label, decision, style]) => {
+    const button = makeElement("button", style, label);
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      const note = reviewNote.value.trim();
+      if (decision !== "approve" && note.length < 5) {
+        feedback.textContent = "Add at least five characters explaining this decision.";
+        feedback.hidden = false;
+        reviewNote.focus();
+        return;
+      }
+      feedback.hidden = true;
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      try {
+        await apiRequest(`admin/staff-onboarding/${record.user_id}/review`, "POST", {
+          decision,
+          review_message: note
+        });
+        dialog.close();
+        await refresh();
+        void showAdminMessage(
+          decision === "approve" ? "Staff member activated"
+            : decision === "request_changes" ? "Profile changes requested" : "Staff invitation rejected",
+          decision === "approve"
+            ? `${profile.full_name || profile.email} can now sign in with the ${record.requested_role} role.`
+            : "The decision and review note were saved."
+        );
+      } catch (error) {
+        feedback.textContent = error instanceof Error ? error.message : "The review could not be saved.";
+        feedback.hidden = false;
+      } finally {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    });
+    actions.append(button);
+  });
+  body.append(actions);
+  dialog.append(body);
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  dialog.showModal();
+}
+
 function buildTable(rows, section) {
   if (!rows.length) {
     const message = section === "reporter-credentials"
@@ -1930,7 +2142,7 @@ function buildTable(rows, section) {
   const preferredColumns = section === "locations"
     ? ["hierarchy", "location_type", "parent_location", "is_active"]
     : section === "users"
-    ? ["full_name", "email", "phone", "role", "created_at"]
+    ? ["full_name", "email", "phone", "role", "requested_role", "staff_status", "created_at"]
     : section === "reporter-applications"
       ? ["applicant_name", "email", "state_name", "city", "area_coverage", "status", "details_confirmed"]
       : section === "reporter-credentials"
@@ -2059,8 +2271,9 @@ function addRowActions(container, row, section) {
     role.className = "admin-role-select";
     role.setAttribute("aria-label", `Role for ${row.name || id}`);
     const roles = sessionIdentity?.role === "super_admin"
-      ? ["subscriber", "reporter", "moderator", "editor", "publisher", "admin", "super_admin"]
-      : ["subscriber", "reporter", "moderator", "editor", "publisher", "admin"];
+      ? ["subscriber", "reporter", "publisher", "admin", "super_admin"]
+      : ["subscriber", "reporter", "publisher", "admin"];
+    if (["moderator", "editor"].includes(row.role)) roles.push(row.role);
     roles.filter((value) => value !== "reporter" || row.role === "reporter").forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
@@ -3019,8 +3232,8 @@ function addRoleField(form, value = "subscriber") {
   const select = document.createElement("select");
   select.name = "role";
   const roles = sessionIdentity?.role === "super_admin"
-    ? ["subscriber", "moderator", "editor", "publisher", "admin", "super_admin"]
-    : ["subscriber", "moderator", "editor", "publisher", "admin"];
+    ? ["subscriber", "publisher", "admin", "super_admin"]
+    : ["subscriber", "publisher", "admin"];
   roles.forEach((role) => {
     const option = document.createElement("option");
     option.value = role;
@@ -3080,13 +3293,13 @@ function openFormDialog(title, helpText, fields, onSubmit, submitLabel = "Save c
 
 async function openUserDialog() {
   openFormDialog(
-    "Create newsroom account",
-    "Create the applicant’s subscriber account first. Reporter access is granted only after the person submits an application and completes every onboarding step.",
+    "Create subscriber account",
+    "Create a standard account. Reporter applications use the Reporter Desk; moderator and editor access requires a reviewed staff invitation.",
     (form) => {
       addField(form, "Full name", "full_name", "text", "", { minLength: 2, maxLength: 120, autocomplete: "name" });
       addField(form, "Email address", "email", "email", "", { maxLength: 254, autocomplete: "email" });
       addField(form, "Phone (optional)", "phone", "tel", "", { required: false, autocomplete: "tel" });
-      addRoleField(form);
+      addRoleField(form, "subscriber");
       addField(form, "Temporary password", "password", "password", "", { minLength: 8, maxLength: 72, autocomplete: "new-password" });
     },
     async (formData) => {
@@ -3100,7 +3313,52 @@ async function openUserDialog() {
           : "The account is ready to use."
       );
     },
-    "Create account"
+    "Create subscriber"
+  );
+}
+
+function openStaffInvitationDialog() {
+  openFormDialog(
+    "Invite a moderator or editor",
+    "We will email a secure invitation link. The invited person completes their private staff profile and sets their password; they remain a subscriber until an admin reviews and approves the profile.",
+    (form) => {
+      addField(form, "Staff member email", "email", "email", "", {
+        maxLength: 254,
+        autocomplete: "email"
+      });
+      const label = makeElement("label", "admin-form-field");
+      label.append(makeElement("span", "", "Requested newsroom role"));
+      const select = document.createElement("select");
+      select.name = "requested_role";
+      select.required = true;
+      [
+        ["moderator", "Moderator · review reporter submissions"],
+        ["editor", "Editor · manage editorial review and publishing"]
+      ].forEach(([value, text]) => {
+        const option = makeElement("option", "", text);
+        option.value = value;
+        select.append(option);
+      });
+      label.append(select);
+      form.append(label);
+      form.append(makeElement(
+        "p",
+        "admin-dialog-help",
+        "This form does not collect Aadhaar, PAN, bank, or reporter coverage details."
+      ));
+    },
+    async (values) => {
+      const result = await apiRequest("admin/staff-invitations", "POST", {
+        email: String(values.get("email") || "").trim(),
+        requested_role: values.get("requested_role")
+      });
+      await loadSection("users");
+      void showAdminMessage(
+        "Staff invitation sent",
+        `A secure ${result.data.requested_role} onboarding invitation was sent to ${result.data.email}. The role stays inactive until an admin approves the completed profile.`
+      );
+    },
+    "Send invitation"
   );
 }
 

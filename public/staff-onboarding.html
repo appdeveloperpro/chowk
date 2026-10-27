@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf0">
+    <title>Staff onboarding | CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/inline-feedback.css">
+    <link rel="stylesheet" href="/staff-onboarding.css">
+    <script src="/site-shell.js" defer></script>
+    <script src="/inline-feedback.js" defer></script>
+    <script src="/staff-onboarding.js" type="module"></script>
+  </head>
+  <body>
+    <div class="development-notice" role="note" aria-label="Development phase notice">
+      <div class="notice-inner">
+        <span class="notice-dot" aria-hidden="true"></span>
+        <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
+      </div>
+    </div>
+    <div data-site-shell-header></div>
+    <main class="staff-onboarding-main">
+      <section class="staff-onboarding-intro">
+        <span class="staff-onboarding-eyebrow">CHOWK NEWSROOM · SECURE STAFF INVITATION</span>
+        <h1>Complete your staff profile</h1>
+        <p>Share the details the newsroom needs to review your moderator or editor invitation. Your account stays limited until an administrator approves your profile.</p>
+      </section>
+
+      <section id="staff-onboarding-state" class="staff-onboarding-state" aria-live="polite">
+        <span class="staff-onboarding-spinner" aria-hidden="true"></span>
+        <span>Verifying your invitation…</span>
+      </section>
+
+      <form id="staff-onboarding-form" class="staff-onboarding-form" hidden novalidate>
+        <div class="staff-onboarding-security-note">
+          <span aria-hidden="true">✓</span>
+          <p><strong>Private staff record</strong><br>Your profile and photo are available only to you and authorized administrators. We do not ask for Aadhaar, PAN, bank details, reporter coverage, or reporter agreements here.</p>
+        </div>
+
+        <section class="staff-form-card" aria-labelledby="staff-identity-heading">
+          <div class="staff-form-card-heading">
+            <span class="staff-form-step">01</span>
+            <div>
+              <h2 id="staff-identity-heading">Identity & contact</h2>
+              <p>Use your official name and a phone number where the newsroom can reach you.</p>
+            </div>
+          </div>
+          <div class="staff-form-grid">
+            <label class="staff-field">
+              <span>Full legal name <b>*</b></span>
+              <input name="full_name" type="text" autocomplete="name" minlength="2" maxlength="120" required>
+            </label>
+            <label class="staff-field">
+              <span>Email address</span>
+              <input name="email" type="email" autocomplete="email" readonly>
+              <small>This is the verified invitation address and cannot be changed here.</small>
+            </label>
+            <label class="staff-field">
+              <span>Mobile number <b>*</b></span>
+              <input name="phone" type="tel" autocomplete="tel" inputmode="tel" pattern="\+?[1-9][0-9]{6,14}" maxlength="16" required>
+            </label>
+            <label class="staff-field">
+              <span>Date of birth <small>(optional)</small></span>
+              <input name="date_of_birth" type="date" autocomplete="bday">
+            </label>
+          </div>
+        </section>
+
+        <section class="staff-form-card" aria-labelledby="staff-emergency-heading">
+          <div class="staff-form-card-heading">
+            <span class="staff-form-step">02</span>
+            <div>
+              <h2 id="staff-emergency-heading">Emergency contact</h2>
+              <p>Provide one trusted contact for urgent newsroom situations.</p>
+            </div>
+          </div>
+          <div class="staff-form-grid">
+            <label class="staff-field">
+              <span>Contact person <b>*</b></span>
+              <input name="emergency_contact_name" type="text" minlength="2" maxlength="120" required>
+            </label>
+            <label class="staff-field">
+              <span>Relationship <b>*</b></span>
+              <input name="emergency_contact_relationship" type="text" minlength="2" maxlength="80" required>
+            </label>
+            <label class="staff-field">
+              <span>Emergency phone <b>*</b></span>
+              <input name="emergency_contact_phone" type="tel" inputmode="tel" pattern="\+?[1-9][0-9]{6,14}" maxlength="16" required>
+            </label>
+          </div>
+        </section>
+
+        <section class="staff-form-card" aria-labelledby="staff-address-heading">
+          <div class="staff-form-card-heading">
+            <span class="staff-form-step">03</span>
+            <div>
+              <h2 id="staff-address-heading">Residential address</h2>
+              <p>Enter your current permanent address for internal staff records.</p>
+            </div>
+          </div>
+          <div class="staff-form-grid">
+            <label class="staff-field staff-field-wide">
+              <span>House / building and street <b>*</b></span>
+              <input name="permanent_address_line1" type="text" autocomplete="address-line1" minlength="2" maxlength="160" required>
+            </label>
+            <label class="staff-field staff-field-wide">
+              <span>Area / locality <small>(optional)</small></span>
+              <input name="permanent_address_line2" type="text" autocomplete="address-line2" maxlength="160">
+            </label>
+            <label class="staff-field">
+              <span>City / town / village <b>*</b></span>
+              <input name="permanent_address_city" type="text" autocomplete="address-level2" minlength="2" maxlength="100" required>
+            </label>
+            <label class="staff-field">
+              <span>District <b>*</b></span>
+              <input name="permanent_address_district" type="text" minlength="2" maxlength="100" required>
+            </label>
+            <label class="staff-field">
+              <span>State / UT <b>*</b></span>
+              <input name="permanent_address_state" type="text" autocomplete="address-level1" minlength="2" maxlength="100" required>
+            </label>
+            <label class="staff-field">
+              <span>PIN code <b>*</b></span>
+              <input name="permanent_address_postal_code" type="text" autocomplete="postal-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+            </label>
+          </div>
+        </section>
+
+        <section class="staff-form-card" aria-labelledby="staff-experience-heading">
+          <div class="staff-form-card-heading">
+            <span class="staff-form-step">04</span>
+            <div>
+              <h2 id="staff-experience-heading">Experience & profile photo</h2>
+              <p>Help the newsroom understand your background and prepare your internal staff profile.</p>
+            </div>
+          </div>
+          <div class="staff-photo-upload">
+            <div class="staff-photo-preview" id="staff-photo-preview" aria-label="Profile photo preview">
+              <span id="staff-photo-placeholder" aria-hidden="true">CN</span>
+              <img id="staff-photo-image" alt="Selected staff profile photo" hidden>
+            </div>
+            <div class="staff-photo-copy">
+              <label class="staff-field">
+                <span>Profile photo <b>*</b></span>
+                <input id="staff-profile-photo" name="profile_photo" type="file" accept="image/jpeg,image/png" required>
+              </label>
+              <small>JPG or PNG · up to 5 MB. This photo is stored privately for staff identification.</small>
+            </div>
+          </div>
+          <input name="profile_photo_path" type="hidden">
+          <div class="staff-form-grid staff-experience-fields">
+            <label class="staff-field">
+              <span>Preferred language <small>(optional)</small></span>
+              <input name="preferred_language" type="text" maxlength="80">
+            </label>
+            <label class="staff-field">
+              <span>Newsroom experience in years <small>(optional)</small></span>
+              <input name="experience_years" type="number" min="0" max="80" step="0.5">
+            </label>
+            <label class="staff-field staff-field-wide">
+              <span>Experience summary <small>(optional)</small></span>
+              <textarea name="experience_summary" rows="4" maxlength="2000" placeholder="Briefly describe relevant reporting, moderation, editing, or community experience."></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="staff-form-card staff-password-card" aria-labelledby="staff-password-heading">
+          <div class="staff-form-card-heading">
+            <span class="staff-form-step">05</span>
+            <div>
+              <h2 id="staff-password-heading">Set your account password</h2>
+              <p>Choose a password to use when signing in after you complete onboarding.</p>
+            </div>
+          </div>
+          <div class="staff-form-grid">
+            <label class="staff-field">
+              <span>New password <b>*</b></span>
+              <input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+              <small>Use at least 8 characters.</small>
+            </label>
+            <label class="staff-field">
+              <span>Confirm password <b>*</b></span>
+              <input name="confirm_password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+            </label>
+          </div>
+        </section>
+
+        <label class="staff-certification">
+          <input name="profile_confirmed" type="checkbox" required>
+          <span>I confirm that the information above is accurate and may be reviewed by authorized Chowk administrators.</span>
+        </label>
+        <p id="staff-onboarding-message" class="staff-onboarding-message" role="alert" hidden></p>
+        <div class="staff-onboarding-submit-row">
+          <a href="/auth?mode=login">Return to sign in</a>
+          <button id="staff-onboarding-submit" class="staff-submit-button" type="submit">Submit profile for review <span aria-hidden="true">→</span></button>
+        </div>
+      </form>
+      <a class="staff-onboarding-home" href="/">← Back to CHOWK NEWS</a>
+    </main>
+    <div data-site-shell-footer></div>
+  </body>
+</html>

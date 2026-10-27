@@ -118,14 +118,24 @@ form.addEventListener("submit", async (event) => {
     showAuthMessage(successMessage, true);
     const role = result.identity?.role;
     const staffRoles = ["reporter", "moderator", "editor", "publisher"];
+    let destination = mode === "register"
+      ? "/reporter"
+      : staffRoles.includes(role)
+        ? "/workspace"
+        : role === "admin" || role === "super_admin"
+          ? "/admin/dashboard"
+          : "/reporter";
+    if (mode === "login" && role === "subscriber") {
+      const staffInvitation = await fetch("/api/staff/onboarding", { cache: "no-store" });
+      if (staffInvitation.ok) {
+        const onboarding = await staffInvitation.json();
+        if (onboarding.data?.status !== "active") destination = "/staff-onboarding";
+      } else if (staffInvitation.status !== 404) {
+        throw new Error("You signed in, but your staff invitation could not be checked. Try again or contact an admin.");
+      }
+    }
     window.location.assign(
-      mode === "register"
-        ? "/reporter"
-        : staffRoles.includes(role)
-          ? "/workspace"
-          : role === "admin" || role === "super_admin"
-            ? "/admin/dashboard"
-            : "/reporter"
+      destination
     );
   } catch (error) {
     showAuthMessage(

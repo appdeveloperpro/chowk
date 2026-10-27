@@ -1744,6 +1744,190 @@
   .admin-account-copy {
     display: none;
   }
+}
+
+.admin-staff-onboarding-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 18px;
+  border: 1px solid #f0dfd1;
+  border-radius: 10px;
+  background: linear-gradient(110deg, #fff8f1, #fff);
+  color: #788397;
+  font-size: 12px;
+}
+
+.admin-staff-onboarding-summary strong {
+  color: #dd6427;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.admin-staff-onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+
+.admin-staff-onboarding-card {
+  display: grid;
+  align-content: start;
+  gap: 15px;
+  padding: 20px;
+}
+
+.admin-staff-onboarding-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.admin-staff-onboarding-card-heading h2 {
+  margin: 6px 0 3px;
+  color: #29364d;
+  font-size: 16px;
+}
+
+.admin-staff-onboarding-card-heading p,
+.admin-staff-contact {
+  margin: 0;
+  color: #7e899b;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.admin-staff-status {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #f0f2f5;
+  color: #657185;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.admin-staff-status.submitted {
+  background: #fff3e5;
+  color: #a45b0a;
+}
+
+.admin-staff-status.active {
+  background: #eaf7ef;
+  color: #28774d;
+}
+
+.admin-staff-status.rejected {
+  background: #fff0ef;
+  color: #a13c36;
+}
+
+.admin-staff-review-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid #e8a654;
+  border-radius: 5px;
+  background: #fff8eb;
+  color: #76552d;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.admin-staff-onboarding-empty {
+  padding: 32px;
+  color: #7d8798;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.admin-staff-review-dialog {
+  width: min(820px, calc(100% - 28px));
+  max-height: min(88vh, 900px);
+  overflow-y: auto;
+}
+
+.admin-staff-review-layout {
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.admin-staff-profile-photo {
+  width: 152px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid #e5e9ef;
+  border-radius: 12px;
+  background: #f3f5f8;
+}
+
+.admin-staff-profile-details {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1.5fr);
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.admin-staff-profile-details dt {
+  color: #8290a1;
+  font-size: 11px;
+}
+
+.admin-staff-profile-details dd {
+  margin: 0;
+  color: #354158;
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.admin-json-form textarea.admin-staff-review-input {
+  min-height: 88px;
+  resize: vertical;
+  padding: 11px 12px;
+  border: 1px solid #dce1e9;
+  border-radius: 8px;
+  background: #fafbfc;
+  color: #29364d;
+  font: inherit;
+  font-size: 12px;
+}
+
+.admin-staff-review-feedback {
+  margin: 0;
+  color: #a13c36;
+  font-size: 12px;
+}
+
+.admin-staff-review-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 620px) {
+  .admin-staff-onboarding-card {
+    padding: 15px;
+  }
+
+  .admin-staff-review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-staff-profile-photo {
+    width: 112px;
+  }
+
+  .admin-staff-profile-details {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .admin-staff-profile-details dd {
+    margin-bottom: 8px;
+  }
 
   .admin-content {
     padding: 22px 14px 36px;

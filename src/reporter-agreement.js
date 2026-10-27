@@ -49,6 +49,25 @@ const serviceTokenValues = new Set([
   "reporter.date_of_birth",
   "reporter.mobile_number"
 ]);
+const reporterServiceAgreementLegalTerms = [
+  { column: "agreement_record_retention_period", token: "agreement.record_retention_period", label: "Records retention period" },
+  { column: "agreement_record_production_deadline", token: "agreement.record_production_deadline", label: "Records production deadline" },
+  { column: "agreement_payment_deadline", token: "agreement.payment_deadline", label: "Payment deadline" },
+  { column: "agreement_payment_cycle", token: "agreement.payment_cycle", label: "Payment cycle" },
+  { column: "agreement_legal_cost_reimbursement_deadline", token: "agreement.legal_cost_reimbursement_deadline", label: "Legal-cost reimbursement deadline" },
+  { column: "agreement_reporter_liability_clause", token: "agreement.reporter_liability_clause", label: "Reporter liability clause" },
+  { column: "agreement_reporter_liability_summary", token: "agreement.reporter_liability_summary", label: "Reporter liability summary for Schedule A" },
+  { column: "agreement_story_exclusivity_period", token: "agreement.story_exclusivity_period", label: "Story exclusivity period" },
+  { column: "agreement_term_period", token: "agreement.term_period", label: "Agreement term" },
+  { column: "agreement_termination_notice_period", token: "agreement.termination_notice_period", label: "Termination notice period" },
+  { column: "agreement_company_liability_lookback_period", token: "agreement.company_liability_lookback_period", label: "Company liability lookback period" },
+  { column: "agreement_arbitrator_appointment_method", token: "agreement.arbitrator_appointment_method", label: "Arbitrator appointment method" },
+  { column: "agreement_arbitration_language", token: "agreement.arbitration_language", label: "Arbitration language" },
+  { column: "agreement_controlling_language", token: "agreement.controlling_language", label: "Controlling language" },
+  { column: "agreement_fee_terms", token: "agreement.fee_terms", label: "Fees" },
+  { column: "agreement_insurance_terms", token: "agreement.insurance_terms", label: "Insurance terms" }
+];
+reporterServiceAgreementLegalTerms.forEach(({ token }) => serviceTokenValues.add(token));
 const serviceRenderTokenValues = new Set([...serviceTokenValues, "reporter.type"]);
 const templatePath = path.join(__dirname, "reporter-agreement-template.txt");
 const fontDirectory = path.resolve(__dirname, "../node_modules/@fontsource/noto-sans-devanagari/files");
@@ -65,7 +84,26 @@ function normalizeReporterServiceAgreementTemplate(template) {
   return template.replace(
     /^([ \t]*Assigned area:[ \t]*)\{\{reporter\.state\}\}[ \t]*\/[ \t]*\{\{reporter\.rto\}\}[ \t]*\/[ \t]*\{\{reporter\.city\}\}([ \t]*)\r?$/gim,
     "$1{{reporter.coverage_area}} / {{reporter.district}} / {{reporter.state}}$2"
-  );
+  )
+    .replace(/\[24\] months/g, "{{agreement.record_retention_period}}")
+    .replace(/\[48\] hours/g, "{{agreement.record_production_deadline}}")
+    .replace(/within \[30\] days of the end of each \[month \/ invoice\]/g, "within {{agreement.payment_deadline}} of the end of each {{agreement.payment_cycle}}")
+    .replace(/within \[15\]\s*days of Chowk’s invoice/g, "within {{agreement.legal_cost_reimbursement_deadline}} of Chowk’s invoice")
+    .replace(/11\.7 \[Optional: The Reporter’s total liability under this Section is limited to ₹ \[amount\],\s*except for fabrication, fraud or wilful misconduct, for which it is unlimited\.\]/g, "11.7 {{agreement.reporter_liability_clause}}")
+    .replace(/\[72\] hours/g, "{{agreement.story_exclusivity_period}}")
+    .replace(/\[12\] months/g, "{{agreement.term_period}}")
+    .replace(/on \[15\] days’ written notice/g, "on {{agreement.termination_notice_period}} written notice")
+    .replace(/preceding \[3\] months/g, "preceding {{agreement.company_liability_lookback_period}}")
+    .replace(/by \[the High Court \/ an arbitral institution\]/g, "by {{agreement.arbitrator_appointment_method}}")
+    .replace(/language is \[English \/ Hindi\]/g, "language is {{agreement.arbitration_language}}")
+    .replace(/\[English \/ Hindi\] prevails/g, "{{agreement.controlling_language}} prevails")
+    .replace(/\[Enter fees per accepted story or monthly retainer\]/g, "{{agreement.fee_terms}}")
+    .replace(/\[Enter payment cycle\]/g, "{{agreement.payment_cycle}}")
+    .replace(/\[Enter term\]/g, "{{agreement.term_period}}")
+    .replace(/\[Enter notice period\]/g, "{{agreement.termination_notice_period}}")
+    .replace(/\[Enter retention period\]/g, "{{agreement.record_retention_period}}")
+    .replace(/\[Enter none or agreed amount\]/g, "{{agreement.reporter_liability_summary}}")
+    .replace(/\[Enter none or details\]/g, "{{agreement.insurance_terms}}");
 }
 
 function unknownTemplateTokens(template, allowedTokens = tokenValues) {
@@ -176,6 +214,7 @@ module.exports = {
     .map((token) => `{{${token}}}`),
   reporterServiceAgreementTemplateFields: [...serviceTokenValues].map((token) => `{{${token}}}`),
   reporterServiceAgreementRenderTokens: serviceRenderTokenValues,
+  reporterServiceAgreementLegalTerms,
   renderReporterAgreementTemplate,
   unknownTemplateTokens,
   unknownServiceTemplateTokens: (template) => unknownTemplateTokens(template, serviceTokenValues),

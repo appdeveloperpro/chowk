@@ -12,6 +12,7 @@ const {
   normalizeReporterServiceAgreementTemplate,
   reporterAgreementTemplateFields,
   reporterServiceAgreementTemplateFields,
+  reporterServiceAgreementLegalTerms,
   reporterServiceAgreementTokens,
   reporterServiceAgreementRenderTokens,
   unknownTemplateTokens,
@@ -32,6 +33,7 @@ const adminCookie = "chowk_admin_session";
 const sessionMaxAge = 60 * 60;
 const requestContext = new AsyncLocalStorage();
 const reporterServiceAgreementPreviews = new Map();
+const reporterServiceAgreementTermColumns = reporterServiceAgreementLegalTerms.map(({ column }) => column);
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -39,6 +41,27 @@ const contentTypes = {
   ".pdf": "application/pdf",
   ".png": "image/png"
 };
+
+function reporterServiceAgreementTermsFromProfile(profile) {
+  return Object.fromEntries(reporterServiceAgreementLegalTerms.map(({ column, token }) => [
+    token,
+    typeof profile?.[column] === "string" ? profile[column].trim() : ""
+  ]));
+}
+
+function reporterServiceAgreementTermsComplete(terms) {
+  return reporterServiceAgreementLegalTerms
+    .filter(({ token }) => !String(terms[token] ?? "").trim())
+    .map(({ label }) => label);
+}
+
+function reporterServiceAgreementVersionHash(template, terms) {
+  return createHash("sha256")
+    .update(template, "utf8")
+    .update("\n")
+    .update(JSON.stringify(terms), "utf8")
+    .digest("hex");
+}
 
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, {
@@ -703,8 +726,8 @@ async function reporterServiceAgreementContext(session) {
   const [
     agreement, organization, profile, privateDetails, state, rto, reporterProfile, designationResult
   ] = await Promise.all([
-    supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256,template_content&status=eq.published&limit=1", { token: session.token }),
-    supabaseRequest("/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified&id=eq.true&limit=1", { token: session.token }),
+    supabaseRequest("/rest/v1/reporter_service_agreement_versions?select=version,sha256,template_content,legal_terms_snapshot&status=eq.published&limit=1", { token: session.token }),
+    supabaseRequest(`/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified,${reporterServiceAgreementTermColumns.join(",")}&id=eq.true&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/profiles?select=full_name,phone&id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/reporter_application_private_details?select=coverage_area_id,father_first_name,father_last_name,permanent_address_line1,permanent_address_line2,permanent_address_city,permanent_address_district,permanent_address_state,permanent_address_postal_code,mobile_number,date_of_birth&application_id=eq.${encodeURIComponent(application.id)}&user_id=eq.${encodeURIComponent(session.identity.id)}&limit=1`, { token: session.token }),
     supabaseRequest(`/rest/v1/states?select=id,state_name,state_code&id=eq.${application.state?.id}&limit=1`, { token: session.token }),
@@ -735,6 +758,14 @@ async function reporterServiceAgreementContext(session) {
       reporterName: profile.payload?.[0]?.full_name || session.identity.name || ""
     };
   }
+  if (!currentAgreement.legal_terms_snapshot
+      || typeof currentAgreement.legal_terms_snapshot !== "object"
+      || Array.isArray(currentAgreement.legal_terms_snapshot)) {
+    throw Object.assign(
+      new Error("An administrator must save and publish a new service-agreement template with its approved legal terms before it can be reviewed."),
+      { statusCode: 409 }
+    );
+  }
   const company = organization.payload?.[0];
   const reporter = profile.payload?.[0];
   const details = privateDetails.payload?.[0];
@@ -754,6 +785,15 @@ async function reporterServiceAgreementContext(session) {
   if (!company?.is_verified || !reporter || !details || !selectedState || !selectedRto) {
     throw Object.assign(
       new Error("Verified organization details and complete reporter application details are required to generate the service agreement."),
+      { statusCode: 409 }
+    );
+  }
+  const legalTerms = currentAgreement.legal_terms_snapshot
+    || reporterServiceAgreementTermsFromProfile(company);
+  const missingLegalTerms = reporterServiceAgreementTermsComplete(legalTerms);
+  if (missingLegalTerms.length) {
+    throw Object.assign(
+      new Error(`Complete the agreement terms in Admin → Service agreement setup before reviewing the agreement: ${missingLegalTerms.join(", ")}.`),
       { statusCode: 409 }
     );
   }
@@ -801,13 +841,14 @@ async function reporterServiceAgreementContext(session) {
     "reporter.permanent_address_state": details.permanent_address_state || "Not provided",
     "reporter.permanent_address_postal_code": details.permanent_address_postal_code || "Not provided",
     "reporter.date_of_birth": details.date_of_birth || "Not provided",
-    "reporter.mobile_number": details.mobile_number || "Not provided"
+    "reporter.mobile_number": details.mobile_number || "Not provided",
+    ...legalTerms
   };
   return { agreement: currentAgreement, tokens, application, reporterName: tokens["reporter.full_name"] };
 }
 
 async function ensureReporterServiceAgreementTemplate(session) {
-  const selectPath = "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,template_content,status,created_at&template_content=not.is.null&order=created_at.desc,id.desc&limit=1";
+  const selectPath = "/rest/v1/reporter_service_agreement_versions?select=id,version,sha256,template_content,legal_terms_snapshot,status,created_at&template_content=not.is.null&order=created_at.desc,id.desc&limit=1";
   const existing = await supabaseRequest(selectPath, { token: session.token });
   if (!existing.response.ok) {
     throw Object.assign(
@@ -894,7 +935,7 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
       { token: session.token }
     ),
     supabaseRequest(
-      "/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified&id=eq.true&limit=1",
+      `/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified,${reporterServiceAgreementTermColumns.join(",")}&id=eq.true&limit=1`,
       { token: session.token }
     )
   ]);
@@ -922,9 +963,6 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
       { statusCode: 409 }
     );
   }
-  if (!agreement.sha256) {
-    agreement.sha256 = createHash("sha256").update(agreement.template_content, "utf8").digest("hex");
-  }
   if (!agreement.template_content.includes("{{reporter.designation}}")) {
     throw Object.assign(
       new Error("Add {{reporter.designation}} to the service-agreement template and publish it before preparing reporter agreements."),
@@ -937,12 +975,33 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
       { statusCode: 409 }
     );
   }
+  if (agreement.status === "published"
+      && (!agreement.legal_terms_snapshot
+        || typeof agreement.legal_terms_snapshot !== "object"
+        || Array.isArray(agreement.legal_terms_snapshot))) {
+    throw Object.assign(
+      new Error("This published template has no saved legal-term snapshot. Save a new template draft and publish it before issuing reporter agreements."),
+      { statusCode: 409 }
+    );
+  }
   const company = organizationResult.payload?.[0];
   if (!company?.is_verified) {
     throw Object.assign(
       new Error("Verify the company legal profile in Admin → Service agreement setup before preparing agreements."),
       { statusCode: 409 }
     );
+  }
+  const legalTerms = agreement.legal_terms_snapshot
+    || reporterServiceAgreementTermsFromProfile(company);
+  const missingLegalTerms = reporterServiceAgreementTermsComplete(legalTerms);
+  if (missingLegalTerms.length) {
+    throw Object.assign(
+      new Error(`Complete the agreement terms in Admin → Service agreement setup before preparing agreements: ${missingLegalTerms.join(", ")}.`),
+      { statusCode: 409 }
+    );
+  }
+  if (!agreement.sha256) {
+    agreement.sha256 = reporterServiceAgreementVersionHash(agreement.template_content, legalTerms);
   }
   const [profileResult, detailsResult, stateResult, rtoResult, reporterProfileResult] = await Promise.all([
     supabaseRequest(`/rest/v1/profiles?select=id,full_name,email,phone&id=eq.${encodeURIComponent(application.user_id)}&limit=1`, { token: session.token }),
@@ -1563,14 +1622,27 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/reporter-service-agreement-template" && request.method === "GET") {
       const latestTemplate = await ensureReporterServiceAgreementTemplate(session);
-      const published = await supabaseRequest(
-        "/rest/v1/reporter_service_agreement_versions?select=version,published_at&template_content=not.is.null&status=eq.published&limit=1",
-        { token }
-      );
-      if (!published.response.ok) {
-        sendJson(response, published.response.status, {
-          error: apiErrorMessage(published.payload, "Published agreement status could not be loaded.")
-        });
+      const [published, organization] = await Promise.all([
+        supabaseRequest(
+          "/rest/v1/reporter_service_agreement_versions?select=version,published_at&template_content=not.is.null&status=eq.published&limit=1",
+          { token }
+        ),
+        supabaseRequest(
+          `/rest/v1/reporter_organization_profile?select=${reporterServiceAgreementTermColumns.join(",")}&id=eq.true&limit=1`,
+          { token }
+        )
+      ]);
+      for (const result of [published, organization]) {
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "Agreement setup data could not be loaded.")
+          });
+          return;
+        }
+      }
+      const organizationProfile = organization.payload?.[0];
+      if (!organizationProfile) {
+        sendJson(response, 404, { error: "The organization profile could not be found." });
         return;
       }
       const publishedTemplate = published.payload?.[0];
@@ -1585,6 +1657,10 @@ async function adminRoute(request, response, requestUrl, session) {
           published_version: publishedTemplate?.version || null,
           published_at: publishedTemplate?.published_at || null,
           is_default: latestTemplate.version.startsWith("service-initial-"),
+          agreement_terms: Object.fromEntries(reporterServiceAgreementLegalTerms.map(({ column }) => [
+            column,
+            organizationProfile[column] || ""
+          ])),
           supported_fields: reporterServiceAgreementTemplateFields
         }
       });
@@ -1605,7 +1681,7 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const organizationResult = await supabaseRequest(
-        "/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url&id=eq.true&limit=1",
+        `/rest/v1/reporter_organization_profile?select=legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,${reporterServiceAgreementTermColumns.join(",")}&id=eq.true&limit=1`,
         { token }
       );
       if (!organizationResult.response.ok || !organizationResult.payload?.[0]) {
@@ -1615,6 +1691,12 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const company = organizationResult.payload[0];
+      const legalTerms = reporterServiceAgreementTermsFromProfile(company);
+      const missingTerms = reporterServiceAgreementTermsComplete(legalTerms);
+      if (missingTerms.length) {
+        sendJson(response, 409, { error: `Complete the agreement terms before previewing: ${missingTerms.join(", ")}.` });
+        return;
+      }
       const sampleTokens = {
         "agreement.date": new Intl.DateTimeFormat("en-IN", {
           day: "2-digit", month: "long", year: "numeric", timeZone: "Asia/Kolkata"
@@ -1681,14 +1763,26 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const template = normalizeReporterServiceAgreementTemplate(body.template_content).trim();
+      const organizationResult = await supabaseRequest(
+        `/rest/v1/reporter_organization_profile?select=${reporterServiceAgreementTermColumns.join(",")}&id=eq.true&limit=1`,
+        { token }
+      );
+      if (!organizationResult.response.ok || !organizationResult.payload?.[0]) {
+        sendJson(response, organizationResult.response.ok ? 404 : organizationResult.response.status, {
+          error: apiErrorMessage(organizationResult.payload, "Agreement terms could not be loaded for the template snapshot.")
+        });
+        return;
+      }
+      const legalTerms = reporterServiceAgreementTermsFromProfile(organizationResult.payload[0]);
       const result = await supabaseRequest("/rest/v1/reporter_service_agreement_versions", {
         method: "POST",
         token,
         body: {
           version,
-          sha256: createHash("sha256").update(template, "utf8").digest("hex"),
+          sha256: reporterServiceAgreementVersionHash(template, legalTerms),
           document_url: "/api/reporter/service-agreement-preview",
           template_content: template,
+          legal_terms_snapshot: legalTerms,
           created_by: session.identity.id
         },
         prefer: "return=representation"
@@ -1696,6 +1790,35 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload?.[0] }
         : { error: apiErrorMessage(result.payload, "Service agreement template version could not be saved.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-service-agreement-terms" && request.method === "PATCH") {
+      const body = await readJsonBody(request);
+      const terms = {};
+      for (const { column, label } of reporterServiceAgreementLegalTerms) {
+        const value = typeof body[column] === "string" ? body[column].trim() : "";
+        if (!value || value.length > 2000) {
+          sendJson(response, 400, { error: `${label} is required and must be 2,000 characters or fewer.` });
+          return;
+        }
+        terms[column] = value;
+      }
+      const result = await supabaseRequest("/rest/v1/reporter_organization_profile?id=eq.true", {
+        method: "PATCH",
+        token,
+        body: { ...terms, updated_by: session.identity.id },
+        prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok && result.payload?.[0]
+        ? {
+            success: true,
+            data: Object.fromEntries(reporterServiceAgreementLegalTerms.map(({ column }) => [
+              column,
+              result.payload[0][column]
+            ]))
+          }
+        : { error: apiErrorMessage(result.payload, "Agreement legal terms could not be saved.") });
       return;
     }
 

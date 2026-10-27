@@ -110,8 +110,8 @@ and permission needed;
 credentials is accurate.
 6. Records and evidence
 6.1 The Reporter shall keep raw notes, original audio, video and photo files, messages with
-sources and supporting documents for [24] months after each submission.
-6.2 The Reporter shall produce these records within [48] hours of Chowk’s request and
+sources and supporting documents for {{agreement.record_retention_period}} after each submission.
+6.2 The Reporter shall produce these records within {{agreement.record_production_deadline}} of Chowk’s request and
 shall cooperate in any verification.
 6.3 The Reporter consents to Chowk relying on Platform logs, including submission times,
 device data and location data, as evidence.
@@ -149,7 +149,7 @@ afterwards.
 shall tell Chowk about any such material.
 9. Fees and payment
 9.1 Chowk shall pay the fees in Schedule A for Content that Chowk accepts or publishes,
-within [30] days of the end of each [month / invoice].
+within {{agreement.payment_deadline}} of the end of each {{agreement.payment_cycle}}.
 9.2 Chowk shall deduct tax at source where required. The Reporter is responsible for his
 or her own taxes and any GST registration.
 9.3 No fee is payable for rejected, unpublished or withdrawn Content unless Schedule A
@@ -186,14 +186,13 @@ Chowk’s own wilful misconduct.
 counsel, and may settle where it reasonably considers settlement prudent after
 consulting the Reporter. The Reporter shall cooperate and shall not settle, or
 communicate with the claimant about the Claim, without Chowk’s prior written consent.
-11.5 The Reporter shall reimburse legal and other costs as they are incurred, within [15]
-days of Chowk’s invoice with reasonable proof.
+11.5 The Reporter shall reimburse legal and other costs as they are incurred, within
+{{agreement.legal_cost_reimbursement_deadline}} of Chowk’s invoice with reasonable proof.
 11.6 Nothing in this Agreement makes Chowk responsible for the Reporter’s own civil or
 criminal liability. The Reporter acknowledges that he or she may be separately liable to
 claimants and authorities. Nothing in this Agreement stops Chowk from cooperating with
 authorities or giving them the Reporter’s identity and records.
-11.7 [Optional: The Reporter’s total liability under this Section is limited to ₹ [amount],
-except for fabrication, fraud or wilful misconduct, for which it is unlimited.]
+11.7 {{agreement.reporter_liability_clause}}
 12. Chowk’s rights and remedies
 12.1 Chowk may remove, disable, edit or label any Content at any time without notice.
 
@@ -217,14 +216,14 @@ assignment he or she considers unsafe. Chowk does not provide insurance unless
 Schedule A says so.
 15. Exclusivity per story and conflicts
 15.1 Content submitted to Chowk is exclusive to Chowk until the earliest of publication,
-rejection, or [72] hours without a decision.
+rejection, or {{agreement.story_exclusivity_period}} without a decision.
 15.2 The Reporter shall not share unpublished Content with anyone else.
 15.3 The Reporter is free to work for others after this Agreement ends, subject to Sections
 8 and 10.
 16. Term and termination
-16.1 This Agreement starts on the date above and continues for [12] months, renewing
+16.1 This Agreement starts on the date above and continues for {{agreement.term_period}}, renewing
 automatically for like periods unless a Party gives notice.
-16.2 Either Party may terminate for convenience on [15] days’ written notice. A message
+16.2 Either Party may terminate for convenience on {{agreement.termination_notice_period}} written notice. A message
 through the Platform counts as written notice.
 
 16.3 Chowk may terminate immediately for false or fabricated Content, breach of Sections
@@ -234,7 +233,7 @@ deleted, and Chowk pays undisputed fees for accepted Content, subject to Section
 16.5 Sections 6, 8, 9.4, 10, 11, 12, 13 and 17 to 20 survive termination.
 17. Limitation of Chowk’s liability
 Chowk is not liable for indirect or consequential loss. Chowk’s total liability to the
-Reporter is limited to fees paid or payable in the preceding [3] months, except for unpaid
+Reporter is limited to fees paid or payable in the preceding {{agreement.company_liability_lookback_period}}, except for unpaid
 fees due and where the law does not allow limitation.
 18. Electronic execution and records
 This Agreement may be signed physically, by e-signature (including Aadhaar eSign) or by
@@ -248,8 +247,8 @@ details.
 notice.
 19.3 Unresolved disputes shall be referred to arbitration under the Arbitration and
 Conciliation Act, 1996 before a sole arbitrator appointed by mutual consent or, failing that,
-by [the High Court / an arbitral institution]. The seat and venue are {{reporter.city}} and the
-language is [English / Hindi]. The award is final and binding.
+by {{agreement.arbitrator_appointment_method}}. The seat and venue are {{reporter.city}} and the
+language is {{agreement.arbitration_language}}. The award is final and binding.
 19.4 Courts at {{reporter.city}} have exclusive jurisdiction for interim relief and enforcement,
 and Chowk may seek injunctive relief, including takedown and preservation of evidence,
 at any time.
@@ -264,7 +263,7 @@ unless in writing.
 20.3 Chowk may assign this Agreement to a successor or affiliate. The Reporter may not
 assign or subcontract.
 20.4 Neither Party is liable for delay caused by events beyond its reasonable control.
-20.5 This Agreement is made in English and Hindi. [English / Hindi] prevails if they differ.
+20.5 This Agreement is made in English and Hindi. {{agreement.controlling_language}} prevails if they differ.
 20.6 The Reporter confirms that he or she has read this Agreement, has had it explained in
 a language he or she understands, and has had the chance to take independent legal
 advice.
@@ -278,13 +277,13 @@ Parent's name: {{reporter.father_first_name}} {{reporter.father_last_name}}
 Permanent address: {{reporter.permanent_address}}
 Contact: {{reporter.phone}} · {{reporter.email}}
 Assigned area: {{reporter.coverage_area}} / {{reporter.district}} / {{reporter.state}}
-Fees: [Enter fees per accepted story or monthly retainer]
-Payment cycle: [Enter payment cycle]
+Fees: {{agreement.fee_terms}}
+Payment cycle: {{agreement.payment_cycle}}
 Payment details: Held securely on the Platform, not written here
-Term and notice: [Enter term] / [Enter notice period]
-Record retention: [Enter retention period]
-Optional liability cap (Section 11.7): [Enter none or agreed amount]
-Insurance provided by {{company.trade_name}}: [Enter none or details]
+Term and notice: {{agreement.term_period}} / {{agreement.termination_notice_period}}
+Record retention: {{agreement.record_retention_period}}
+Optional liability cap (Section 11.7): {{agreement.reporter_liability_summary}}
+Insurance provided by {{company.trade_name}}: {{agreement.insurance_terms}}
 
 Schedule B - Verification checklist (every report)
 1. Did I see or hear this myself, or verify it with a reliable source?

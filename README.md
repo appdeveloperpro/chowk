@@ -278,12 +278,18 @@ personalized service-agreement PDF from the verified company profile and the
 reporter's approved application, previews it, and explicitly issues that exact
 copy to the reporter. The reporter can view and download the PDF and must accept
 that issued copy. The database retains the issue, exact PDF hash, agreement
-version, signer, and acceptance timestamp. ID-card and authority-letter issuance
+version, signer, and acceptance timestamp. The service-agreement editor also
+provides an Admin form for the agreement's payment, retention, liability,
+arbitration, term, fee, and insurance clauses. Admins must enter approved wording
+for every required term, save the terms, then save a new template draft; the
+draft snapshots those terms so issued agreements retain the exact approved
+wording. Publishing is blocked until the company profile is verified and the
+draft's complete terms match the current Admin settings. ID-card and authority-letter issuance
 requires acceptance of the current issued agreement. The service template
 editor starts with the existing Reporter Engagement Agreement format and
 inserts verified database details; it does not draft or approve legal terms.
-Square-bracket legal/business placeholders must be finalized by the company and
-reviewed by counsel before publication. Editing and publishing replaces the
+Legal and business terms must be entered by an authorized Admin and reviewed
+before publication. Editing and publishing replaces the
 active template for future issues, while previous versions and issued or
 accepted PDFs remain retained as legal history. To prepare an agreement, open
 the approved reporter's application and use **Preview / issue agreement**.

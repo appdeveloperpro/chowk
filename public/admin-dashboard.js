@@ -1252,10 +1252,11 @@ async function openReporterServiceAgreementTemplateDialog() {
 
 function openReporterServiceAgreementTemplateEditor(template) {
   let previewUrl = "";
+  let agreementTerms = { ...(template.agreement_terms || {}) };
   try {
     const dialog = openFormDialog(
       "Approved reporter service agreement",
-      "Edit the template used for new reporter agreements. Save a draft at any time, including while legal terms are unfinished. Publishing is separate and requires all drafting placeholders to be resolved; previous versions and issued agreements remain preserved.",
+      "Edit the template used for new reporter agreements. Save drafts while legal terms are unfinished. Publishing requires every required Admin-managed legal term to be saved and all template placeholders to be resolved; previous versions and issued agreements remain preserved.",
       (form) => {
         const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
         contentLabel.append(makeElement("span", "", "Service agreement text"));
@@ -1269,6 +1270,73 @@ function openReporterServiceAgreementTemplateEditor(template) {
         content.value = template.template_content || "";
         contentLabel.append(content);
         form.append(contentLabel);
+
+        const termsDetails = document.createElement("details");
+        termsDetails.className = "admin-agreement-template-fields";
+        const termsSummary = makeElement("summary", "", "Required legal and business terms");
+        termsDetails.append(termsSummary);
+        termsDetails.append(makeElement(
+          "p",
+          "admin-dialog-help",
+          "Enter the terms approved for your agreement. No sample values are prefilled. Use finalized wording and enter an explicit value such as “None” only when that is the approved term. Save these terms, then save a new template draft to snapshot them."
+        ));
+        const termFields = [
+          ["agreement_record_retention_period", "Records retention period", "Example format: a number of months or years."],
+          ["agreement_record_production_deadline", "Records production deadline", "How quickly records must be produced after a request."],
+          ["agreement_payment_deadline", "Payment deadline", "How long after the cycle ends payment is due."],
+          ["agreement_payment_cycle", "Payment cycle", "The period or event that determines when payment is calculated."],
+          ["agreement_legal_cost_reimbursement_deadline", "Legal-cost reimbursement deadline", "How long after an invoice and proof reimbursement is due."],
+          ["agreement_reporter_liability_clause", "Reporter liability clause (Section 11.7)", "Enter the complete approved clause, or explicit wording that no separate cap applies."],
+          ["agreement_reporter_liability_summary", "Reporter liability summary (Schedule A)", "Enter the matching approved summary, or explicit wording that no separate cap applies."],
+          ["agreement_story_exclusivity_period", "Story exclusivity period", "How long content remains exclusive before publication or rejection."],
+          ["agreement_term_period", "Agreement term", "The duration for each agreement term."],
+          ["agreement_termination_notice_period", "Termination notice period", "The notice period for termination without cause."],
+          ["agreement_company_liability_lookback_period", "Company liability lookback period", "The period used for the limitation in Section 17."],
+          ["agreement_arbitrator_appointment_method", "Arbitrator appointment method", "This follows the words “appointed by” in Section 19.3."],
+          ["agreement_arbitration_language", "Arbitration language", "The language used for arbitration proceedings."],
+          ["agreement_controlling_language", "Controlling language", "The language that prevails if the English and Hindi texts differ."],
+          ["agreement_fee_terms", "Fees", "The approved fee basis and amount or rate."],
+          ["agreement_insurance_terms", "Insurance terms", "Describe the approved coverage, or enter “None” if no insurance is provided."]
+        ];
+        termFields.forEach(([name, label, helpText]) => {
+          const fieldLabel = makeElement("label", "admin-form-field");
+          fieldLabel.append(makeElement("span", "", label));
+          const input = document.createElement("textarea");
+          input.name = name;
+          input.maxLength = 2000;
+          input.rows = ["agreement_reporter_liability_clause", "agreement_reporter_liability_summary", "agreement_arbitrator_appointment_method", "agreement_fee_terms"].includes(name) ? 3 : 2;
+          input.value = agreementTerms[name] || "";
+          input.setAttribute("aria-label", label);
+          fieldLabel.append(input, makeElement("small", "admin-dialog-help", helpText));
+          termsDetails.append(fieldLabel);
+        });
+        const saveTerms = makeElement("button", "admin-secondary-button", "Save legal terms");
+        saveTerms.type = "button";
+        const termsStatus = makeElement("p", "admin-dialog-help");
+        termsStatus.setAttribute("role", "status");
+        saveTerms.addEventListener("click", async () => {
+          saveTerms.disabled = true;
+          saveTerms.textContent = "Saving terms…";
+          termsStatus.textContent = "";
+          const values = new FormData(form);
+          const terms = Object.fromEntries(termFields.map(([name]) => [name, values.get(name)]));
+          try {
+            const result = unwrapData(await apiRequest(
+              "admin/reporter-service-agreement-terms",
+              "PATCH",
+              terms
+            ));
+            agreementTerms = { ...agreementTerms, ...(result || terms) };
+            termsStatus.textContent = "Legal terms saved. Save a new template draft to snapshot these terms before publishing.";
+          } catch (error) {
+            termsStatus.textContent = `Legal terms could not be saved: ${error.message}`;
+          } finally {
+            saveTerms.disabled = false;
+            saveTerms.textContent = "Save legal terms";
+          }
+        });
+        termsDetails.append(saveTerms, termsStatus);
+        form.append(termsDetails);
 
         const fields = makeElement("details", "admin-agreement-template-fields");
         fields.append(makeElement("summary", "", "Available personalization fields"));

@@ -2655,13 +2655,15 @@ async function openReporterReviewDialog(application, refresh) {
     const requestControls = [];
     openFormDialog(
       "Review reporter application",
-      "Review the applicant's details and documents together. Sensitive identity and bank documents are restricted to authorized admins; previews expire shortly. Request field-specific corrections or reuploads when needed.",
+      "Review the applicant's details and documents together. If no changes are needed, choose Approve, select a reporter designation, and confirm your authority. Choose Request more information only when you select at least one field and explain the required update.",
       (form) => {
         const decisionLabel = makeElement("label", "admin-form-field");
         decisionLabel.append(makeElement("span", "", "Decision"));
         const decision = document.createElement("select");
         decision.name = "decision";
-        decision.append(new Option("Request more information", "needs_information"));
+        decision.required = true;
+        decision.append(new Option("Choose a decision", ""));
+        decision.append(new Option("Request more information (select fields below)", "needs_information"));
         const approveOption = new Option("Approve", "approve");
         approveOption.disabled = designations.length === 0;
         decision.append(approveOption, new Option("Reject", "reject"));
@@ -2831,6 +2833,9 @@ async function openReporterReviewDialog(application, refresh) {
             kind: kind.value,
             instruction: instruction.value.trim()
           }));
+        if (payload.decision === "needs_information" && payload.review_requests.length === 0) {
+          throw new Error("Select at least one field to request. If no changes are needed, choose Approve.");
+        }
         if (payload.review_requests.some((request) => request.instruction.length < 2)) {
           throw new Error("Add a clear instruction to every requested field.");
         }

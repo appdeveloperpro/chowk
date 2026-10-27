@@ -165,8 +165,10 @@ Requires Node.js 18 or newer.
    confirmed deletion of approved reporter applications while revoking access
    and credentials. Migration 0053 enables admin deletion of non-super-admin
    accounts, cascades account-owned records, and retains audit/history records
-   where their foreign keys already support anonymization. Apply 0051, 0052
-   and 0053 in order.
+   where their foreign keys already support anonymization. Migration 0054
+   requires at least one specific field request when asking an applicant for
+   more information, so applications without requested changes can proceed to
+   approval. Apply 0051 through 0054 in order.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

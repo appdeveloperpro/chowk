@@ -2966,6 +2966,12 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Field requests can only be sent with a request-for-information decision." });
         return;
       }
+      if (decision === "needs_information" && reviewRequests.length === 0) {
+        sendJson(response, 400, {
+          error: "Select at least one field to request. If no changes are needed, choose Approve."
+        });
+        return;
+      }
       const designationId = decision === "approved" ? Number(body.designation_id) : null;
       if (decision === "approved"
           && (!Number.isSafeInteger(designationId) || designationId < 1)) {
@@ -4832,7 +4838,25 @@ const server = http.createServer((request, response) => {
           requestId: randomUUID(),
           ipAddress: String(clientAddress).slice(0, 64),
           userAgent: String(request.headers["user-agent"] || "").slice(0, 500)
-        }, () => void adminRoute(request, response, requestUrl, session));
+        }, () => {
+          void adminRoute(request, response, requestUrl, session).catch((error) => {
+            console.error("Admin API request failed:", error.message);
+            if (response.headersSent) {
+              if (!response.writableEnded) response.destroy();
+              return;
+            }
+            const statusCode = Number.isInteger(error.statusCode)
+              && error.statusCode >= 400
+              && error.statusCode <= 599
+              ? error.statusCode
+              : 503;
+            sendJson(response, statusCode, {
+              error: error.statusCode
+                ? error.message
+                : "The admin request failed unexpectedly. Please retry; contact support if it continues."
+            });
+          });
+        });
       }
     });
     return;

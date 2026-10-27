@@ -23,6 +23,7 @@ const {
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT) || 3000;
 const publicDirectory = path.resolve(__dirname, "..", "public");
+const credentialCardLogo = `data:image/png;base64,${fs.readFileSync(path.join(publicDirectory, "chowk-logo.png")).toString("base64")}`;
 const maxRequestBodyBytes = 1024 * 1024;
 const apiTimeoutMs = 20_000;
 const categoryIconKeys = new Set([
@@ -494,7 +495,7 @@ async function credentialPrintPage(credential, request, token) {
     </style></head><body>${isAuthorityLetter ? authorityContent : `<article class="card card-front">
       <div class="topline"></div>
       <header><div><h1>PRESS</h1><p>OFFICIAL STAFF ID CARD</p></div><strong class="reference">${escapeHtml(credential.reference_code)}</strong></header>
-      <div class="card-brand"><img src="/chowk-logo.png" alt="CHOWK News logo"></div>
+      <div class="card-brand"><img src="${credentialCardLogo}" alt="CHOWK News logo"></div>
       <section class="body">${photo}<div class="details">
         <h2 class="staff-name">${escapeHtml(credential.name || credential.name_snapshot)}</h2>
         <p class="staff-role">${escapeHtml(String(credential.role || credential.role_snapshot).replaceAll("_", " "))}${scope.designation ? ` · ${escapeHtml(scope.designation)}` : ""}</p>

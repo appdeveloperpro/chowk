@@ -1,3 +1,5 @@
+import Cropper from "/vendor/cropperjs/cropper.esm.min.js";
+
 const sessionPanel = document.querySelector("#reporter-session");
 const applicationPanel = document.querySelector("#reporter-application");
 const statusPanel = document.querySelector("#reporter-status");
@@ -29,10 +31,10 @@ function reporterDistrictLabel(district) {
 }
 
 function showMessage(text, success = false) {
+  if (window.ChowkInlineFeedback?.show(success ? "success" : "error", text)) return;
   messagePanel.textContent = text;
   messagePanel.classList.toggle("success", success);
   messagePanel.hidden = false;
-  messagePanel.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function request(path, method = "GET", body) {
@@ -143,111 +145,92 @@ function createReporterPhotoCropper(container) {
 
   const cropPanel = element("div", "reporter-photo-crop");
   cropPanel.hidden = true;
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
-  canvas.setAttribute("aria-label", "Square preview of cropped reporter photo");
-  canvas.setAttribute("role", "img");
-  canvas.setAttribute("tabindex", "0");
-  cropPanel.append(canvas);
+  const viewport = element("div", "reporter-photo-crop-viewport");
+  viewport.setAttribute("aria-label", "Square crop preview of reporter photo");
+  cropPanel.append(viewport);
   const controls = element("div", "reporter-photo-crop-controls");
-  const zoom = document.createElement("input");
-  zoom.type = "range";
-  zoom.min = "1";
-  zoom.max = "3";
-  zoom.step = "0.01";
-  zoom.value = "1";
-  const horizontal = document.createElement("input");
-  horizontal.type = "range";
-  horizontal.min = "-100";
-  horizontal.max = "100";
-  horizontal.value = "0";
-  const vertical = document.createElement("input");
-  vertical.type = "range";
-  vertical.min = "-100";
-  vertical.max = "100";
-  vertical.value = "0";
-  [
-    ["Zoom", zoom],
-    ["Horizontal crop", horizontal],
-    ["Vertical crop", vertical]
-  ].forEach(([name, control]) => {
-    const controlLabel = element("label", "reporter-field");
-    controlLabel.append(element("span", "", name), control);
-    controls.append(controlLabel);
-  });
+  const rotate = element("button", "reporter-photo-crop-button", "Rotate 90°");
+  rotate.type = "button";
+  rotate.disabled = true;
+  const reset = element("button", "reporter-photo-crop-button", "Reset crop");
+  reset.type = "button";
+  reset.disabled = true;
+  controls.append(rotate, reset);
   cropPanel.append(controls);
-  cropPanel.append(element("small", "reporter-field-help", "Drag the photo to reposition it. Use the sliders to zoom or fine-tune the crop."));
+  cropPanel.append(element(
+    "small",
+    "reporter-field-help",
+    "Drag the photo to reposition it. Use the mouse wheel or pinch to zoom; rotate or reset if needed. The saved photo is square."
+  ));
   container.append(cropPanel);
 
+  const template = '<cropper-canvas background>' +
+    '<cropper-image rotatable scalable skewable translatable></cropper-image>' +
+    '<cropper-shade hidden></cropper-shade>' +
+    '<cropper-handle action="select" plain></cropper-handle>' +
+    '<cropper-selection initial-coverage="0.8" initial-aspect-ratio="1" aspect-ratio="1" movable resizable>' +
+    '<cropper-grid role="grid" bordered covered></cropper-grid>' +
+    '<cropper-crosshair centered></cropper-crosshair>' +
+    '<cropper-handle action="move"></cropper-handle>' +
+    '<cropper-handle action="n-resize"></cropper-handle>' +
+    '<cropper-handle action="e-resize"></cropper-handle>' +
+    '<cropper-handle action="s-resize"></cropper-handle>' +
+    '<cropper-handle action="w-resize"></cropper-handle>' +
+    '<cropper-handle action="ne-resize"></cropper-handle>' +
+    '<cropper-handle action="nw-resize"></cropper-handle>' +
+    '<cropper-handle action="se-resize"></cropper-handle>' +
+    '<cropper-handle action="sw-resize"></cropper-handle>' +
+    '</cropper-selection>' +
+    '</cropper-canvas>';
   let sourceImage = null;
-  let imageLoaded = false;
+  let cropper = null;
+  let cropperReady = false;
   let sourceUrl = "";
-  let panX = 0;
-  let panY = 0;
-  let dragPoint = null;
-  const clamp = (value) => Math.max(-1, Math.min(1, value));
-  const imageBounds = () => {
-    if (!sourceImage) return null;
-    const baseScale = Math.max(canvas.width / sourceImage.naturalWidth, canvas.height / sourceImage.naturalHeight);
-    const scale = baseScale * Number(zoom.value);
-    const drawWidth = sourceImage.naturalWidth * scale;
-    const drawHeight = sourceImage.naturalHeight * scale;
-    return {
-      drawWidth,
-      drawHeight,
-      overflowX: Math.max(0, drawWidth - canvas.width),
-      overflowY: Math.max(0, drawHeight - canvas.height)
-    };
+  const cropperOptions = { container: viewport, template };
+  const initializeCropper = async (image) => {
+    cropperReady = false;
+    cropper = new Cropper(image, cropperOptions);
+    const cropperImage = cropper.getCropperImage();
+    const selection = cropper.getCropperSelection();
+    if (!cropperImage || !selection) {
+      throw new Error("The photo crop tool could not be initialized.");
+    }
+    await cropperImage.$ready();
+    if (sourceImage !== image) return;
+    selection.aspectRatio = 1;
+    selection.initialAspectRatio = 1;
+    cropperReady = true;
+    input.setCustomValidity("");
+    rotate.disabled = false;
+    reset.disabled = false;
   };
-  const redraw = () => {
+  const clearCropper = () => {
+    cropper?.destroy();
+    cropper = null;
+    cropperReady = false;
+    rotate.disabled = true;
+    reset.disabled = true;
+  };
+  rotate.addEventListener("click", () => {
+    cropper?.getCropperImage()?.$rotate("90deg");
+  });
+  reset.addEventListener("click", async () => {
     if (!sourceImage) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    const { drawWidth, drawHeight, overflowX, overflowY } = imageBounds();
-    const x = (canvas.width - drawWidth) / 2 - panX * overflowX / 2;
-    const y = (canvas.height - drawHeight) / 2 - panY * overflowY / 2;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(sourceImage, x, y, drawWidth, drawHeight);
-  };
-  const updatePanControls = () => {
-    horizontal.value = String(Math.round(panX * 100));
-    vertical.value = String(Math.round(panY * 100));
-  };
-  zoom.addEventListener("input", redraw);
-  horizontal.addEventListener("input", () => {
-    panX = Number(horizontal.value) / 100;
-    redraw();
-  });
-  vertical.addEventListener("input", () => {
-    panY = Number(vertical.value) / 100;
-    redraw();
-  });
-  canvas.addEventListener("pointerdown", (event) => {
-    if (!sourceImage) return;
-    dragPoint = { x: event.clientX, y: event.clientY };
-    canvas.setPointerCapture(event.pointerId);
-  });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!dragPoint) return;
-    const bounds = imageBounds();
-    if (!bounds) return;
-    const scale = canvas.width / canvas.getBoundingClientRect().width;
-    if (bounds.overflowX > 0) panX = clamp(panX - (event.clientX - dragPoint.x) * scale * 2 / bounds.overflowX);
-    if (bounds.overflowY > 0) panY = clamp(panY - (event.clientY - dragPoint.y) * scale * 2 / bounds.overflowY);
-    dragPoint = { x: event.clientX, y: event.clientY };
-    updatePanControls();
-    redraw();
-  });
-  ["pointerup", "pointercancel", "lostpointercapture"].forEach((eventName) => {
-    canvas.addEventListener(eventName, () => { dragPoint = null; });
+    clearCropper();
+    try {
+      await initializeCropper(sourceImage);
+    } catch (error) {
+      input.setCustomValidity(error.message);
+      input.reportValidity();
+    }
   });
   input.addEventListener("change", () => {
     const file = input.files?.[0];
+    clearCropper();
+    if (sourceImage?.parentElement === viewport) sourceImage.remove();
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
     sourceUrl = "";
     sourceImage = null;
-    imageLoaded = false;
     if (!file) {
       cropPanel.hidden = true;
       return;
@@ -265,18 +248,17 @@ function createReporterPhotoCropper(container) {
     sourceImage = selectedImage;
     selectedImage.onload = () => {
       if (sourceImage !== selectedImage) return;
-      imageLoaded = true;
-      zoom.value = "1";
-      horizontal.value = "0";
-      vertical.value = "0";
-      panX = 0;
-      panY = 0;
       cropPanel.hidden = false;
-      redraw();
+      viewport.append(selectedImage);
+      initializeCropper(selectedImage).catch((error) => {
+        if (sourceImage !== selectedImage) return;
+        clearCropper();
+        input.setCustomValidity(error.message || "The selected photo could not be prepared for cropping.");
+        input.reportValidity();
+      });
     };
     selectedImage.onerror = () => {
       if (sourceImage !== selectedImage) return;
-      imageLoaded = false;
       input.setCustomValidity("The selected photo could not be read.");
       input.reportValidity();
       input.value = "";
@@ -290,20 +272,13 @@ function createReporterPhotoCropper(container) {
   return {
     input,
     async file() {
-      if (!sourceImage || !imageLoaded) throw new Error("Wait for the photo preview to finish loading, then submit again.");
+      if (!sourceImage || !cropperReady || !cropper) {
+        throw new Error("Wait for the photo crop preview to finish loading, then submit again.");
+      }
+      const selection = cropper.getCropperSelection();
+      if (!selection) throw new Error("The photo crop selection is unavailable. Select the photo again.");
+      const exportCanvas = await selection.$toCanvas({ width: 512, height: 512 });
       return new Promise((resolve, reject) => {
-        const exportCanvas = document.createElement("canvas");
-        exportCanvas.width = 512;
-        exportCanvas.height = 512;
-        const context = exportCanvas.getContext("2d");
-        if (!context) {
-          reject(new Error("The cropped photo could not be prepared in this browser."));
-          return;
-        }
-        const { drawWidth, drawHeight, overflowX, overflowY } = imageBounds();
-        const x = (exportCanvas.width - drawWidth) / 2 - panX * overflowX / 2;
-        const y = (exportCanvas.height - drawHeight) / 2 - panY * overflowY / 2;
-        context.drawImage(sourceImage, x, y, drawWidth, drawHeight);
         exportCanvas.toBlob((blob) => {
           if (!blob) {
             reject(new Error("The cropped photo could not be prepared."));
@@ -314,10 +289,11 @@ function createReporterPhotoCropper(container) {
       });
     },
     dispose() {
+      clearCropper();
       if (sourceUrl) URL.revokeObjectURL(sourceUrl);
       sourceUrl = "";
+      if (sourceImage?.parentElement === viewport) sourceImage.remove();
       sourceImage = null;
-      imageLoaded = false;
     }
   };
 }
@@ -1604,7 +1580,11 @@ function renderStatus() {
       statusPanel.append(element("h3", "", "Requested field updates"), requestList);
     }
     if (application.status === "approved") {
-      statusPanel.append(element("p", "reporter-next-step", "Approved does not mean field-authorized yet. Accept the service agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."));
+      statusPanel.append(element(
+        "p",
+        "reporter-next-step",
+        "Approved does not mean field-authorized yet. Accept the service agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."
+      ));
     } else if (application.status === "active") {
       statusPanel.append(element("p", "reporter-next-step success", "Your valid authority letter was acknowledged and reporter access is active."));
     } else if (application.status === "pending") {
@@ -1645,11 +1625,23 @@ function renderCredentials() {
     credentialsPanel.append(element("p", "reporter-empty", "No staff ID card or authority letter has been issued to this account."));
   }
   credentials.forEach((credential) => {
+    let displayStatus = currentCredentialStatus(credential);
+    const onboardingPending = identity.role === "subscriber"
+      && reporterData.application?.status === "approved"
+      && credentials.some((item) =>
+        item.credential_type === "authority_letter" && item.status === "pending_acceptance"
+      );
+    if (displayStatus === "active"
+        && onboardingPending
+        && credential.credential_type === "id_card"
+        && credential.role === "reporter") {
+      displayStatus = "pending_acceptance";
+    }
     const card = element("article", "reporter-credential");
     const header = element("div", "reporter-credential-header");
     header.append(
       element("h3", "", credential.credential_type === "id_card" ? "Staff ID card" : "Reporter authority letter"),
-      element("span", `reporter-status-pill ${credential.status}`, credential.status.replace("_", " "))
+      element("span", `reporter-status-pill ${displayStatus}`, displayStatus.replaceAll("_", " "))
     );
     card.append(header);
     const values = element("div", "reporter-data-grid");
@@ -1658,6 +1650,7 @@ function renderCredentials() {
       dataItem("Valid from", formatDate(credential.valid_from)),
       dataItem("Valid until", formatDate(credential.valid_until)),
       dataItem("Reporter ID", reporterData.reporter?.reporter_code || credential.reporter_code),
+      dataItem("Designation", credential.scope?.designation),
       dataItem("Scope", [
         credential.scope?.state_name,
         credential.scope?.rto_code,
@@ -1687,7 +1680,7 @@ function renderCredentials() {
       print.rel = "noopener noreferrer";
       actions.append(print);
     }
-    if (credential.credential_type === "authority_letter" && credential.status === "pending_acceptance") {
+    if (credential.credential_type === "authority_letter" && displayStatus === "pending_acceptance") {
       const form = element("form", "reporter-credential-actions");
       const typedName = addField(form, "Type your account name to acknowledge", "typed_name", "text", "", true);
       typedName.autocomplete = "name";
@@ -1724,6 +1717,14 @@ function formatDate(value) {
   return Number.isNaN(date.getTime())
     ? String(value)
     : new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function currentCredentialStatus(credential) {
+  if (!["active", "pending_acceptance"].includes(credential.status)) return credential.status;
+  const today = new Date().toISOString().slice(0, 10);
+  if (credential.valid_until < today) return "expired";
+  if (credential.valid_from > today) return "not_yet_valid";
+  return credential.status;
 }
 
 async function loadReporterDesk() {

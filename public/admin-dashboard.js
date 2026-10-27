@@ -281,6 +281,14 @@ function formatDate(value) {
       }).format(date);
 }
 
+function currentCredentialStatus(credential) {
+  if (!["active", "pending_acceptance"].includes(credential.status)) return credential.status;
+  const today = new Date().toISOString().slice(0, 10);
+  if (credential.valid_until < today) return "expired";
+  if (credential.valid_from > today) return "not_yet_valid";
+  return credential.status;
+}
+
 function addHeading(root, eyebrow, title, description) {
   const heading = makeElement("div", "admin-page-heading");
   const copy = makeElement("div");
@@ -406,7 +414,7 @@ function renderModule(section, results) {
     return;
   }
   if (section.startsWith("reporter-")
-      && !["reporter-types", "reporter-designations"].includes(section)) {
+      && section !== "reporter-designations") {
     renderReporterAdminSection(section, root, results[0].data);
     content.replaceChildren(root);
     return;
@@ -479,12 +487,12 @@ async function openDailySubmissionReport(button) {
   const date = window.prompt("Report date (YYYY-MM-DD; report timezone is UTC)", suggested);
   if (!date) return;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    window.alert("Enter the date in YYYY-MM-DD format.");
+    void showAdminMessage("Invalid date", "Enter the date in YYYY-MM-DD format.");
     return;
   }
   const reportWindow = window.open("", "_blank");
   if (!reportWindow) {
-    window.alert("Allow pop-ups to open the printable newsroom report.");
+    void showAdminMessage("Report window blocked", "Allow pop-ups to open the printable newsroom report.");
     return;
   }
   button.disabled = true;
@@ -509,7 +517,7 @@ async function openDailySubmissionReport(button) {
     reportWindow.document.close();
   } catch (error) {
     reportWindow.close();
-    window.alert(error instanceof Error ? error.message : "The daily submission report could not be generated.");
+    void showAdminMessage("Report could not be generated", error instanceof Error ? error.message : "The daily submission report could not be generated.");
   } finally {
     button.disabled = false;
   }
@@ -641,21 +649,39 @@ function renderReporterAdminSection(section, root, data) {
 
   if (section === "reporter-credentials") {
     const credentials = Array.isArray(data.credentials) ? data.credentials : [];
-    const rows = credentials.map((credential) => ({
-      name: credential.name_snapshot,
-      role: credential.role_snapshot,
-      reporter_code: credential.reporter_code_snapshot || "—",
-      type: credential.credential_type.replace("_", " "),
-      reference: credential.reference_code,
-      status: credential.status.replaceAll("_", " "),
-      scope: [
-        credential.scope_snapshot?.state_name,
-        credential.scope_snapshot?.rto_code,
-        credential.scope_snapshot?.city_name
-      ].filter(Boolean).join(" · ") || "—",
-      valid_until: formatDate(credential.valid_until),
-      id: credential.id
-    }));
+    const rows = credentials.map((credential) => {
+      let status = currentCredentialStatus(credential);
+      const onboardingPending = data.staff?.some((person) =>
+        person.id === credential.subject_user_id_snapshot
+          && person.onboarding_status === "approved"
+      ) && credentials.some((item) =>
+        item.subject_user_id_snapshot === credential.subject_user_id_snapshot
+          && item.credential_type === "authority_letter"
+          && item.status === "pending_acceptance"
+      );
+      if (status === "active"
+          && onboardingPending
+          && credential.credential_type === "id_card") {
+        status = "pending_acceptance";
+      }
+      return {
+        name: credential.name_snapshot,
+        role: credential.role_snapshot,
+        reporter_code: credential.reporter_code_snapshot || "—",
+        type: credential.credential_type.replace("_", " "),
+        reference: credential.reference_code,
+        status: status.replaceAll("_", " "),
+        _stored_status: credential.status,
+        scope: [
+          credential.scope_snapshot?.designation,
+          credential.scope_snapshot?.state_name,
+          credential.scope_snapshot?.rto_code,
+          credential.scope_snapshot?.city_name
+        ].filter(Boolean).join(" · ") || "—",
+        valid_until: formatDate(credential.valid_until),
+        id: credential.id
+      };
+    });
     reporterActionButton(root, "Issue credential", () => openCredentialDialog(data.staff || []));
     reporterPanel(root, "Issued staff credentials", rows, section);
     return;
@@ -949,13 +975,13 @@ async function openReporterDesignationDialog(reporter, refresh) {
   try {
     options = unwrapData(await apiRequest("admin/reporter-options")) || {};
   } catch (error) {
-    window.alert(`Reporter designations could not be loaded: ${error.message}`);
+    void showAdminMessage("Reporter designations could not be loaded", error.message);
     return;
   }
   const designations = (options.reporter_designations || [])
     .filter((designation) => designation.is_active);
   if (!designations.length) {
-    window.alert("Add an active reporter designation before changing this reporter's position.");
+    void showAdminMessage("No active designations", "Add an active reporter designation before changing this reporter's position.");
     return;
   }
 
@@ -1087,7 +1113,7 @@ async function openDistrictRangeDialog(locations) {
   try {
     zoneMappings = unwrapData(await apiRequest("admin/district-zone-mappings")) || [];
   } catch (error) {
-    window.alert(`District/zone mappings could not be loaded: ${error.message}`);
+    void showAdminMessage("District/zone mappings could not be loaded", error.message);
     return;
   }
   const byId = new Map(locations.map((location) => [String(location.id), location]));
@@ -1109,7 +1135,7 @@ async function openDistrictRangeDialog(locations) {
   const ranges = locations.filter((location) => location.location_type === "range" && location.is_active);
   const districts = locations.filter((location) => location.location_type === "district" && location.is_active);
   if (!ranges.length || !districts.length) {
-    window.alert("Create an active range and district before mapping.");
+    void showAdminMessage("Mapping unavailable", "Create an active range and district before mapping.");
     return;
   }
   openFormDialog(
@@ -1165,10 +1191,9 @@ async function openDistrictRangeDialog(locations) {
 }
 
 function openCredentialDialog(staff) {
-  const eligibleStaff = staff.filter((person) =>
-    ["reporter", "moderator", "editor"].includes(person.role)
-      || person.can_issue_id_card
-  );
+  const eligibleStaff = staff.filter((person) => person.onboarding_status
+    ? person.can_issue_id_card || person.can_receive_authority_letter
+    : ["reporter", "moderator", "editor"].includes(person.role));
   if (!eligibleStaff.length) {
     void showAdminMessage(
       "No eligible staff members",
@@ -1287,7 +1312,6 @@ function openReporterServiceAgreementTemplateEditor(template) {
           ["agreement_payment_cycle", "Payment cycle", "The period or event that determines when payment is calculated."],
           ["agreement_legal_cost_reimbursement_deadline", "Legal-cost reimbursement deadline", "How long after an invoice and proof reimbursement is due."],
           ["agreement_reporter_liability_clause", "Reporter liability clause (Section 11.7)", "Enter the complete approved clause, or explicit wording that no separate cap applies."],
-          ["agreement_reporter_liability_summary", "Reporter liability summary (Schedule A)", "Enter the matching approved summary, or explicit wording that no separate cap applies."],
           ["agreement_story_exclusivity_period", "Story exclusivity period", "How long content remains exclusive before publication or rejection."],
           ["agreement_term_period", "Agreement term", "The duration for each agreement term."],
           ["agreement_termination_notice_period", "Termination notice period", "The notice period for termination without cause."],
@@ -1304,7 +1328,7 @@ function openReporterServiceAgreementTemplateEditor(template) {
           const input = document.createElement("textarea");
           input.name = name;
           input.maxLength = 2000;
-          input.rows = ["agreement_reporter_liability_clause", "agreement_reporter_liability_summary", "agreement_arbitrator_appointment_method", "agreement_fee_terms"].includes(name) ? 3 : 2;
+          input.rows = ["agreement_reporter_liability_clause", "agreement_arbitrator_appointment_method", "agreement_fee_terms"].includes(name) ? 3 : 2;
           input.value = agreementTerms[name] || "";
           input.setAttribute("aria-label", label);
           fieldLabel.append(input, makeElement("small", "admin-dialog-help", helpText));
@@ -1570,7 +1594,6 @@ function renderAuditHistory(root, result) {
     ["articles", "Articles"],
     ["categories", "Categories"],
     ["locations", "Locations"],
-    ["reporter_types", "Reporter ID categories"],
     ["reporter_designations", "Reporter designations"],
     ["reporter_applications", "Reporter applications"],
     ["live_streams", "Live streams"],
@@ -1872,7 +1895,7 @@ async function exportAuditHistory(button) {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : "Audit history could not be exported.");
+    void showAdminMessage("Audit export failed", error instanceof Error ? error.message : "Audit history could not be exported.");
   } finally {
     button.disabled = false;
     button.textContent = "Export CSV";
@@ -1990,6 +2013,14 @@ function confirmAdminAction(title, message, confirmLabel = "Delete", destructive
 }
 
 function showAdminMessage(title, message) {
+  const kind = /fail|error|could not|unavailable|not saved/i.test(title)
+    ? "error"
+    : /warning|no active|no eligible|window blocked|preview unavailable|mapping unavailable/i.test(title)
+      ? "warning"
+      : /saved|published|completed|success|created|updated|issued|sent|acknowledged|exported/i.test(title)
+        ? "success"
+        : "info";
+  if (window.ChowkInlineFeedback?.show(kind, `${title}: ${message}`)) return;
   const dialog = document.createElement("dialog");
   dialog.className = "admin-json-dialog admin-message-dialog";
   const body = makeElement("section", "admin-json-form admin-confirm-content");
@@ -2040,7 +2071,7 @@ function addRowActions(container, row, section) {
     role.addEventListener("change", async () => {
       if (role.value === "reporter" && row.role !== "reporter") {
         role.value = row.role;
-        window.alert("Reporter access is granted only after the applicant completes the reporter onboarding steps.");
+        void showAdminMessage("Reporter access unavailable", "Reporter access is granted only after the applicant completes the reporter onboarding steps.");
         return;
       }
 
@@ -2048,7 +2079,7 @@ function addRowActions(container, row, section) {
         await apiRequest(`admin/users/${id}/role`, "PATCH", { role: role.value });
         await refresh();
       } catch (error) {
-        window.alert(error.message);
+        void showAdminMessage("Role update failed", error.message);
         await refresh();
       }
     });
@@ -2056,7 +2087,7 @@ function addRowActions(container, row, section) {
     if (row.role !== "super_admin"
         && String(row.id).toLowerCase() !== sessionIdentity?.id?.toLowerCase()) {
       rowButton(container, "Delete user", () => {
-        const displayName = row.full_name && row.full_name !== "\u2014"
+        const displayName = row.full_name && row.full_name !== "—"
           ? row.full_name
           : row.email || id;
         void confirmAdminAction(
@@ -2204,7 +2235,7 @@ function addRowActions(container, row, section) {
       rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
     }
     rowButton(container, "Delete application", () => {
-      const applicant = row.applicant_name && row.applicant_name !== "\u2014"
+      const applicant = row.applicant_name && row.applicant_name !== "—"
         ? row.applicant_name
         : row.email || `application #${id}`;
       const approved = ["approved", "active"].includes(row.status);
@@ -2236,13 +2267,14 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (section === "reporter-credentials" && ["active", "pending_acceptance", "pending acceptance"].includes(row.status)) {
+  if (section === "reporter-credentials"
+      && ["active", "pending_acceptance"].includes(row._stored_status)) {
     rowButton(container, "Print / QR", () => {
       const printWindow = window.open(
         proxyUrl(`admin/reporter-credentials/${id}/print`),
         "_blank"
       );
-      if (!printWindow) window.alert("Allow pop-ups to open the printable credential.");
+      if (!printWindow) void showAdminMessage("Print window blocked", "Allow pop-ups to open the printable credential.");
       else printWindow.opener = null;
     });
     rowButton(container, "Revoke", () => openCredentialRevokeDialog(id, refresh), "admin-row-button danger");
@@ -2549,7 +2581,7 @@ async function openReporterPrivateDetailsDialog(application) {
     dialog.addEventListener("close", () => dialog.remove(), { once: true });
     dialog.showModal();
   } catch (error) {
-    window.alert(error.message);
+    void showAdminMessage("Application details unavailable", error.message);
   }
 }
 
@@ -2558,13 +2590,13 @@ async function openReporterServiceAgreementIssueDialog(application, refresh) {
   try {
     options = unwrapData(await apiRequest("admin/reporter-options")) || {};
   } catch (error) {
-    window.alert(`Reporter designations could not be loaded: ${error.message}`);
+    void showAdminMessage("Reporter designations could not be loaded", error.message);
     return;
   }
   const designations = (options.reporter_designations || [])
     .filter((item) => item.is_active);
   if (!designations.length) {
-    window.alert("Configure at least one active reporter designation before issuing a service agreement.");
+    void showAdminMessage("No active designations", "Configure at least one active reporter designation before issuing a service agreement.");
     return;
   }
 
@@ -2923,7 +2955,7 @@ async function openReporterReviewDialog(application, refresh) {
       "Save decision"
     );
   } catch (error) {
-    window.alert(error.message);
+    void showAdminMessage("Application review failed", error.message);
   }
 }
 
@@ -3061,9 +3093,12 @@ async function openUserDialog() {
       const payload = Object.fromEntries(formData.entries());
       const result = await apiRequest("admin/users", "POST", payload);
       await loadSection("users");
-      window.alert(result.confirmation_required
-        ? "Account created. The user must confirm the email before signing in."
-        : "Account created successfully.");
+      void showAdminMessage(
+        "Account created",
+        result.confirmation_required
+          ? "The user must confirm the email before signing in."
+          : "The account is ready to use."
+      );
     },
     "Create account"
   );
@@ -3074,7 +3109,7 @@ async function openReporterAssignmentDialog(user, refresh) {
   try {
     options = unwrapData(await apiRequest("admin/reporter-options")) || {};
   } catch (error) {
-    window.alert(`Reporter account options could not be loaded: ${error.message}`);
+    void showAdminMessage("Reporter account options could not be loaded", error.message);
     return;
   }
   const states = (options.states || []).filter((state) => state.is_active);
@@ -3103,7 +3138,7 @@ async function openReporterAssignmentDialog(user, refresh) {
         rto_office_id: Number(values.get("rto_office_id"))
       });
       await refresh();
-      window.alert(`Reporter assignment updated. Reporter ID: ${result.data.reporter_code}`);
+      void showAdminMessage("Reporter assignment updated", `Reporter ID: ${result.data.reporter_code}`);
     },
     "Save assignment"
   );
@@ -3271,7 +3306,7 @@ document.querySelector("#admin-sign-out").addEventListener("click", async () => 
     if (!response.ok) throw new Error("Could not sign out.");
     window.location.replace("/admin");
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : "Could not sign out.");
+    void showAdminMessage("Sign out failed", error instanceof Error ? error.message : "Could not sign out.");
   }
 });
 

@@ -50,6 +50,7 @@ function makeElement(tag, className, text) {
 }
 
 function showMessage(text, success = false) {
+  if (window.ChowkInlineFeedback?.show(success ? "success" : "error", text)) return;
   workspaceMessage.textContent = text;
   workspaceMessage.classList.toggle("success", success);
   workspaceMessage.hidden = false;
@@ -282,11 +283,37 @@ async function loadHistory(article, details) {
 
 function renderQueue(articles) {
   queue.replaceChildren();
-  if (!articles.length) {
-    queue.append(makeElement("p", "workspace-empty", "There are no stories in this view right now."));
+  const searchTerm = document.querySelector("#workspace-search").value.trim().toLocaleLowerCase();
+  const statusFilter = document.querySelector("#workspace-status-filter").value;
+  const filteredArticles = articles.filter((article) => {
+    const status = article.workflow_status || article.status || "draft";
+    if (statusFilter && status !== statusFilter) return false;
+    if (!searchTerm) return true;
+    const searchableText = [
+      article.title,
+      article.excerpt,
+      article.content,
+      article.author?.full_name,
+      article.category?.name,
+      article.reporting_location?.name,
+      statusName(status)
+    ].filter(Boolean).join(" ").toLocaleLowerCase();
+    return searchableText.includes(searchTerm);
+  });
+  const count = document.querySelector("#workspace-story-count");
+  count.textContent = filteredArticles.length === articles.length
+    ? `${articles.length} ${articles.length === 1 ? "story" : "stories"}`
+    : `${filteredArticles.length} of ${articles.length} stories`;
+  if (!filteredArticles.length) {
+    const hasFilters = searchTerm || statusFilter;
+    queue.append(makeElement(
+      "p",
+      "workspace-empty",
+      hasFilters ? "No stories match these filters. Try another search or status." : "There are no stories in this view right now."
+    ));
     return;
   }
-  articles.forEach((article) => {
+  filteredArticles.forEach((article) => {
     const card = makeElement("article", "workspace-story");
     card.id = `story-${article.id}`;
     const top = makeElement("div", "workspace-story-top");
@@ -351,6 +378,17 @@ function renderQueue(articles) {
   });
 }
 
+function updateStatusFilter(articles) {
+  const filter = document.querySelector("#workspace-status-filter");
+  const selected = filter.value;
+  const statuses = [...new Set(articles.map((article) =>
+    article.workflow_status || article.status || "draft"
+  ))].sort();
+  filter.replaceChildren(new Option("All statuses", ""));
+  statuses.forEach((status) => filter.append(new Option(statusName(status), status)));
+  filter.value = statuses.includes(selected) ? selected : "";
+}
+
 function populateCategories(categories, selected = "") {
   const select = storyForm.elements.category_id;
   select.replaceChildren(new Option("No category", ""));
@@ -407,7 +445,7 @@ storyForm.elements.title.addEventListener("input", () => {
 storyForm.elements.slug.addEventListener("input", () => {
   storyForm.elements.slug.dataset.touched = "true";
 });
-document.querySelector("#story-create")?.addEventListener("click", () => openStoryDialog());
+document.querySelector("#workspace-create").addEventListener("click", () => openStoryDialog());
 document.querySelector("#workspace-create").addEventListener("click", () => openStoryDialog());
 document.querySelector("#story-cancel").addEventListener("click", () => storyDialog.close());
 async function discardUnattachedUploads() {
@@ -497,6 +535,7 @@ async function loadWorkspace() {
   try {
     const result = await request("/api/workspace/articles");
     workspaceData = result.data || { articles: [], categories: [], locations: [] };
+    updateStatusFilter(workspaceData.articles || []);
     renderQueue(workspaceData.articles || []);
     renderMetrics(workspaceData.articles || []);
     const coveragePanel = document.querySelector("#workspace-coverage");
@@ -546,6 +585,18 @@ async function initializeWorkspace() {
 }
 
 document.querySelector("#workspace-refresh").addEventListener("click", () => void loadWorkspace());
+document.querySelector("#workspace-search").addEventListener("input", () => {
+  renderQueue(workspaceData.articles || []);
+});
+document.querySelector("#workspace-status-filter").addEventListener("change", () => {
+  renderQueue(workspaceData.articles || []);
+});
+document.querySelectorAll(".workspace-nav-link").forEach((link) => {
+  link.addEventListener("click", () => {
+    document.querySelectorAll(".workspace-nav-link").forEach((item) => item.classList.remove("active"));
+    link.classList.add("active");
+  });
+});
 document.querySelector("#workspace-sign-out").addEventListener("click", async () => {
   try {
     const response = await fetch("/api/auth/session", { method: "DELETE" });

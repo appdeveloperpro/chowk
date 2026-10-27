@@ -90,7 +90,9 @@ Requires Node.js 18 or newer.
    reporter application, profile-photo cropping, emergency contact and
    reporting-profile fields, masked-Aadhaar/PAN/bank-proof uploads, bank
    account details, and a private storage bucket with admin-only review access
-   for sensitive uploads. Applicants must upload a masked Aadhaar copy only;
+   for sensitive uploads. Reporter photos use a locally bundled Cropper.js
+   square crop tool with drag, zoom, rotate and reset controls. Applicants must
+   upload a masked Aadhaar copy only;
    never accept an unmasked copy. Migration 0016 makes preferred reporting
    locations mandatory while leaving existing application records intact.
    Migration 0017 adds audited admin deletion for applications that have not
@@ -236,7 +238,7 @@ key and authenticated user tokens.
   profile editing, and password updates.
 - Admin management screens for reporter application review, moderation of
   article reports and comments, media catalog entries, YouTube stream listings,
-  locations, reporter designations, and searchable, paginated, read-only audit history
+  locations, reporter setup, and searchable, paginated, read-only audit history
   with actor snapshots, request context, reasons, before/after field diffs, and
   CSV export of up to 10,000 filtered events per export.
 - Reporter desk for signed-in applicants to submit and track applications,
@@ -298,12 +300,17 @@ The admin must choose an active designation in the approval dialog; its
 two-digit code is used for new reporter IDs and the designation itself is
 included in the personalized service-agreement PDF. New reporter IDs use the
 format `state-RTO-code-number`, for example `up-80-01-0001`. Admins configure
-a unique two-digit code in **Reporter designations**, similar to the old
-reporter-type code. The legacy reporter-type field remains separate and does
-not determine the ID code. Codes are used with a per-RTO sequence, and old
-reporter IDs are never rewritten when a code changes. Admins can add and edit
-designations and deactivate labels that should no longer be offered for new
-assignments; existing reporter and agreement history is retained. The
+a unique two-digit code in **Reporter setup**. Codes are used with a per-RTO
+sequence, and old reporter IDs are never rewritten when a code changes. Admins
+can add and edit designations and deactivate labels that should no longer be
+offered for new assignments; existing reporter and agreement history is
+retained. Applications, the approved reporter directory, and coverage
+assignments remain separate lifecycle and operations workflows; they do not
+represent additional job titles or permission roles. The database still has a
+legacy reporter-category field used by existing records and database functions.
+It is not a designation or account role, is no longer managed as a separate
+admin concept, and must not be removed until its remaining schema and credential
+verification dependencies are migrated. The
 agreement template explains that designation is an
 administrative newsroom title that may change based on performance or newsroom
 needs, without by itself changing compensation or other agreement terms.
@@ -344,8 +351,24 @@ service-agreement issues), 0042 (single service-agreement workflow), 0043
 (safe admin deletion of unused agreement versions), 0044 (admin-assigned
 reporter designations in service agreements), 0045 (admin updates to reporter
 designations and dated assignment history), and 0046 (designation codes and
-reporter-ID generation), before deploying the
-matching application code. The
+reporter-ID generation), 0047 (designation snapshots on newly issued staff
+credentials), and 0048 (credential conflict guards and onboarding status
+verification plus serialized single-template publishing), and 0049 (supersede
+credentials when a personalized service agreement is reissued), before deploying the
+matching application code. Migration 0050 enables Coverage Area and District
+fields in service-agreement templates. Migration 0055 adds Admin-managed
+service-agreement legal terms and immutable per-template term snapshots; apply
+it after migration 0054 and before deploying the matching application code.
+Migration 0057 makes Section 11.7 the only reporter-liability clause in new
+service agreements; apply it after migration 0056 and before deploying the
+matching agreement code. After deployment, admins must publish a new agreement
+template and issue a fresh agreement where needed; existing issued PDF records
+are preserved unchanged. The application also upgrades legacy
+Schedule A assigned-area placeholders when rendering existing templates. The
+public homepage category chips load active categories from the database.
+Migration 0056 seeds the categories shown in the homepage design; apply it
+after migration 0055 and before deploying the matching frontend. “All news” is
+a filter control and is not stored as a news category.
 public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.
@@ -370,7 +393,7 @@ service-role keys, or other secrets. Keep local development on the same project
 only while it is still empty or after confirming its data is backed up.
 
 Configure Hostinger to deploy the dedicated Chowk portal repository with
-`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY`, and `NODE_ENV=production` in the hosting
+`npm start`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, and `NODE_ENV=production` in the hosting
 environment, install dependencies with `npm ci`, and use the host-provided
 `PORT`. Do not upload `.env` or commit it to Git.

@@ -16,6 +16,10 @@ searchForm.addEventListener("submit", (event) => {
 });
 
 chips.addEventListener("click", (event) => {
+  if (event.target.closest("[data-retry-categories]")) {
+    void loadCategories();
+    return;
+  }
   const button = event.target.closest("[data-category]");
   if (!button) return;
   chips.querySelectorAll("[data-category]").forEach((item) => {
@@ -177,31 +181,50 @@ async function loadArticles() {
 }
 
 async function loadCategories() {
+  chips.setAttribute("aria-busy", "true");
   try {
     const response = await fetch("/api/categories", { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Categories could not be loaded");
-    const categories = Array.isArray(result?.data) ? result.data : [];
-    if (!categories.length) return;
+    if (!Array.isArray(result?.data)) throw new Error("Categories API returned an invalid response");
 
     const all = document.createElement("button");
     all.className = "chip active";
     all.type = "button";
     all.dataset.category = "";
-    all.textContent = "सभी";
-    chips.replaceChildren(all);
-    categories.forEach((category) => {
-      if (!category.slug || !category.name) return;
-      const button = document.createElement("button");
-      button.className = "chip";
-      button.type = "button";
-      button.dataset.category = category.slug;
-      button.append(window.ChowkCategoryIcons.create(category.icon_key, "category-chip-icon"));
-      button.append(document.createTextNode(category.name));
-      chips.append(button);
-    });
+    all.textContent = "सभी खबरें";
+    const categoryButtons = result.data
+      .filter((category) => category && typeof category.slug === "string" && category.slug
+        && typeof category.name === "string" && category.name)
+      .map((category) => {
+        const button = document.createElement("button");
+        button.className = "chip";
+        button.type = "button";
+        button.dataset.category = category.slug;
+        button.append(window.ChowkCategoryIcons.create(category.icon_key, "category-chip-icon"));
+        button.append(document.createTextNode(category.name));
+        return button;
+      });
+    chips.replaceChildren(all, ...categoryButtons);
   } catch (error) {
     console.error("Unable to load news categories:", error);
+    const all = document.createElement("button");
+    all.className = "chip active";
+    all.type = "button";
+    all.dataset.category = "";
+    all.textContent = "सभी खबरें";
+    const status = document.createElement("span");
+    status.className = "category-chip-status";
+    status.setAttribute("role", "status");
+    status.textContent = "श्रेणियां लोड नहीं हुईं";
+    const retry = document.createElement("button");
+    retry.className = "chip";
+    retry.type = "button";
+    retry.dataset.retryCategories = "";
+    retry.textContent = "फिर से कोशिश करें";
+    chips.replaceChildren(all, status, retry);
+  } finally {
+    chips.setAttribute("aria-busy", "false");
   }
 }
 
@@ -231,7 +254,11 @@ async function loadAccountActions() {
         if (!logout.ok) throw new Error(payload.error || "लॉगआउट नहीं हो सका।");
         window.location.reload();
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : "लॉगआउट नहीं हो सका।");
+        window.ChowkInlineFeedback?.show(
+          "error",
+          error instanceof Error ? error.message : "लॉगआउट नहीं हो सका।",
+          signOut
+        );
         signOut.disabled = false;
       }
     });

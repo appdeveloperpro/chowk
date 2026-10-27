@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#fffaf0">
+    <meta name="theme-color" content="#f4f6fb">
     <title>Newsroom workspace | CHOWK NEWS</title>
-    <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/workspace.css">
-    <script src="/site-shell.js" defer></script>
+    <link rel="stylesheet" href="/inline-feedback.css">
+    <script src="/inline-feedback.js" defer></script>
     <script src="/workspace.js" defer></script>
   </head>
   <body class="workspace-body">
@@ -17,56 +17,88 @@
         <p>This website is under development phase all the news available on the website and information on this website should not be considered as real news. All the material and news are present for development phase</p>
       </div>
     </div>
-    <div data-site-shell-header></div>
-    <header class="workspace-topbar">
-      <a class="workspace-brand" href="/">
-        <span class="workspace-brand-mark">C</span>
-        <span>CHOWK<span class="brand-dot">.</span><small>NEWSROOM</small></span>
-      </a>
-      <div class="workspace-user">
-        <span id="workspace-avatar" class="workspace-avatar">C</span>
-        <span><strong id="workspace-name">Newsroom staff</strong><small id="workspace-role">Staff</small></span>
-        <a href="/reporter" class="workspace-link">Reporter desk</a>
-        <button id="workspace-sign-out" type="button" class="workspace-link-button">Sign out</button>
-      </div>
-    </header>
-    <main class="workspace-main">
-      <section class="workspace-hero">
-        <div>
-          <span id="workspace-eyebrow" class="workspace-eyebrow">NEWSROOM OPERATIONS</span>
-          <h1 id="workspace-heading">Newsroom workspace</h1>
-          <p id="workspace-description">A role-specific view of your submissions and review queue.</p>
-        </div>
-        <button id="workspace-refresh" type="button" class="workspace-button secondary">Refresh queue</button>
-      </section>
-      <div id="workspace-message" class="workspace-message" role="status" hidden></div>
-      <section id="workspace-metrics" class="workspace-metrics" aria-label="Queue summary"></section>
-      <section id="workspace-notifications" class="workspace-panel workspace-notifications" hidden>
-        <div class="workspace-panel-heading">
-          <div><h2>Newsroom updates</h2><p id="workspace-notification-summary">Workflow changes and assignments for your account.</p></div>
-          <button id="workspace-notifications-read" class="workspace-button secondary" type="button">Mark all read</button>
-        </div>
-        <div id="workspace-notification-list" class="workspace-notification-list"></div>
-      </section>
-      <section id="workspace-coverage" class="workspace-panel workspace-coverage" hidden>
-        <div class="workspace-panel-heading">
-          <div><h2>Your assigned coverage</h2><p>Story submissions and moderation queues are limited to these locations.</p></div>
-        </div>
-        <div id="workspace-coverage-list" class="workspace-coverage-list"></div>
-      </section>
-      <section class="workspace-panel">
-        <div class="workspace-panel-heading">
-          <div>
-            <h2 id="queue-heading">Your stories</h2>
-            <p id="queue-description">Stories and their current workflow state.</p>
+    <div class="workspace-shell">
+      <aside class="workspace-sidebar" aria-label="Newsroom navigation">
+        <a class="workspace-brand" href="/">
+          <span class="workspace-brand-mark">C</span>
+          <span>CHOWK<span class="brand-dot">.</span><small>NEWSROOM</small></span>
+        </a>
+        <span class="workspace-nav-label">WORKSPACE</span>
+        <nav class="workspace-nav">
+          <a class="workspace-nav-link active" href="#overview"><span class="workspace-nav-icon">◫</span>Overview</a>
+          <a class="workspace-nav-link" href="#stories"><span class="workspace-nav-icon">▤</span>Story queue</a>
+          <a class="workspace-nav-link" href="#updates"><span class="workspace-nav-icon">◷</span>Updates</a>
+        </nav>
+        <div class="workspace-sidebar-bottom">
+          <div class="workspace-sidebar-note">
+            <span class="workspace-online-dot"></span>
+            <span><strong>Newsroom workspace</strong><small>Editorial workflow</small></span>
           </div>
-          <button id="workspace-create" type="button" class="workspace-button" hidden>New story draft</button>
+          <a href="/" class="workspace-public-link">← Back to CHOWK NEWS</a>
         </div>
-        <div id="workspace-queue" class="workspace-queue">
-          <p class="workspace-loading">Loading your newsroom workspace…</p>
+      </aside>
+      <main class="workspace-main">
+        <header class="workspace-topbar">
+          <div class="workspace-breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong id="workspace-role">Newsroom</strong></div>
+          <div class="workspace-user">
+            <span id="workspace-avatar" class="workspace-avatar">C</span>
+            <span class="workspace-user-copy"><strong id="workspace-name">Newsroom staff</strong><small>Newsroom account</small></span>
+            <button id="workspace-sign-out" type="button" class="workspace-link-button">Sign out</button>
+          </div>
+        </header>
+        <div class="workspace-main-inner">
+          <section id="overview" class="workspace-hero">
+            <div>
+              <span id="workspace-eyebrow" class="workspace-eyebrow">NEWSROOM OPERATIONS</span>
+              <h1 id="workspace-heading">Newsroom workspace</h1>
+              <p id="workspace-description">A role-specific view of your submissions and review queue.</p>
+            </div>
+            <div class="workspace-hero-actions">
+              <button id="workspace-refresh" type="button" class="workspace-button secondary"><span aria-hidden="true">↻</span> Refresh</button>
+              <button id="workspace-create" type="button" class="workspace-button" hidden>＋ New story</button>
+            </div>
+          </section>
+          <div id="workspace-message" class="workspace-message" role="status" hidden></div>
+          <section id="workspace-metrics" class="workspace-metrics" aria-label="Queue summary"></section>
+          <div class="workspace-content-grid">
+            <section id="stories" class="workspace-panel workspace-story-panel">
+              <div class="workspace-panel-heading">
+                <div>
+                  <h2 id="queue-heading">Your stories</h2>
+                  <p id="queue-description">Stories and their current workflow state.</p>
+                </div>
+                <span id="workspace-story-count" class="workspace-story-count" aria-live="polite"></span>
+              </div>
+              <div class="workspace-queue-tools">
+                <label class="workspace-search"><span aria-hidden="true">⌕</span><input id="workspace-search" type="search" placeholder="Search stories…" aria-label="Search stories"></label>
+                <label class="workspace-filter-label" for="workspace-status-filter">Status</label>
+                <select id="workspace-status-filter" class="workspace-status-filter" aria-label="Filter stories by status">
+                  <option value="">All statuses</option>
+                </select>
+              </div>
+              <div id="workspace-queue" class="workspace-queue">
+                <p class="workspace-loading">Loading your newsroom workspace…</p>
+              </div>
+            </section>
+            <aside id="updates" class="workspace-support-column">
+              <section id="workspace-notifications" class="workspace-panel workspace-notifications" hidden>
+                <div class="workspace-panel-heading">
+                  <div><h2>Newsroom updates</h2><p id="workspace-notification-summary">Workflow changes and assignments for your account.</p></div>
+                  <button id="workspace-notifications-read" class="workspace-button text-button" type="button">Mark all read</button>
+                </div>
+                <div id="workspace-notification-list" class="workspace-notification-list"></div>
+              </section>
+              <section id="workspace-coverage" class="workspace-panel workspace-coverage" hidden>
+                <div class="workspace-panel-heading">
+                  <div><h2>Your coverage</h2><p>Assigned locations for newsroom work.</p></div>
+                </div>
+                <div id="workspace-coverage-list" class="workspace-coverage-list"></div>
+              </section>
+            </aside>
+          </div>
         </div>
-      </section>
-    </main>
+      </main>
+    </div>
     <dialog id="story-dialog" class="workspace-dialog">
       <form id="story-form" method="dialog">
         <span class="workspace-eyebrow">STORY EDITOR</span>
@@ -91,6 +123,5 @@
         </div>
       </form>
     </dialog>
-    <div data-site-shell-footer></div>
   </body>
 </html>

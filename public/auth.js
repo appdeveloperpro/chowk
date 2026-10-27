@@ -11,7 +11,20 @@ let mode = new URLSearchParams(window.location.search).get("mode") === "register
   ? "register"
   : "login";
 
+function showAuthMessage(text, success = false) {
+  const kind = success ? "success" : "error";
+  if (window.ChowkInlineFeedback?.show(kind, text)) {
+    message.hidden = true;
+    return;
+  }
+  message.textContent = text;
+  message.classList.toggle("is-success", success);
+  message.hidden = false;
+}
+
 function setMode(nextMode) {
+  window.ChowkInlineFeedback?.clear(form);
+  form.elements.confirmPassword.setCustomValidity("");
   mode = nextMode;
   const isRegister = mode === "register";
 
@@ -64,8 +77,8 @@ form.addEventListener("submit", async (event) => {
 
   if (!form.reportValidity()) return;
   if (mode === "register" && form.elements.password.value !== form.elements.confirmPassword.value) {
-    message.textContent = "दोनों पासवर्ड एक जैसे होने चाहिए।";
-    message.hidden = false;
+    form.elements.confirmPassword.setCustomValidity("दोनों पासवर्ड एक जैसे होने चाहिए।");
+    form.elements.confirmPassword.reportValidity();
     form.elements.confirmPassword.focus();
     return;
   }
@@ -95,17 +108,14 @@ form.addEventListener("submit", async (event) => {
     }
 
     if (result.confirmation_required) {
-      message.textContent = "आपका अकाउंट बन गया है। कृपया ईमेल में आए लिंक से पुष्टि करें, फिर लॉगिन करके reporter आवेदन जमा करें।";
-      message.classList.add("is-success");
-      message.hidden = false;
+      showAuthMessage("आपका अकाउंट बन गया है। कृपया ईमेल में आए लिंक से पुष्टि करें, फिर लॉगिन करके reporter आवेदन जमा करें।", true);
       return;
     }
 
-    message.textContent = mode === "register"
+    const successMessage = mode === "register"
       ? "आपका subscriber अकाउंट बन गया है। अब reporter desk खोलकर अलग से आवेदन करें।"
       : `लॉगिन सफल${result.identity?.name ? `, ${result.identity.name}` : ""}।`;
-    message.classList.add("is-success");
-    message.hidden = false;
+    showAuthMessage(successMessage, true);
     const role = result.identity?.role;
     const staffRoles = ["reporter", "moderator", "editor", "publisher"];
     window.location.assign(
@@ -118,14 +128,18 @@ form.addEventListener("submit", async (event) => {
             : "/reporter"
     );
   } catch (error) {
-    message.textContent = error instanceof Error
-      ? error.message
-      : "खाता सेवा से संपर्क नहीं हो सका।";
-    message.hidden = false;
+    showAuthMessage(
+      error instanceof Error ? error.message : "खाता सेवा से संपर्क नहीं हो सका।"
+    );
   } finally {
     submitButton.textContent = mode === "register" ? "रजिस्टर करें" : "लॉगिन करें";
     submitButton.disabled = false;
   }
+});
+
+form.elements.confirmPassword.addEventListener("input", () => {
+  form.elements.confirmPassword.setCustomValidity("");
+  window.ChowkInlineFeedback?.clearField(form.elements.confirmPassword);
 });
 
 setMode(mode);

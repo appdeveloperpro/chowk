@@ -10,7 +10,9 @@
     <meta name="theme-color" content="#fffaf0">
     <title>CHOWK NEWS — बात सीधी, चोट तीखी</title>
     <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/inline-feedback.css">
     <script src="/site-shell.js" defer></script>
+    <script src="/inline-feedback.js" defer></script>
     <script src="/category-icons.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
@@ -23,6 +25,11 @@
     </div>
 
     <div data-site-shell-header></div>
+
+    <section class="page-width category-chips" aria-label="खबरों की श्रेणियां" aria-busy="true">
+      <button class="chip active" type="button" data-category="">सभी खबरें</button>
+      <span class="category-chip-status" role="status">श्रेणियां लोड हो रही हैं…</span>
+    </section>
 
     <div class="live-strip" role="note">
       <div class="page-width live-strip-inner">
@@ -48,21 +55,6 @@
           <div class="hero-stamp"><span>CHOWK</span><strong>चौक</strong><small>आपकी नज़र · आपकी आवाज़</small></div>
           <span class="hero-coordinate">स्थानीय · ज़मीनी · ज़रूरी</span>
         </div>
-      </section>
-
-      <section class="category-chips" aria-label="खबरों की श्रेणियां">
-        <button class="chip active" type="button" data-category="">सभी खबरें</button>
-        <button class="chip" type="button" data-category="राजनीति">राजनीति</button>
-        <button class="chip" type="button" data-category="खेल">खेल</button>
-        <button class="chip" type="button" data-category="व्यापार">बिज़नेस</button>
-        <button class="chip" type="button" data-category="तकनीक">तकनीक</button>
-        <button class="chip" type="button" data-category="मनोरंजन">मनोरंजन</button>
-        <button class="chip" type="button" data-category="स्वास्थ्य">स्वास्थ्य</button>
-        <button class="chip" type="button" data-category="शिक्षा">शिक्षा</button>
-        <button class="chip" type="button" data-category="विदेश">विदेश</button>
-        <button class="chip" type="button" data-category="अपराध">अपराध</button>
-        <button class="chip" type="button" data-category="कृषि">कृषि</button>
-        <button class="chip" type="button" data-category="पर्यावरण">पर्यावरण</button>
       </section>
 
       <div class="news-layout">

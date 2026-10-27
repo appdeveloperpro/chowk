@@ -282,7 +282,6 @@ Payment cycle: {{agreement.payment_cycle}}
 Payment details: Held securely on the Platform, not written here
 Term and notice: {{agreement.term_period}} / {{agreement.termination_notice_period}}
 Record retention: {{agreement.record_retention_period}}
-Optional liability cap (Section 11.7): {{agreement.reporter_liability_summary}}
 Insurance provided by {{company.trade_name}}: {{agreement.insurance_terms}}
 
 Schedule B - Verification checklist (every report)

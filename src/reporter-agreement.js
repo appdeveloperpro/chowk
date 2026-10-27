@@ -56,7 +56,7 @@ const reporterServiceAgreementLegalTerms = [
   { column: "agreement_payment_cycle", token: "agreement.payment_cycle", label: "Payment cycle" },
   { column: "agreement_legal_cost_reimbursement_deadline", token: "agreement.legal_cost_reimbursement_deadline", label: "Legal-cost reimbursement deadline" },
   { column: "agreement_reporter_liability_clause", token: "agreement.reporter_liability_clause", label: "Reporter liability clause" },
-  { column: "agreement_reporter_liability_summary", token: "agreement.reporter_liability_summary", label: "Reporter liability summary for Schedule A" },
+  { column: "agreement_reporter_liability_summary", token: "agreement.reporter_liability_summary", label: "Legacy liability reference" },
   { column: "agreement_story_exclusivity_period", token: "agreement.story_exclusivity_period", label: "Story exclusivity period" },
   { column: "agreement_term_period", token: "agreement.term_period", label: "Agreement term" },
   { column: "agreement_termination_notice_period", token: "agreement.termination_notice_period", label: "Termination notice period" },
@@ -67,7 +67,10 @@ const reporterServiceAgreementLegalTerms = [
   { column: "agreement_fee_terms", token: "agreement.fee_terms", label: "Fees" },
   { column: "agreement_insurance_terms", token: "agreement.insurance_terms", label: "Insurance terms" }
 ];
-reporterServiceAgreementLegalTerms.forEach(({ token }) => serviceTokenValues.add(token));
+const reporterServiceAgreementLiabilityReference = "See Section 11.7.";
+reporterServiceAgreementLegalTerms
+  .filter(({ token }) => token !== "agreement.reporter_liability_summary")
+  .forEach(({ token }) => serviceTokenValues.add(token));
 const serviceRenderTokenValues = new Set([...serviceTokenValues, "reporter.type"]);
 const templatePath = path.join(__dirname, "reporter-agreement-template.txt");
 const fontDirectory = path.resolve(__dirname, "../node_modules/@fontsource/noto-sans-devanagari/files");
@@ -103,7 +106,8 @@ function normalizeReporterServiceAgreementTemplate(template) {
     .replace(/\[Enter notice period\]/g, "{{agreement.termination_notice_period}}")
     .replace(/\[Enter retention period\]/g, "{{agreement.record_retention_period}}")
     .replace(/\[Enter none or agreed amount\]/g, "{{agreement.reporter_liability_summary}}")
-    .replace(/\[Enter none or details\]/g, "{{agreement.insurance_terms}}");
+    .replace(/\[Enter none or details\]/g, "{{agreement.insurance_terms}}")
+    .replace(/^[^\r\n]*\{\{agreement\.reporter_liability_summary\}\}[^\r\n]*(?:\r?\n|$)/gim, "");
 }
 
 function unknownTemplateTokens(template, allowedTokens = tokenValues) {
@@ -214,6 +218,7 @@ module.exports = {
     .map((token) => `{{${token}}}`),
   reporterServiceAgreementTemplateFields: [...serviceTokenValues].map((token) => `{{${token}}}`),
   reporterServiceAgreementRenderTokens: serviceRenderTokenValues,
+  reporterServiceAgreementLiabilityReference,
   reporterServiceAgreementLegalTerms,
   renderReporterAgreementTemplate,
   unknownTemplateTokens,

@@ -487,6 +487,13 @@ button {
   background: transparent;
 }
 
+.category-chip-status {
+  align-self: center;
+  color: #716a61;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .chip {
   display: inline-flex;
   flex: 0 0 auto;

@@ -43,12 +43,24 @@ async function loadCredential() {
       credential.status.replaceAll("_", " ")
     );
     const details = element("div", "reporter-data-grid");
+    const heading = credential.status === "active"
+      ? "Credential is active"
+      : credential.status === "pending_acceptance"
+        ? "Credential is awaiting acknowledgment"
+        : credential.status === "not_yet_valid"
+          ? "Credential is not yet valid"
+          : credential.status === "expired"
+            ? "Credential has expired"
+            : credential.status === "revoked"
+              ? "Credential has been revoked"
+              : "Credential record found";
     [
       ["Credential type", credential.credential_type.replaceAll("_", " ")],
       ["Reference", credential.reference_code],
       ["Name", credential.name],
       ["Role", credential.role.replaceAll("_", " ")],
       ["Reporter ID", credential.reporter_code || "Not applicable"],
+      ["Designation", credential.scope?.designation || "Not recorded"],
       ["Coverage", [
         credential.scope?.state_name,
         credential.scope?.rto_code,
@@ -64,9 +76,9 @@ async function loadCredential() {
     resultPanel.replaceChildren(
       element("span", "reporter-eyebrow", "VERIFICATION RESULT"),
       status,
-      element("h2", "", credential.status === "active" ? "Credential is active" : "Credential record found"),
+      element("h2", "", heading),
       details,
-      element("p", "reporter-card-copy", "This lookup shows the status currently recorded in Chowk's development system. Contact Chowk through an independently verified channel if you need additional confirmation.")
+      element("p", "reporter-card-copy", "This lookup shows the current status recorded by Chowk's verification system. Contact Chowk through an independently verified channel if you need additional confirmation.")
     );
   } catch (error) {
     displayError(error instanceof Error ? error.message : "Verification service is unavailable.");

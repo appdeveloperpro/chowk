@@ -13,6 +13,7 @@ const {
   reporterAgreementTemplateFields,
   reporterServiceAgreementTemplateFields,
   reporterServiceAgreementLegalTerms,
+  reporterServiceAgreementLiabilityReference,
   reporterServiceAgreementTokens,
   reporterServiceAgreementRenderTokens,
   unknownTemplateTokens,
@@ -43,10 +44,12 @@ const contentTypes = {
 };
 
 function reporterServiceAgreementTermsFromProfile(profile) {
-  return Object.fromEntries(reporterServiceAgreementLegalTerms.map(({ column, token }) => [
+  const terms = Object.fromEntries(reporterServiceAgreementLegalTerms.map(({ column, token }) => [
     token,
     typeof profile?.[column] === "string" ? profile[column].trim() : ""
   ]));
+  terms["agreement.reporter_liability_summary"] = reporterServiceAgreementLiabilityReference;
+  return terms;
 }
 
 function reporterServiceAgreementTermsComplete(terms) {
@@ -110,6 +113,21 @@ async function credentialPrintPage(credential, request) {
     scope.coverage_name
   ].filter(Boolean).join(" · ") || "Newsroom";
   const isAuthorityLetter = credential.credential_type === "authority_letter";
+  const authorityPending = credential.status === "pending_acceptance";
+  const validFrom = escapeHtml(credential.valid_from);
+  const validUntil = escapeHtml(credential.valid_until);
+  const issuer = escapeHtml(credential.issued_by_name || credential.issued_by_name_snapshot || "CHOWK NEWSROOM");
+  const authorityContent = isAuthorityLetter
+    ? `<section class="authority-copy">
+        <h2>LETTER OF AUTHORITY</h2>
+        <p>${authorityPending
+          ? `This letter is issued to <strong>${escapeHtml(credential.name || credential.name_snapshot)}</strong> for acknowledgment. It does not take effect until the reporter acknowledges it.`
+          : `This letter confirms that <strong>${escapeHtml(credential.name || credential.name_snapshot)}</strong> is authorized to carry out reporting duties for CHOWK NEWSROOM within the coverage shown in this document, subject to the accepted service terms.`}</p>
+        <p>This authority is valid from <strong>${validFrom}</strong> through <strong>${validUntil}</strong>, is limited to the stated reporting coverage, and may be withdrawn or superseded by CHOWK NEWSROOM.</p>
+        <p>This letter is not proof of identity and does not grant account permissions. Verify its current status using the QR code and an independently verified newsroom contact channel.</p>
+        <div class="signature"><strong>${escapeHtml(credential.authorized_signer_name || "—")}</strong><span>${escapeHtml(credential.authorized_signer_designation || "Authorized signatory")}</span><span>${escapeHtml(credential.return_address || "—")}</span></div>
+      </section>`
+    : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHOWK credential ${escapeHtml(credential.reference_code)}</title>
     <style>
       *{box-sizing:border-box}body{margin:0;padding:32px;background:#f4f5f7;color:#26334b;font:14px Arial,sans-serif}
@@ -120,6 +138,8 @@ async function credentialPrintPage(credential, request) {
       dl{display:grid;grid-template-columns:120px 1fr;gap:13px;margin:0}dt{color:#7b8494;font-size:11px}dd{margin:0;font-weight:700}
       .qr{width:180px;height:180px;padding:9px;border:1px solid #e7eaf0;border-radius:10px}
       .footer{margin-top:26px;padding-top:16px;border-top:1px solid #e9ebef;color:#778196;font-size:10px;line-height:1.6}
+      .authority-copy{margin-top:28px;line-height:1.65}.authority-copy h2{font-size:16px;letter-spacing:.08em}.authority-copy p{margin:12px 0}
+      .signature{display:grid;gap:4px;margin-top:32px;padding-top:12px;border-top:1px solid #9aa3b2;max-width:320px}.signature span{color:#596579;font-size:12px}
       .actions{display:flex;justify-content:center;margin:18px auto}.actions button{padding:12px 18px;border:0;border-radius:8px;background:#ed6b2e;color:#fff;font-weight:700;cursor:pointer}
       @media(max-width:560px){body{padding:10px}.card{padding:22px}.body{grid-template-columns:1fr}.qr{grid-row:1;width:150px;height:150px}dl{grid-template-columns:100px 1fr}}
       @media print{body{padding:0;background:#fff}.card{width:100%;margin:0;border:1px solid #ddd;border-top:6px solid #ed6b2e;border-radius:0;box-shadow:none}.actions{display:none}}
@@ -129,14 +149,37 @@ async function credentialPrintPage(credential, request) {
         <dt>Name</dt><dd>${escapeHtml(credential.name || credential.name_snapshot)}</dd>
         <dt>Role</dt><dd>${escapeHtml(String(credential.role || credential.role_snapshot).replaceAll("_", " "))}</dd>
         <dt>Reporter ID</dt><dd>${escapeHtml(credential.reporter_code || credential.reporter_code_snapshot || "—")}</dd>
+        ${scope.designation ? `<dt>Designation</dt><dd>${escapeHtml(scope.designation)}</dd>` : ""}
         <dt>Coverage</dt><dd>${escapeHtml(scopeText)}</dd>
         <dt>Status</dt><dd>${escapeHtml(String(credential.status).replaceAll("_", " "))}</dd>
-        <dt>Valid</dt><dd>${escapeHtml(credential.valid_from)} – ${escapeHtml(credential.valid_until)}</dd>
+        <dt>Valid</dt><dd>${validFrom} – ${validUntil}</dd>
         ${isAuthorityLetter ? `<dt>Service terms</dt><dd>Version ${escapeHtml(credential.service_agreement_version || "—")}</dd><dt>Authorized by</dt><dd>${escapeHtml(credential.authorized_signer_name || "—")} · ${escapeHtml(credential.authorized_signer_designation || "—")}</dd><dt>Contact</dt><dd>${escapeHtml(credential.return_address || "—")}</dd>` : ""}
-        <dt>Issued by</dt><dd>${escapeHtml(credential.issued_by_name || credential.issued_by_name_snapshot || "CHOWK NEWSROOM")}</dd>
+        <dt>Issued by</dt><dd>${issuer}</dd>
       </dl><img class="qr" src="${qrImage}" alt="Credential verification QR code"></section>
-      <p class="footer">Scan the QR code to check current credential status. This ${isAuthorityLetter ? "authority letter" : "ID card"} does not by itself establish the identity of its holder. Confirm identity through an independently verified newsroom contact channel.</p>
+      ${authorityContent}
+      ${isAuthorityLetter ? "" : `<p class="footer">Scan the QR code to check current credential status. This ID card does not by itself establish the identity of its holder. Confirm identity through an independently verified newsroom contact channel.</p>`}
     </article><div class="actions"><button type="button" onclick="window.print()">Print / Save PDF</button></div></body></html>`;
+}
+
+async function renderVerifiedCredentialPrintPage(credential, request) {
+  const verification = await supabaseRequest("/rest/v1/rpc/chowk_verify_staff_credential", {
+    method: "POST",
+    body: { verification_code: credential.verification_token }
+  });
+  if (!verification.response.ok) {
+    throw Object.assign(
+      new Error(apiErrorMessage(verification.payload, "Credential status could not be verified for printing.")),
+      { statusCode: verification.response.status }
+    );
+  }
+  if (!verification.payload) {
+    throw Object.assign(new Error("Credential verification record was not found."), { statusCode: 404 });
+  }
+  return credentialPrintPage({
+    ...credential,
+    status: verification.payload.status,
+    scope: verification.payload.scope || credential.scope || credential.scope_snapshot
+  }, request);
 }
 
 function supabaseConfig() {
@@ -226,7 +269,6 @@ async function deleteSupabaseAuthUser(userId) {
     );
   }
 }
-
 
 async function signedMediaUrl(value, token) {
   if (typeof value !== "string"
@@ -758,6 +800,14 @@ async function reporterServiceAgreementContext(session) {
       reporterName: profile.payload?.[0]?.full_name || session.identity.name || ""
     };
   }
+  if (currentAgreement.status === "published"
+      && normalizeReporterServiceAgreementTemplate(currentAgreement.template_content)
+        !== currentAgreement.template_content) {
+    throw Object.assign(
+      new Error("The published service-agreement template needs to be saved and republished before it can be reviewed or accepted."),
+      { statusCode: 409 }
+    );
+  }
   if (!currentAgreement.legal_terms_snapshot
       || typeof currentAgreement.legal_terms_snapshot !== "object"
       || Array.isArray(currentAgreement.legal_terms_snapshot)) {
@@ -825,7 +875,7 @@ async function reporterServiceAgreementContext(session) {
     "reporter.district": assignedArea.district,
     "reporter.email": session.identity.email || "Not provided",
     "reporter.full_name": reporter.full_name || session.identity.name || "Name not provided",
-    "reporter.phone": reporter.phone || "Not provided",
+    "reporter.phone": reporter.phone || details.mobile_number || "Not provided",
     "reporter.reporter_code": reporterProfile.payload?.[0]?.reporter_code || "Assigned after onboarding",
     "reporter.rto": selectedRto.rto_code,
     "reporter.state": selectedState.state_name,
@@ -963,6 +1013,13 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
       { statusCode: 409 }
     );
   }
+  if (agreement.status === "published"
+      && normalizeReporterServiceAgreementTemplate(agreement.template_content) !== agreement.template_content) {
+    throw Object.assign(
+      new Error("The published service-agreement template has legacy wording. Save and publish a new version before previewing or issuing agreements."),
+      { statusCode: 409 }
+    );
+  }
   if (!agreement.template_content.includes("{{reporter.designation}}")) {
     throw Object.assign(
       new Error("Add {{reporter.designation}} to the service-agreement template and publish it before preparing reporter agreements."),
@@ -1077,7 +1134,8 @@ async function reporterServiceAgreementAdminContext(session, applicationId, { re
     "reporter.permanent_address_state": details.permanent_address_state || "Not provided",
     "reporter.permanent_address_postal_code": details.permanent_address_postal_code || "Not provided",
     "reporter.date_of_birth": details.date_of_birth || "Not provided",
-    "reporter.mobile_number": details.mobile_number || "Not provided"
+    "reporter.mobile_number": details.mobile_number || "Not provided",
+    ...legalTerms
   };
   const requiredTemplateTokens = new Set(
     [...agreement.template_content.matchAll(/\{\{([^}]+)\}\}/g)]
@@ -1429,12 +1487,6 @@ async function adminRoute(request, response, requestUrl, session) {
         order: "location_type.asc,name.asc",
         fields: ["name", "slug", "location_type", "rto_code", "parent_id", "is_active"]
       },
-      "reporter-types": {
-        table: "reporter_types",
-        select: "id,name,type_code,description,is_active,created_at",
-        order: "name.asc",
-        fields: ["name", "type_code", "description", "is_active"]
-      },
       "reporter-designations": {
         table: "reporter_designations",
         select: "id,name,designation_code,description,is_active,created_at",
@@ -1443,7 +1495,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,location_id,state_id,rto_office_id,reporter_type_id,reporter_designation_id,service_agreement_issue_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_designation:reporter_designations(id,name,designation_code)",
+        select: "id,user_id,location_id,state_id,rto_office_id,reporter_designation_id,service_agreement_issue_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_designation:reporter_designations(id,name,designation_code)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -1479,7 +1531,7 @@ async function adminRoute(request, response, requestUrl, session) {
     if (pathname === "/api/admin/reporter-directory" && request.method === "GET") {
       const [reporters, assignments] = await Promise.all([
         supabaseRequest("/rest/v1/reporter_profiles?select=user_id,reporter_code,created_at,user:profiles!reporter_profiles_user_id_fkey(id,email,full_name,phone,role,created_at)&order=created_at.desc&limit=1000", { token }),
-        supabaseRequest("/rest/v1/reporter_assignments?select=id,user_id,rto_office_id,reporter_type_id,reporter_designation_id,effective_from,effective_to,rto:rto_offices(rto_code,city_name,state:states(state_code,state_name)),reporter_type:reporter_types(name,type_code),reporter_designation:reporter_designations(id,name)&order=effective_from.desc&limit=2000", { token })
+        supabaseRequest("/rest/v1/reporter_assignments?select=id,user_id,rto_office_id,reporter_designation_id,effective_from,effective_to,rto:rto_offices(rto_code,city_name,state:states(state_code,state_name)),reporter_designation:reporter_designations(id,name)&order=effective_from.desc&limit=2000", { token })
       ]);
       for (const result of [reporters, assignments]) {
         if (!result.response.ok) {
@@ -1730,7 +1782,8 @@ async function adminRoute(request, response, requestUrl, session) {
         "reporter.permanent_address_state": "Sample State",
         "reporter.permanent_address_postal_code": "123456",
         "reporter.date_of_birth": "1990-01-01",
-        "reporter.mobile_number": "0000000000"
+        "reporter.mobile_number": "0000000000",
+        ...legalTerms
       };
       const pdf = await createReporterAgreementPdf(
         normalizeReporterServiceAgreementTemplate(body.template_content),
@@ -1797,6 +1850,10 @@ async function adminRoute(request, response, requestUrl, session) {
       const body = await readJsonBody(request);
       const terms = {};
       for (const { column, label } of reporterServiceAgreementLegalTerms) {
+        if (column === "agreement_reporter_liability_summary") {
+          terms[column] = reporterServiceAgreementLiabilityReference;
+          continue;
+        }
         const value = typeof body[column] === "string" ? body[column].trim() : "";
         if (!value || value.length > 2000) {
           sendJson(response, 400, { error: `${label} is required and must be 2,000 characters or fewer.` });
@@ -1966,13 +2023,13 @@ async function adminRoute(request, response, requestUrl, session) {
       );
       if (!currentAssignment.response.ok) {
         sendJson(response, currentAssignment.response.status, {
-          error: apiErrorMessage(currentAssignment.payload, "The reporter's current reporter-ID category could not be loaded.")
+          error: apiErrorMessage(currentAssignment.payload, "The reporter's current assignment could not be loaded.")
         });
         return;
       }
       const type = Number(currentAssignment.payload?.[0]?.reporter_type_id);
       if (!Number.isSafeInteger(type) || type < 1) {
-        sendJson(response, 409, { error: "The reporter must have an active designation before their reporting area can be updated." });
+        sendJson(response, 409, { error: "The reporter needs a current designation assignment before their reporting area can be updated." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_reporter", {
@@ -2193,7 +2250,7 @@ async function adminRoute(request, response, requestUrl, session) {
     const printCredential = pathname.match(/^\/api\/admin\/reporter-credentials\/(\d+)\/print$/);
     if (printCredential && request.method === "GET") {
       const result = await supabaseRequest(
-        `/rest/v1/staff_credentials?select=credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,valid_from,valid_until,issued_by_name_snapshot,issued_at&id=eq.${printCredential[1]}&limit=1`,
+        `/rest/v1/staff_credentials?select=credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,valid_from,valid_until,issued_by_name_snapshot,issued_at,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version:service_agreement_version_snapshot&id=eq.${printCredential[1]}&limit=1`,
         { token }
       );
       if (!result.response.ok || !result.payload?.[0]) {
@@ -2202,47 +2259,7 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         return;
       }
-      const credential = result.payload[0];
-      const requestOrigin = request.headers.origin
-        || `${request.headers["x-forwarded-proto"]?.split(",")[0].trim() || (request.socket.encrypted ? "https" : "http")}://${request.headers["x-forwarded-host"]?.split(",")[0].trim() || request.headers.host}`;
-      const verificationUrl = new URL("/credential", requestOrigin);
-      verificationUrl.searchParams.set("token", credential.verification_token);
-      const qrImage = await QRCode.toDataURL(verificationUrl.toString(), {
-        errorCorrectionLevel: "M",
-        margin: 1,
-        width: 256
-      });
-      const scope = credential.scope_snapshot || {};
-      const scopeText = [
-        scope.state_name, scope.rto_code, scope.city_name,
-        scope.coverage_name
-      ].filter(Boolean).join(" · ") || "Newsroom";
-      const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHOWK credential ${escapeHtml(credential.reference_code)}</title>
-        <style>
-          *{box-sizing:border-box}body{margin:0;padding:32px;background:#f4f5f7;color:#26334b;font:14px Arial,sans-serif}
-          .card{width:min(760px,100%);min-height:420px;margin:24px auto;padding:32px;border:1px solid #e4e7ec;border-top:7px solid #ef6b2e;border-radius:16px;background:#fff;box-shadow:0 18px 48px #27334a18}
-          header{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e9ebef;padding-bottom:18px}
-          h1{margin:0;font-size:22px;letter-spacing:.04em}header p,.muted{color:#778196;font-size:11px}
-          .body{display:grid;grid-template-columns:1fr 190px;gap:28px;align-items:center;padding-top:24px}
-          dl{display:grid;grid-template-columns:120px 1fr;gap:13px;margin:0}dt{color:#7b8494;font-size:11px}dd{margin:0;font-weight:700}
-          .qr{width:180px;height:180px;padding:9px;border:1px solid #e7eaf0;border-radius:10px}
-          .footer{margin-top:26px;padding-top:16px;border-top:1px solid #e9ebef;color:#778196;font-size:10px;line-height:1.6}
-          .actions{display:flex;justify-content:center;margin:18px auto}.actions button{padding:12px 18px;border:0;border-radius:8px;background:#ed6b2e;color:#fff;font-weight:700;cursor:pointer}
-          @media(max-width:560px){body{padding:10px}.card{padding:22px}.body{grid-template-columns:1fr}.qr{grid-row:1;width:150px;height:150px}dl{grid-template-columns:100px 1fr}}
-          @media print{body{padding:0;background:#fff}.card{width:100%;margin:0;border:1px solid #ddd;border-top:6px solid #ed6b2e;border-radius:0;box-shadow:none}.actions{display:none}}
-        </style></head><body><article class="card">
-          <header><div><h1>CHOWK NEWSROOM</h1><p>OFFICIAL STAFF ${escapeHtml(credential.credential_type || "CREDENTIAL").replaceAll("_", " ").toUpperCase()}</p></div><strong>${escapeHtml(credential.reference_code)}</strong></header>
-          <section class="body"><dl>
-            <dt>Name</dt><dd>${escapeHtml(credential.name_snapshot)}</dd>
-            <dt>Role</dt><dd>${escapeHtml(String(credential.role_snapshot).replaceAll("_", " "))}</dd>
-            <dt>Reporter ID</dt><dd>${escapeHtml(credential.reporter_code_snapshot || "—")}</dd>
-            <dt>Coverage</dt><dd>${escapeHtml(scopeText)}</dd>
-            <dt>Status</dt><dd>${escapeHtml(String(credential.status).replaceAll("_", " "))}</dd>
-            <dt>Valid</dt><dd>${escapeHtml(credential.valid_from)} – ${escapeHtml(credential.valid_until)}</dd>
-            <dt>Issued by</dt><dd>${escapeHtml(credential.issued_by_name_snapshot || "CHOWK NEWSROOM")}</dd>
-          </dl><img class="qr" src="${qrImage}" alt="Credential verification QR code"></section>
-          <p class="footer">Scan the QR code to check current credential status. This card does not by itself establish the identity of its holder. Confirm identity through an independently verified newsroom contact channel.</p>
-        </article><div class="actions"><button type="button" onclick="window.print()">Print / Save PDF</button></div></body></html>`;
+      const html = await renderVerifiedCredentialPrintPage(result.payload[0], request);
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
@@ -2626,7 +2643,7 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    const collectionMatch = pathname.match(/^\/api\/admin\/(locations|reporter-types|reporter-designations|reporter-applications|live-streams|reports|comments|media|audit-logs)$/);
+    const collectionMatch = pathname.match(/^\/api\/admin\/(locations|reporter-designations|reporter-applications|live-streams|reports|comments|media|audit-logs)$/);
     const collection = collectionMatch && collections[collectionMatch[1]];
     if (collection && request.method === "GET") {
       const query = new URLSearchParams({
@@ -2699,11 +2716,6 @@ async function adminRoute(request, response, requestUrl, session) {
           sendJson(response, 400, { error: validationError });
           return;
         }
-      }
-      if (collection.table === "reporter_types" &&
-          (typeof record.type_code !== "string" || !/^\d{2}$/.test(record.type_code))) {
-        sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
-        return;
       }
       if (collection.table === "locations" && (
         (record.location_type === "district" && (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) ||
@@ -2792,7 +2804,7 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    const collectionRecord = pathname.match(/^\/api\/admin\/(locations|reporter-types|reporter-designations|live-streams|reports|comments|media)\/(\d+)$/);
+    const collectionRecord = pathname.match(/^\/api\/admin\/(locations|reporter-designations|live-streams|reports|comments|media)\/(\d+)$/);
     if (collectionRecord && ["PATCH", "DELETE"].includes(request.method)) {
       const config = collections[collectionRecord[1]];
       if (!config.fields && request.method === "PATCH") {
@@ -2809,11 +2821,6 @@ async function adminRoute(request, response, requestUrl, session) {
           sendJson(response, 400, { error: validationError });
           return;
         }
-      }
-      if (config.table === "reporter_types" && record.type_code !== undefined &&
-          (typeof record.type_code !== "string" || !/^\d{2}$/.test(record.type_code))) {
-        sendJson(response, 400, { error: "Reporter type code must contain exactly two digits." });
-        return;
       }
       if (config.table === "locations" && record.location_type === "district" &&
           (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) {
@@ -3495,7 +3502,7 @@ async function adminRoute(request, response, requestUrl, session) {
       if (!state.payload?.[0] || !rto.payload?.[0]
           || !Number.isSafeInteger(reporterTypeId) || reporterTypeId < 1
           || Number(rto.payload[0].state_id) !== stateId) {
-        sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state. The current designation must also be assigned." });
+        sendJson(response, 400, { error: "Choose an active RTO/reporting area belonging to the selected state. The reporter also needs a current designation assignment." });
         return;
       }
       if (profile.payload[0].role !== "reporter") {
@@ -4266,7 +4273,7 @@ const server = http.createServer((request, response) => {
               sendJson(response, 404, { error: "An active or pending credential for this account was not found." });
               return;
             }
-            const html = await credentialPrintPage(credential, request);
+            const html = await renderVerifiedCredentialPrintPage(credential, request);
             response.writeHead(200, {
               "Content-Type": "text/html; charset=utf-8",
               "Cache-Control": "no-store",

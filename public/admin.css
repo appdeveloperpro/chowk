@@ -1612,8 +1612,16 @@
 
 .reporter-organization-profile {
   display: grid;
-  gap: 16px;
-  padding: 20px;
+  gap: 0;
+  padding: 0;
+}
+
+.reporter-organization-profile > .reporter-organization-fields {
+  margin: 0 18px;
+}
+
+.reporter-organization-profile > .admin-page-actions {
+  margin: 0 18px 18px;
 }
 
 .reporter-organization-status {
@@ -2018,7 +2026,7 @@
   }
 
   .reporter-organization-profile {
-    padding: 14px;
+    padding: 0;
   }
 
   .reporter-organization-fields {
@@ -2043,6 +2051,15 @@
 
 .admin-role-agreement-card > .admin-primary-button {
   justify-self: start;
+  padding: 0 14px;
+}
+
+.admin-role-agreement-card > :not(.admin-panel-heading) {
+  margin-inline: 18px;
+}
+
+.admin-role-agreement-card > :last-child {
+  margin-bottom: 18px;
 }
 
 .admin-role-agreement-terms {

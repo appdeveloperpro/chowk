@@ -179,7 +179,10 @@ Requires Node.js 18 or newer.
    is activated.
    Moderator and editor agreements remain unpublished until a super admin
    supplies and publishes their approved wording. Admins can manage structured
-   term values; only super admins can edit or publish agreement wording.
+   term values, but those values are optional: complete approved clauses can be
+   pasted directly into the wording template. A structured value appears in the
+   agreement only when the template includes its matching `{{terms.<key>}}`
+   placeholder. Only super admins can edit or publish agreement wording.
    Migration 0060 adds safe `{{staff.*}}` and `{{terms.<key>}}` placeholders, rejects
    unknown or unresolved placeholders at publish/accept time, and stores the
    exact personalized agreement and SHA-256 accepted by each staff invitee.
@@ -266,6 +269,9 @@ key and authenticated user tokens.
   Agreements separates role-specific templates from per-person issued and
   accepted records. Existing role-specific tables and legal history are
   retained rather than destructively merged or reset.
+- System configuration includes shared locations, reporter application setup,
+  and the organization legal profile used in reporter agreements; agreement
+  wording and publication remain under Agreements.
 - Reporter desk for signed-in applicants to submit and track applications,
   review and accept the personalized service/appointment agreement issued after
   approval, view stable reporter IDs and assignment history, print their own

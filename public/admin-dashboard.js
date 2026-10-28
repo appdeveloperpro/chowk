@@ -128,7 +128,7 @@ const modules = {
   },
   "reporter-configuration": {
     path: "admin/reporter-options",
-    description: "Configure the reporting areas and designations used by reporter applications and assignments."
+    description: "Manage organization legal details and reporter application settings used across newsroom workflows."
   },
   media: {
     path: "admin/media",
@@ -956,17 +956,7 @@ function renderReporterAdminSection(section, root, data) {
         void openReporterServiceAgreementTermsDialog();
       }
     });
-    const manageCompany = makeElement("button", "admin-secondary-button", "Manage company legal details");
-    manageCompany.type = "button";
-    manageCompany.addEventListener("click", async () => {
-      try {
-        const setup = await apiRequest("admin/reporter-options");
-        openReporterOrganizationProfileDialog(setup.data?.organization_profile);
-      } catch (error) {
-        void showAdminMessage("Company details unavailable", error.message);
-      }
-    });
-    actions.append(editTemplate, manageCompany);
+    actions.append(editTemplate);
     body.append(actions);
     panel.append(body);
     root.append(panel);
@@ -1010,8 +1000,8 @@ function renderReporterSetup(root, data) {
   const overview = makeElement("section", "reporter-setup-overview");
   const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
   overviewHeading.append(
-    makeElement("div", "", "REPORTER CONFIGURATION"),
-    makeElement("p", "", "Configure the reporting areas and designations used by reporter applications and assignments. Manage organization details and agreement wording from Agreements.")
+    makeElement("div", "", "SYSTEM CONFIGURATION"),
+    makeElement("p", "", "Manage the organization’s legal identity and the reporting areas and designations used by newsroom workflows. Configure agreement wording under Agreements.")
   );
   overview.append(overviewHeading);
 
@@ -1035,6 +1025,50 @@ function renderReporterSetup(root, data) {
   overview.append(cards);
 
   if (reporterSetupView === "overview") {
+    const organizationCard = makeElement("section", "admin-panel reporter-organization-profile");
+    const organizationHeading = makeElement("div", "admin-panel-heading");
+    const organizationHeadingCopy = makeElement("div", "reporter-setup-detail-copy");
+    organizationHeadingCopy.append(makeElement("h2", "", "Organization legal profile"));
+    organizationHeadingCopy.append(makeElement(
+      "span",
+      "",
+      "Legal identity and official contact details used in finalized reporter agreements."
+    ));
+    organizationHeading.append(organizationHeadingCopy);
+    const organizationStatus = makeElement(
+      "span",
+      `reporter-organization-status${organizationProfile?.is_verified ? " is-verified" : ""}`,
+      organizationProfile?.is_verified ? "VERIFIED" : "NOT VERIFIED"
+    );
+    organizationHeading.append(organizationStatus);
+    organizationCard.append(organizationHeading);
+    const organizationFields = [
+      ["Registered legal name", organizationProfile?.legal_name],
+      ["Trading name", organizationProfile?.trade_name],
+      ["Entity type", organizationProfile?.entity_type],
+      ["Registered office", organizationProfile?.registered_address],
+      ["Registration number", organizationProfile?.registration_number],
+      ["Official email", organizationProfile?.official_email],
+      ["Official phone", organizationProfile?.official_phone],
+      ["Official website", organizationProfile?.website_url]
+    ];
+    const organizationDetails = makeElement("dl", "reporter-organization-fields");
+    organizationFields.forEach(([label, value]) => {
+      organizationDetails.append(
+        makeElement("dt", "", label),
+        makeElement("dd", "", value || "Not set")
+      );
+    });
+    organizationCard.append(organizationDetails);
+    const organizationActions = makeElement("div", "admin-page-actions");
+    const manageOrganization = makeElement("button", "admin-secondary-button", "Manage legal details");
+    manageOrganization.type = "button";
+    manageOrganization.addEventListener("click", () =>
+      openReporterOrganizationProfileDialog(organizationProfile));
+    organizationActions.append(manageOrganization);
+    organizationCard.append(organizationActions);
+    overview.append(organizationCard);
+
     const reporterSetupReady = Boolean(publishedServiceAgreement && organizationProfile?.is_verified);
     const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
@@ -1735,7 +1769,7 @@ function openReporterOrganizationProfileDialog(profile) {
         is_verified: values.get("is_verified") === "on",
         confirm_legal_details: values.get("confirm_legal_details") === "on"
       });
-      await loadSection("reporter-options");
+      await loadSection("reporter-configuration");
     },
     "Save profile"
   );
@@ -1752,7 +1786,7 @@ function openStateDialog() {
     },
     async (values) => {
       await apiRequest("admin/states", "POST", Object.fromEntries(values.entries()));
-      await loadSection("reporter-options");
+      await loadSection("reporter-configuration");
     },
     "Add state"
   );
@@ -1775,7 +1809,7 @@ function openRtoDialog(states) {
         rto_code: values.get("rto_code"),
         city_name: values.get("city_name") || ""
       });
-      await loadSection("reporter-options");
+      await loadSection("reporter-configuration");
     },
     "Add RTO"
   );
@@ -2141,7 +2175,7 @@ function renderRoleAgreements(root, data, roleFilter) {
   root.append(makeElement(
     "p",
     "admin-dialog-help",
-    `${roleFilter ? `${roleFilter.charAt(0).toUpperCase()}${roleFilter.slice(1)}` : "Moderator and editor"} agreement wording is controlled by super admins. Structured terms are managed separately and snapshotted into each immutable version.`
+    `${roleFilter ? `${roleFilter.charAt(0).toUpperCase()}${roleFilter.slice(1)}` : "Moderator and editor"} agreement wording is controlled by super admins. Paste the complete approved clauses directly into the wording template; structured key/value terms are optional and only needed when you want values inserted through matching placeholders.`
   ));
   roles.forEach((agreement) => {
     const role = agreement.role;
@@ -2163,10 +2197,10 @@ function renderRoleAgreements(root, data, roleFilter) {
     ));
 
     const termSection = makeElement("div", "admin-role-agreement-terms");
-    termSection.append(makeElement("h3", "", "Current structured term values"));
+    termSection.append(makeElement("h3", "", "Optional structured term values"));
     const termEntries = Object.entries(agreement.terms || {});
     if (!termEntries.length) {
-      termSection.append(makeElement("p", "admin-dialog-help", "No structured term values have been entered."));
+      termSection.append(makeElement("p", "admin-dialog-help", "None are required if the complete clauses are written directly in the agreement template."));
     } else {
       const list = makeElement("dl", "admin-role-agreement-term-list");
       termEntries.forEach(([key, value]) => {
@@ -2178,7 +2212,7 @@ function renderRoleAgreements(root, data, roleFilter) {
       termSection.append(makeElement("h3", "", `Values snapshotted in version ${published.version}`));
       const snapshotEntries = Object.entries(published.terms_snapshot || {});
       if (!snapshotEntries.length) {
-        termSection.append(makeElement("p", "admin-dialog-help", "This version has no structured term values."));
+        termSection.append(makeElement("p", "admin-dialog-help", "This version uses no structured terms; its clauses can be written directly in the template."));
       } else {
         const snapshot = makeElement("dl", "admin-role-agreement-term-list");
         snapshotEntries.forEach(([key, value]) => {
@@ -2187,7 +2221,7 @@ function renderRoleAgreements(root, data, roleFilter) {
         termSection.append(snapshot);
       }
     }
-    const manageTerms = makeElement("button", "admin-secondary-button", "Manage term values");
+    const manageTerms = makeElement("button", "admin-secondary-button", "Manage optional term values");
     manageTerms.type = "button";
     manageTerms.addEventListener("click", () => openRoleAgreementTermsDialog(role, agreement.terms || {}));
     termSection.append(manageTerms);
@@ -2394,7 +2428,7 @@ function openRoleAgreementTermsDialog(role, initialTerms) {
   let termRows;
   openFormDialog(
     `Manage ${role} term values`,
-    "Enter structured labels and values approved for this role. These values do not change published wording; new agreement versions snapshot the current values.",
+    "This form is optional. Add approved key/value text only if the agreement template uses matching {{terms.key}} placeholders. Otherwise, paste the complete approved clauses directly into the agreement wording editor. Saving values does not change published wording; a new version snapshots them.",
     (form) => {
       const rows = makeElement("div", "admin-role-agreement-term-editor");
       termRows = rows;
@@ -2449,7 +2483,7 @@ function openRoleAgreementTermsDialog(role, initialTerms) {
 function openRoleAgreementDraftDialog(role, existingTemplate, terms) {
   openFormDialog(
     `Create ${role} agreement version`,
-    "Only approved legal wording may be entered here. Saving creates an immutable draft with a snapshot of the current structured term values; publishing remains a separate super-admin action.",
+    "Paste the complete approved agreement wording here. Structured key/value terms are optional—use them only when the text should be inserted through a matching placeholder. Saving creates an immutable draft; publishing remains a separate super-admin action.",
     (form) => {
       addField(form, "Version label", "version", "text", "", { minLength: 1, maxLength: 40 });
       const label = makeElement("label", "admin-form-field admin-agreement-template-field");
@@ -2466,7 +2500,7 @@ function openRoleAgreementDraftDialog(role, existingTemplate, terms) {
       form.append(label);
       const placeholders = document.createElement("details");
       placeholders.className = "admin-agreement-template-fields";
-      placeholders.append(makeElement("summary", "", "Supported personalization placeholders"));
+      placeholders.append(makeElement("summary", "", "Optional personalization placeholders"));
       placeholders.append(makeElement(
         "p",
         "admin-dialog-help",
@@ -2474,9 +2508,16 @@ function openRoleAgreementDraftDialog(role, existingTemplate, terms) {
           "{{staff.full_name}}", "{{staff.email}}", "{{staff.phone}}", "{{staff.role}}",
           "{{staff.address}}", "{{staff.address_line1}}", "{{staff.address_line2}}",
           "{{staff.city}}", "{{staff.district}}", "{{staff.state}}",
-          "{{staff.postal_code}}", "{{staff.date_of_birth}}",
-          ...Object.keys(terms).map((key) => `{{terms.${key}}}`)
+          "{{staff.postal_code}}", "{{staff.date_of_birth}}"
         ].join(" · ") || "No structured term placeholders are currently available."
+      ));
+      const availableTerms = Object.keys(terms);
+      placeholders.append(makeElement(
+        "p",
+        "admin-dialog-help",
+        availableTerms.length
+          ? `Optional structured term placeholders: ${availableTerms.map((key) => `{{terms.${key}}}`).join(" · ")}`
+          : "No optional structured terms are configured. Complete clauses can be written directly in the agreement wording above."
       ));
       form.append(placeholders);
     },

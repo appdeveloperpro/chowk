@@ -2029,6 +2029,220 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (pathname === "/api/admin/agreement-records" && request.method === "GET") {
+      const requestedRole = requestUrl.searchParams.get("role") || "all";
+      if (!["all", "reporter", "moderator", "editor"].includes(requestedRole)) {
+        sendJson(response, 400, { error: "Choose a supported agreement role." });
+        return;
+      }
+
+      const requests = [];
+      if (requestedRole === "all" || requestedRole === "reporter") {
+        requests.push(
+          supabaseRequest(
+            "/rest/v1/reporter_service_agreement_issues?select=id,application_id,user_id,agreement_version,agreement_sha256,status,published_at,document_sha256&order=published_at.desc&limit=1000",
+            { token }
+          ).then((result) => ({ kind: "reporter-issues", result })),
+          supabaseRequest(
+            "/rest/v1/reporter_service_agreement_acceptances?select=id,issue_id,user_id,application_id,agreement_version,agreement_sha256,signer_name,accepted_at,generated_document_sha256&order=accepted_at.desc&limit=1000",
+            { token }
+          ).then((result) => ({ kind: "reporter-acceptances", result }))
+        );
+      }
+      if (requestedRole === "all" || ["moderator", "editor"].includes(requestedRole)) {
+        requests.push(
+          supabaseRequest(
+            "/rest/v1/staff_role_agreement_acceptances?select=id,user_id,role,agreement_version_id,agreement_version,agreement_sha256,rendered_content,rendered_sha256,accepted_at&order=accepted_at.desc&limit=1000",
+            { token }
+          ).then((result) => ({ kind: "staff-acceptances", result })),
+          supabaseRequest(
+            "/rest/v1/staff_onboarding?select=*&limit=1000",
+            { token }
+          ).then((result) => ({ kind: "staff-onboarding", result })),
+          supabaseRequest(
+            "/rest/v1/staff_role_agreement_versions?select=id,role,version,status,published_at,template_content,terms_snapshot&order=created_at.desc&limit=1000",
+            { token }
+          ).then((result) => ({ kind: "staff-versions", result }))
+        );
+      }
+
+      const results = await Promise.all(requests);
+      const failed = results.find(({ result }) => !result.response.ok);
+      if (failed) {
+        sendJson(response, failed.result.response.status, {
+          error: apiErrorMessage(failed.result.payload, "Agreement records could not be loaded.")
+        });
+        return;
+      }
+      const dataByKind = new Map(results.map(({ kind, result }) => [kind, result.payload || []]));
+      const records = [];
+      if (requestedRole === "all" || requestedRole === "reporter") {
+        const issues = dataByKind.get("reporter-issues") || [];
+        const acceptances = dataByKind.get("reporter-acceptances") || [];
+        const acceptancesByIssue = new Map(
+          acceptances.filter((item) => item.issue_id != null).map((item) => [String(item.issue_id), item])
+        );
+        issues.forEach((issue) => {
+          const acceptance = acceptancesByIssue.get(String(issue.id));
+          records.push({
+            id: `reporter-issue-${issue.id}`,
+            user_id: issue.user_id,
+            role: "Reporter",
+            version: issue.agreement_version,
+            status: acceptance ? "Accepted" : issue.status === "published" ? "Awaiting acceptance" : "Superseded",
+            issued_at: issue.published_at,
+            accepted_at: acceptance?.accepted_at || null,
+            signer_name: acceptance?.signer_name || null,
+            rendered_content: null
+          });
+        });
+        acceptances.filter((item) => item.issue_id == null).forEach((acceptance) => {
+          records.push({
+            id: `reporter-legacy-acceptance-${acceptance.id}`,
+            user_id: acceptance.user_id,
+            role: "Reporter",
+            version: acceptance.agreement_version,
+            status: "Accepted · historical record",
+            issued_at: null,
+            accepted_at: acceptance.accepted_at,
+            signer_name: acceptance.signer_name,
+            rendered_content: null
+          });
+        });
+      }
+
+      if (requestedRole === "all" || ["moderator", "editor"].includes(requestedRole)) {
+        const staffRoles = requestedRole === "all" ? ["moderator", "editor"] : [requestedRole];
+        const versions = dataByKind.get("staff-versions") || [];
+        const publishedVersions = versions.filter((version) => version.status === "published");
+        const publishedByRole = new Map(publishedVersions.map((version) => [version.role, version]));
+        const versionsById = new Map(versions.map((version) => [version.id, version]));
+        const acceptances = (dataByKind.get("staff-acceptances") || []).filter((item) =>
+          staffRoles.includes(item.role)
+        );
+        const onboarding = (dataByKind.get("staff-onboarding") || []).filter((item) =>
+          staffRoles.includes(item.requested_role)
+        );
+        acceptances.forEach((acceptance) => {
+          const acceptedVersion = versionsById.get(acceptance.agreement_version_id);
+          records.push({
+            id: `staff-acceptance-${acceptance.id}`,
+            user_id: acceptance.user_id,
+            role: acceptance.role,
+            version: acceptance.agreement_version,
+            status: "Accepted",
+            issued_at: acceptedVersion?.published_at || null,
+            accepted_at: acceptance.accepted_at,
+            signer_name: null,
+            rendered_content: acceptance.rendered_content,
+            _agreement_version_id: acceptance.agreement_version_id,
+            _rendered_sha256: acceptance.rendered_sha256
+          });
+        });
+        onboarding.forEach((person) => {
+          const published = publishedByRole.get(person.requested_role);
+          if (!published || !["submitted", "approved_pending_agreement"].includes(person.status)) return;
+          records.push({
+            id: `staff-pending-${person.user_id}`,
+            user_id: person.user_id,
+            role: person.requested_role,
+            version: published.version,
+            status: "Awaiting acceptance",
+            issued_at: published.published_at,
+            accepted_at: null,
+            signer_name: null,
+            rendered_content: null,
+            _agreement_version_id: published.id,
+            _onboarding: person,
+            _published_agreement: published
+          });
+        });
+      }
+
+      const userIds = [...new Set(records.map((record) => record.user_id))]
+        .filter((userId) => /^[0-9a-f-]{36}$/i.test(userId));
+      const profiles = userIds.length
+        ? await supabaseRequest(
+          `/rest/v1/profiles?select=id,email,full_name,phone&id=in.(${userIds.join(",")})`,
+          { token }
+        )
+        : { response: { ok: true }, payload: [] };
+      if (!profiles.response.ok) {
+        sendJson(response, profiles.response.status, {
+          error: apiErrorMessage(profiles.payload, "Agreement record owners could not be loaded.")
+        });
+        return;
+      }
+      const profilesById = new Map((profiles.payload || []).map((profile) => [profile.id, profile]));
+      records.forEach((record) => {
+        const profile = profilesById.get(record.user_id);
+        record.full_name = profile?.full_name || "—";
+        record.email = profile?.email || "—";
+      });
+      const staffOnboardingByUser = new Map(
+        (dataByKind.get("staff-onboarding") || []).map((person) => [person.user_id, person])
+      );
+      const staffPublishedByRole = new Map(
+        (dataByKind.get("staff-versions") || [])
+          .filter((version) => version.status === "published")
+          .map((version) => [version.role, version])
+      );
+      try {
+        records.forEach((record) => {
+          if (!["moderator", "editor"].includes(record.role)) return;
+          const onboarding = staffOnboardingByUser.get(record.user_id);
+          const agreement = staffPublishedByRole.get(record.role);
+          const profile = profilesById.get(record.user_id);
+          if (!onboarding || !agreement || !profile) return;
+          const matchingAcceptance = (dataByKind.get("staff-acceptances") || []).find((acceptance) => {
+            if (acceptance.user_id !== record.user_id
+                || acceptance.role !== record.role
+                || acceptance.agreement_version_id !== agreement.id) return false;
+            const resolved = renderStaffAgreement(
+              agreement.template_content,
+              agreement.terms_snapshot || {},
+              profile,
+              onboarding
+            );
+            const resolvedSha256 = createHash("sha256").update(resolved, "utf8").digest("hex");
+            return acceptance.rendered_content === resolved
+              && acceptance.rendered_sha256 === resolvedSha256;
+          });
+          if (record.id.startsWith("staff-pending-") && matchingAcceptance) {
+            record._remove = true;
+          } else if (record.id.startsWith("staff-acceptance-")) {
+            record.status = matchingAcceptance && record.id === `staff-acceptance-${matchingAcceptance.id}`
+              ? "Accepted current copy"
+              : matchingAcceptance
+                ? "Earlier copy · re-accepted"
+              : record._agreement_version_id === agreement.id
+                ? record.rendered_content
+                  ? "Profile changed · re-acceptance needed"
+                  : "Current copy not recorded"
+                : "Historical acceptance";
+          }
+        });
+      } catch (error) {
+        sendJson(response, 409, { error: `Current staff agreement records could not be rendered: ${error.message}` });
+        return;
+      }
+      const visibleRecords = records.filter((record) => !record._remove).map((record) => {
+        delete record._remove;
+        delete record._onboarding;
+        delete record._published_agreement;
+        delete record._agreement_version_id;
+        delete record._rendered_sha256;
+        return record;
+      });
+      visibleRecords.sort((left, right) =>
+        String(right.accepted_at || right.issued_at || "").localeCompare(
+          String(left.accepted_at || left.issued_at || "")
+        )
+      );
+      sendJson(response, 200, { success: true, data: visibleRecords });
+      return;
+    }
+
     const roleAgreementTerms = pathname.match(/^\/api\/admin\/role-agreements\/(moderator|editor)\/terms$/);
     if (roleAgreementTerms && request.method === "PATCH") {
       const body = await readJsonBody(request);

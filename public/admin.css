@@ -407,6 +407,42 @@
   gap: 24px;
 }
 
+.admin-workflow-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #e7eaf0;
+}
+
+.admin-workflow-tab {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #68758a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-workflow-tab:hover,
+.admin-workflow-tab.is-active {
+  border-bottom-color: #e45c22;
+  color: #d94e17;
+}
+
+.admin-workflow-scope-note {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #f0dfc8;
+  border-radius: 9px;
+  background: #fffaf0;
+  color: #6f5c43;
+  font-size: 13px;
+}
+
 .admin-page-actions {
   display: flex;
   flex-wrap: wrap;

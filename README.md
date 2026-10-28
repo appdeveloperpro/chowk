@@ -257,9 +257,15 @@ key and authenticated user tokens.
   profile editing, and password updates.
 - Admin management screens for reporter application review, moderation of
   article reports and comments, media catalog entries, YouTube stream listings,
-  locations, reporter setup, and searchable, paginated, read-only audit history
-  with actor snapshots, request context, reasons, before/after field diffs, and
-  CSV export of up to 10,000 filtered events per export.
+  locations, reporter configuration, and searchable, paginated, read-only audit
+  history with actor snapshots, request context, reasons, before/after field diffs,
+  and CSV export of up to 10,000 filtered events per export.
+- People administration is organized around Applications, Directory,
+  Agreements, Credentials, and Coverage. Applications are split by reporter,
+  moderator, and editor; the directory combines active newsroom roles; and
+  Agreements separates role-specific templates from per-person issued and
+  accepted records. Existing role-specific tables and legal history are
+  retained rather than destructively merged or reset.
 - Reporter desk for signed-in applicants to submit and track applications,
   review and accept the personalized service/appointment agreement issued after
   approval, view stable reporter IDs and assignment history, print their own

@@ -24,6 +24,45 @@ const sectionLabels = Object.fromEntries(
     item.querySelector(".admin-nav-label").textContent.trim()
   ])
 );
+const workflowTabs = {
+  applications: [
+    { key: "reporter", label: "Reporters" },
+    { key: "moderator", label: "Moderators" },
+    { key: "editor", label: "Editors" }
+  ],
+  directory: [
+    { key: "all", label: "All active staff" },
+    { key: "reporter", label: "Reporters" },
+    { key: "moderator", label: "Moderators" },
+    { key: "editor", label: "Editors" }
+  ],
+  agreements: [
+    { key: "reporter", label: "Reporters" },
+    { key: "moderator", label: "Moderators" },
+    { key: "editor", label: "Editors" }
+  ],
+  credentials: [
+    { key: "all", label: "Staff ID cards & authority letters" }
+  ]
+};
+const activeWorkflowTabs = {
+  applications: "reporter",
+  directory: "all",
+  agreements: "reporter",
+  credentials: "all"
+};
+let agreementPanelMode = "templates";
+const legacySectionRoutes = {
+  users: "accounts",
+  "staff-onboarding": "applications",
+  "reporter-applications": "applications",
+  "reporter-directory": "directory",
+  "reporter-credentials": "credentials",
+  "reporter-service-agreements": "agreements",
+  "role-agreements": "agreements",
+  "reporter-coverage": "coverage",
+  "reporter-options": "reporter-configuration"
+};
 
 window.addEventListener("beforeunload", () => {
   agreementPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -44,9 +83,9 @@ const modules = {
       { name: "image_url", label: "Image URL (optional)", type: "url", required: false },
     ]
   },
-  users: {
+  accounts: {
     path: "admin/users",
-    description: "Manage subscriber accounts and send secure invitations to moderator and editor candidates."
+    description: "Manage general site accounts and access. Use Applications for newsroom staff invitations and reviews."
   },
   "staff-onboarding": {
     path: "admin/staff-onboarding",
@@ -75,9 +114,9 @@ const modules = {
     path: "admin/reporter-directory",
     description: "Manage approved reporter identities, stable reporter codes, and assignment history."
   },
-  "reporter-coverage": {
+  coverage: {
     path: "admin/reporter-coverage",
-    description: "Assign and end hierarchical newsroom coverage with a complete effective-date history."
+    description: "Manage reporter coverage assignments and their effective-date history."
   },
   "reporter-credentials": {
     path: "admin/reporter-credentials",
@@ -87,9 +126,9 @@ const modules = {
     path: "admin/reporter-service-agreement-template",
     description: "Maintain the approved service agreement template and company legal details used to prepare agreements for approved reporters."
   },
-  "reporter-options": {
+  "reporter-configuration": {
     path: "admin/reporter-options",
-    description: "Configure states, reporting areas, and reporter designations."
+    description: "Configure the reporting areas and designations used by reporter applications and assignments."
   },
   media: {
     path: "admin/media",
@@ -342,7 +381,147 @@ function showPageError(message, retry) {
   content.replaceChildren(panel);
 }
 
+function renderWorkflowTabs(root, page, selectedKey) {
+  const tabs = makeElement("div", "admin-workflow-tabs");
+  tabs.setAttribute("role", "group");
+  tabs.setAttribute("aria-label", `${sectionLabels[page]} views`);
+  workflowTabs[page].forEach(({ key, label }) => {
+    const tab = makeElement("button", "admin-workflow-tab", label);
+    tab.type = "button";
+    tab.setAttribute("aria-pressed", String(key === selectedKey));
+    tab.classList.toggle("is-active", key === selectedKey);
+    tab.addEventListener("click", () => void loadWorkflowPage(page, key));
+    tabs.append(tab);
+  });
+  root.append(tabs);
+}
+
+function renderAgreementModeTabs(root) {
+  const modes = makeElement("div", "admin-workflow-tabs admin-workflow-tabs-secondary");
+  modes.setAttribute("role", "group");
+  modes.setAttribute("aria-label", "Agreement management view");
+  [
+    ["templates", "Templates & wording"],
+    ["records", "People's agreements"]
+  ].forEach(([key, label]) => {
+    const button = makeElement("button", "admin-workflow-tab", label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(agreementPanelMode === key));
+    button.classList.toggle("is-active", agreementPanelMode === key);
+    button.addEventListener("click", () => {
+      agreementPanelMode = key;
+      void loadWorkflowPage("agreements", activeWorkflowTabs.agreements);
+    });
+    modes.append(button);
+  });
+  root.append(modes);
+}
+
+async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
+  if (!workflowTabs[page]?.some((tab) => tab.key === tabKey)) return;
+  activeWorkflowTabs[page] = tabKey;
+  activeSection = page;
+  const label = sectionLabels[page];
+  document.querySelector("#breadcrumb-section").textContent = label;
+  navItems.forEach((item) => item.classList.toggle("is-active", item.dataset.section === page));
+  content.replaceChildren(makeElement("div", "admin-loading", `Loading ${label.toLowerCase()}…`));
+
+  const root = makeElement("div", "admin-section");
+  addHeading(root, "PEOPLE", label, {
+    applications: "Review reporter applications and moderator/editor staff invitations in one queue.",
+    directory: "Browse approved reporters, moderators, and editors from one staff directory.",
+    agreements: "Manage role-specific agreement wording and publication status from one place."
+  }[page]);
+  renderWorkflowTabs(root, page, tabKey);
+  if (page === "agreements") renderAgreementModeTabs(root);
+
+  try {
+    if (page === "applications") {
+      if (tabKey === "reporter") {
+        const result = await apiRequest(modules["reporter-applications"].path);
+        renderReporterAdminSection("reporter-applications", root, unwrapData(result));
+      } else {
+        const result = await apiRequest(modules["staff-onboarding"].path);
+        const records = (unwrapData(result) || []).filter((row) => row.requested_role === tabKey);
+        const actions = pageActions(root);
+        const invite = makeElement("button", "admin-primary-button admin-create-button", `Invite ${tabKey}`);
+        invite.type = "button";
+        invite.addEventListener("click", () => void openStaffInvitationDialog(
+          () => loadWorkflowPage("applications", tabKey),
+          tabKey
+        ));
+        actions.append(invite);
+        renderStaffOnboarding(root, records, () => loadWorkflowPage("applications", tabKey), false);
+      }
+    } else if (page === "directory") {
+      const [reporterResult, onboardingResult] = await Promise.all([
+        apiRequest(modules["reporter-directory"].path),
+        apiRequest(modules["staff-onboarding"].path)
+      ]);
+      const reporters = unwrapData(reporterResult) || [];
+      const staff = (unwrapData(onboardingResult) || []).filter((row) =>
+        row.status === "active"
+        && ["moderator", "editor"].includes(row.requested_role)
+        && ["all", row.requested_role].includes(tabKey)
+      ).map((row) => ({
+        full_name: row.profile?.full_name || "—",
+        email: row.profile?.email || "—",
+        phone: row.profile?.phone || "—",
+        role: row.requested_role,
+        status: "Active",
+        active_since: formatDate(row.reviewed_at),
+        location: row.permanent_address_city || "—"
+      }));
+      if (tabKey === "all" || tabKey === "reporter") {
+        renderReporterAdminSection("reporter-directory", root, reporters);
+      }
+      if (tabKey !== "reporter") {
+        root.append(renderTablePanel("Active moderators and editors", staff, "workflow-directory"));
+      }
+    } else if (page === "agreements") {
+      if (agreementPanelMode === "records") {
+        const result = await apiRequest(`admin/agreement-records?role=${encodeURIComponent(tabKey)}`);
+        renderAgreementRecords(root, unwrapData(result));
+      } else if (tabKey === "reporter") {
+        const result = await apiRequest(modules["reporter-service-agreements"].path);
+        renderReporterAdminSection("reporter-service-agreements", root, unwrapData(result));
+      } else {
+        const result = await apiRequest(modules["role-agreements"].path);
+        renderRoleAgreements(root, unwrapData(result), tabKey);
+      }
+    } else if (page === "credentials") {
+      root.append(makeElement(
+        "p",
+        "admin-workflow-scope-note",
+        "Issue and manage ID cards for approved newsroom staff. Authority letters are reporter-specific and require acceptance of the current service agreement."
+      ));
+      const result = await apiRequest(modules["reporter-credentials"].path);
+      renderReporterAdminSection("reporter-credentials", root, unwrapData(result));
+    }
+    content.replaceChildren(root);
+  } catch (error) {
+    showPageError(error instanceof Error ? error.message : `${label} could not be loaded.`, () =>
+      void loadWorkflowPage(page, tabKey));
+  }
+}
+
 async function loadSection(section) {
+  if (legacySectionRoutes[section]) {
+    const destination = legacySectionRoutes[section];
+    if (workflowTabs[destination]) {
+      const preferredTab = section === "reporter-applications" ? "reporter"
+        : section === "staff-onboarding" ? (activeWorkflowTabs.applications === "reporter" ? "moderator" : activeWorkflowTabs.applications)
+          : section === "reporter-directory" ? "reporter"
+            : section === "reporter-service-agreements" ? "reporter"
+              : section === "role-agreements" ? activeWorkflowTabs.agreements
+                : undefined;
+      return loadWorkflowPage(destination, preferredTab || activeWorkflowTabs[destination]);
+    }
+    section = destination;
+  }
+  if (workflowTabs[section]) {
+    return loadWorkflowPage(section);
+  }
   activeSection = section;
   const label = sectionLabels[section] || "Overview";
   document.querySelector("#breadcrumb-section").textContent = label;
@@ -451,6 +630,11 @@ function renderModule(section, results) {
     content.replaceChildren(root);
     return;
   }
+  if (section === "coverage") {
+    renderReporterAdminSection("reporter-coverage", root, results[0].data);
+    content.replaceChildren(root);
+    return;
+  }
   if (section.startsWith("reporter-")
       && section !== "reporter-designations") {
     renderReporterAdminSection(section, root, results[0].data);
@@ -465,14 +649,11 @@ function renderModule(section, results) {
   }
 
   const actions = makeElement("div", "admin-page-actions");
-  if (section === "users") {
+  if (section === "accounts") {
     const createSubscriber = makeElement("button", "admin-secondary-button admin-create-button", "Create subscriber");
     createSubscriber.type = "button";
     createSubscriber.addEventListener("click", () => openUserDialog());
-    const inviteStaff = makeElement("button", "admin-primary-button admin-create-button", "Invite moderator / editor");
-    inviteStaff.type = "button";
-    inviteStaff.addEventListener("click", () => openStaffInvitationDialog());
-    actions.append(createSubscriber, inviteStaff);
+    actions.append(createSubscriber);
   } else if (config.createPath) {
     const button = makeElement("button", "admin-primary-button admin-create-button", `Add ${singular(label)}`);
     button.type = "button";
@@ -744,7 +925,7 @@ function renderReporterAdminSection(section, root, data) {
     body.append(makeElement(
       "p",
       "admin-dialog-help",
-      "After approval, open a reporter's application to preview and issue their personalized agreement. Previous versions and accepted agreements are retained."
+      "Manage the reporter template here. Preview and issue each personalized copy from that reporter's application; issued and accepted copies remain in the reporter's agreement history."
     ));
     if (latestDraft) {
       body.append(makeElement(
@@ -792,7 +973,7 @@ function renderReporterAdminSection(section, root, data) {
     return;
   }
 
-  if (section === "reporter-options") {
+  if (section === "reporter-configuration" || section === "reporter-options") {
     renderReporterSetup(root, data);
   }
 }
@@ -807,12 +988,6 @@ function renderReporterSetup(root, data) {
   const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
   const organizationProfile = data.organization_profile;
   const setupSections = [
-    {
-      key: "organization_profile",
-      title: "Organization legal profile",
-      count: organizationProfile?.is_verified ? "Verified" : "Demo only",
-      detail: organizationProfile?.legal_name || "Add organization legal details before publishing agreements."
-    },
     {
       key: "states",
       title: "States & UTs",
@@ -831,43 +1006,29 @@ function renderReporterSetup(root, data) {
       count: designations.length,
       detail: `${designations.filter((designation) => designation.is_active).length} active · Two-digit designation codes are used in new state-RTO-code-number IDs.`
     },
-    {
-      key: "service_agreement",
-      title: "Service agreement setup",
-      count: publishedServiceAgreement ? "Published" : "Needed for credentials",
-      detail: publishedServiceAgreement?.version || "Publish finalized service terms before issuing reporter credentials."
-    }
   ];
   const overview = makeElement("section", "reporter-setup-overview");
   const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
   overviewHeading.append(
-    makeElement("div", "", "REPORTER APPLICATION & ONBOARDING SETUP"),
-    makeElement("p", "", "Applications collect reporter details for review. Verify the organization profile and prepare the service agreement for approved reporters, then configure active coverage choices.")
+    makeElement("div", "", "REPORTER CONFIGURATION"),
+    makeElement("p", "", "Configure the reporting areas and designations used by reporter applications and assignments. Manage organization details and agreement wording from Agreements.")
   );
   overview.append(overviewHeading);
 
   const cards = makeElement("div", "reporter-setup-cards");
   setupSections.forEach((item) => {
-    const needsAttention = (item.key === "service_agreement" && !publishedServiceAgreement)
-      || (item.key === "organization_profile" && !organizationProfile?.is_verified);
-    const card = makeElement("button", `reporter-setup-card${needsAttention ? " needs-attention" : ""}`);
+    const card = makeElement("button", "reporter-setup-card");
     card.type = "button";
     card.setAttribute("aria-pressed", String(reporterSetupView === item.key));
     card.append(
       makeElement("span", "reporter-setup-card-label", item.title),
       makeElement("strong", "reporter-setup-card-count", String(item.count)),
       makeElement("span", "reporter-setup-card-detail", item.detail),
-      makeElement("span", "reporter-setup-card-action", item.key === "service_agreement"
-        ? "Open setup →"
-        : reporterSetupView === item.key ? "Currently open" : "Manage →")
+      makeElement("span", "reporter-setup-card-action", reporterSetupView === item.key ? "Currently open" : "Manage →")
     );
     card.addEventListener("click", () => {
-      if (item.key === "service_agreement") {
-        void loadSection("reporter-service-agreements");
-        return;
-      }
       reporterSetupView = item.key;
-      renderReporterAdminSection("reporter-options", root, data);
+      renderReporterAdminSection("reporter-configuration", root, data);
     });
     cards.append(card);
   });
@@ -901,7 +1062,7 @@ function renderReporterSetup(root, data) {
   back.type = "button";
   back.addEventListener("click", () => {
     reporterSetupView = "overview";
-    renderReporterAdminSection("reporter-options", root, data);
+    renderReporterAdminSection("reporter-configuration", root, data);
   });
   actions.append(back);
   if (reporterSetupView === "states") {
@@ -910,53 +1071,8 @@ function renderReporterSetup(root, data) {
     rowButton(actions, "Add RTO / area", () => openRtoDialog(states), "admin-primary-button reporter-setup-add");
   } else if (reporterSetupView === "types") {
     rowButton(actions, "Add designation", () => openConfiguredRecordDialog("reporter-designations", null), "admin-primary-button reporter-setup-add");
-  } else if (reporterSetupView === "organization_profile") {
-    rowButton(
-      actions,
-      organizationProfile ? "Edit legal profile" : "Set up legal profile",
-      () => openReporterOrganizationProfileDialog(organizationProfile),
-      "admin-primary-button reporter-setup-add"
-    );
   }
   header.append(actions);
-
-  if (reporterSetupView === "organization_profile") {
-    const profileCard = makeElement("div", "reporter-organization-profile");
-    const verified = organizationProfile?.is_verified === true;
-    profileCard.append(
-      makeElement(
-        "div",
-        `reporter-organization-status${verified ? " is-verified" : " is-demo"}`,
-        verified ? "Legal profile verified" : "DEMO PLACEHOLDERS · NOT FOR LEGAL USE"
-      ),
-      makeElement(
-        "p",
-        "reporter-organization-help",
-        "Verified company legal details are inserted into personalized agreement PDFs. Keep this profile accurate before preparing and issuing an agreement to a reporter. Legal terms must be finalized and reviewed before the template is published."
-      )
-    );
-    const profileFields = [
-      ["Legal name", organizationProfile?.legal_name],
-      ["Trading name", organizationProfile?.trade_name],
-      ["Entity type", organizationProfile?.entity_type],
-      ["Registered address", organizationProfile?.registered_address],
-      ["Registration number", organizationProfile?.registration_number || "Not provided"],
-      ["Official email", organizationProfile?.official_email],
-      ["Official phone", organizationProfile?.official_phone],
-      ["Website", organizationProfile?.website_url || "Not provided"]
-    ];
-    const details = makeElement("dl", "reporter-organization-fields");
-    profileFields.forEach(([label, value]) => {
-      details.append(
-        makeElement("dt", "", label),
-        makeElement("dd", "", value || "Not configured")
-      );
-    });
-    profileCard.append(details);
-    section.append(header, profileCard);
-    root.append(overview, section);
-    return;
-  }
 
   let rows = [];
   let tableSection = "reporter-options";
@@ -2018,13 +2134,14 @@ function renderTablePanel(title, rows, section) {
   return panel;
 }
 
-function renderRoleAgreements(root, data) {
+function renderRoleAgreements(root, data, roleFilter) {
   const canEditWording = data?.can_edit_wording === true;
-  const roles = Array.isArray(data?.roles) ? data.roles : [];
+  const allRoles = Array.isArray(data?.roles) ? data.roles : [];
+  const roles = roleFilter ? allRoles.filter((agreement) => agreement.role === roleFilter) : allRoles;
   root.append(makeElement(
     "p",
     "admin-dialog-help",
-    "Moderator and editor agreements are unpublished until a super admin supplies and publishes wording. Structured terms are managed separately and are snapshotted into each new immutable version."
+    `${roleFilter ? `${roleFilter.charAt(0).toUpperCase()}${roleFilter.slice(1)}` : "Moderator and editor"} agreement wording is controlled by super admins. Structured terms are managed separately and snapshotted into each immutable version.`
   ));
   roles.forEach((agreement) => {
     const role = agreement.role;
@@ -2152,6 +2269,94 @@ function renderRoleAgreements(root, data) {
     });
     root.append(card);
   });
+}
+
+function renderAgreementRecords(root, records) {
+  const rows = Array.isArray(records) ? records : [];
+  root.append(makeElement(
+    "p",
+    "admin-workflow-scope-note",
+    "This view combines issued reporter agreements and moderator/editor acceptance records. Historical copies are retained; status here does not replace the agreement's signed or accepted record."
+  ));
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  header.append(
+    makeElement("h2", "", "Agreement records"),
+    makeElement("span", "", `${rows.length} ${rows.length === 1 ? "record" : "records"}`)
+  );
+  panel.append(header);
+  if (!rows.length) {
+    panel.append(makeElement("p", "admin-empty", "No issued or accepted agreements are recorded for this role yet."));
+    root.append(panel);
+    return;
+  }
+
+  const wrapper = makeElement("div", "admin-table-wrap");
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const heading = document.createElement("tr");
+  ["Person", "Email", "Role", "Version", "Status", "Issued", "Accepted"].forEach((label) =>
+    heading.append(makeElement("th", "", label))
+  );
+  heading.append(makeElement("th", "", "Copy"));
+  head.append(heading);
+  table.append(head);
+  const body = document.createElement("tbody");
+  rows.forEach((record) => {
+    const row = document.createElement("tr");
+    [
+      record.full_name || "—",
+      record.email || "—",
+      record.role || "—",
+      record.version || "—",
+      record.status || "—",
+      record.issued_at ? formatDate(record.issued_at) : "—",
+      record.accepted_at ? formatDate(record.accepted_at) : "Not accepted"
+    ].forEach((value) => row.append(makeElement("td", "", value)));
+    const copyCell = document.createElement("td");
+    if (record.rendered_content) {
+      rowButton(copyCell, "View accepted copy", () => openAcceptedAgreementCopy(record));
+    } else {
+      copyCell.textContent = "—";
+    }
+    row.append(copyCell);
+    body.append(row);
+  });
+  table.append(body);
+  wrapper.append(table);
+  panel.append(wrapper);
+  root.append(panel);
+}
+
+function openAcceptedAgreementCopy(record) {
+  if (typeof record.rendered_content !== "string" || !record.rendered_content) {
+    void showAdminMessage("Agreement copy unavailable", "The stored accepted copy was not available.");
+    return;
+  }
+  const dialog = document.createElement("dialog");
+  dialog.className = "admin-json-dialog admin-role-agreement-preview-dialog";
+  const body = makeElement("section", "admin-json-form");
+  body.append(
+    makeElement("span", "admin-eyebrow", "PERSONALIZED COPY · ACCEPTED"),
+    makeElement("h2", "", `${record.full_name || "Staff member"} · ${record.role} agreement · ${record.version}`),
+    makeElement(
+      "p",
+      "admin-dialog-help",
+      `Accepted ${record.accepted_at ? formatDate(record.accepted_at) : "date unavailable"}. This is the immutable personalized wording stored at acceptance.`
+    )
+  );
+  const wording = document.createElement("pre");
+  wording.className = "admin-role-agreement-preview-copy";
+  wording.textContent = record.rendered_content;
+  body.append(wording);
+  const close = makeElement("button", "admin-secondary-button", "Close copy");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  body.append(close);
+  dialog.append(body);
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 function openRoleAgreementPreviewDialog(role, version, content) {
@@ -2286,13 +2491,15 @@ function openRoleAgreementDraftDialog(role, existingTemplate, terms) {
   );
 }
 
-function renderStaffOnboarding(root, rows) {
-  addHeading(
-    root,
-    "PEOPLE & ACCESS",
-    "Staff onboarding",
-    "Review moderator and editor profiles before granting newsroom access."
-  );
+function renderStaffOnboarding(root, rows, refresh = () => loadSection("applications"), includeHeading = true) {
+  if (includeHeading) {
+    addHeading(
+      root,
+      "PEOPLE",
+      "Applications",
+      "Review moderator and editor profiles before granting newsroom access."
+    );
+  }
   const records = Array.isArray(rows) ? rows : [];
   const submittedCount = records.filter((row) => row.status === "submitted").length;
   const summary = makeElement("div", "admin-staff-onboarding-summary");
@@ -2305,7 +2512,7 @@ function renderStaffOnboarding(root, rows) {
     root.append(makeElement(
       "section",
       "admin-panel admin-staff-onboarding-empty",
-      "No staff invitations yet. Invite a moderator or editor from the Users section."
+      "No applications or invitations for this role yet."
     ));
     return;
   }
@@ -2329,7 +2536,7 @@ function renderStaffOnboarding(root, rows) {
       card.append(makeElement("p", "admin-dialog-help", "Profile submitted for review. Access is still restricted until approval."));
       const review = makeElement("button", "admin-primary-button", "Review profile");
       review.type = "button";
-      review.addEventListener("click", () => openStaffReviewDialog(record, () => void loadSection("staff-onboarding")));
+      review.addEventListener("click", () => openStaffReviewDialog(record, refresh));
       card.append(review);
     } else if (record.status === "invited") {
       card.append(makeElement("p", "admin-dialog-help", `Invitation sent ${formatDate(record.invited_at)}. Waiting for the invitee to verify their email and complete the profile.`));
@@ -2484,7 +2691,7 @@ function buildTable(rows, section) {
   const internalColumns = new Set(["id", "user_id", "application_id", "credential_id"]);
   const preferredColumns = section === "locations"
     ? ["hierarchy", "location_type", "parent_location", "is_active"]
-    : section === "users"
+    : section === "users" || section === "accounts"
     ? ["full_name", "email", "phone", "role", "requested_role", "staff_status", "created_at"]
     : section === "reporter-applications"
       ? ["applicant_name", "email", "state_name", "city", "area_coverage", "status", "details_confirmed"]
@@ -2492,13 +2699,15 @@ function buildTable(rows, section) {
         ? ["name", "role", "type", "reference", "status", "scope", "valid_until"]
         : section === "reporter-directory"
           ? ["full_name", "email", "reporter_code", "current_assignment", "assignment_history"]
+          : section === "workflow-directory"
+            ? ["full_name", "email", "phone", "role", "status", "active_since", "location"]
           : [];
   const keys = [...new Set([
     ...preferredColumns.filter((key) => rows.some((row) => Object.hasOwn(row, key))),
     ...rows.flatMap((row) => Object.keys(row))
   ])]
     .filter((key) => !key.startsWith("_") && !excluded.has(key) && !internalColumns.has(key) && key !== "document_url")
-    .slice(0, section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" ? 6 : 5);
+    .slice(0, section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" || section === "workflow-directory" ? 7 : 5);
   const wrapper = makeElement("div", "admin-table-wrap");
   const table = document.createElement("table");
   const head = document.createElement("thead");
@@ -2609,7 +2818,7 @@ function addRowActions(container, row, section) {
   if (!id) return;
   const refresh = () => loadSection(section);
 
-  if (section === "users") {
+  if (section === "users" || section === "accounts") {
     const role = document.createElement("select");
     role.className = "admin-role-select";
     role.setAttribute("aria-label", `Role for ${row.name || id}`);
@@ -3660,7 +3869,7 @@ async function openUserDialog() {
   );
 }
 
-function openStaffInvitationDialog() {
+function openStaffInvitationDialog(refresh = () => loadSection("applications"), initialRole = "moderator") {
   openFormDialog(
     "Invite a moderator or editor",
     "We will email a secure invitation link. The invited person completes their private staff profile and sets their password; they remain a subscriber until an admin reviews and approves the profile.",
@@ -3680,6 +3889,7 @@ function openStaffInvitationDialog() {
       ].forEach(([value, text]) => {
         const option = makeElement("option", "", text);
         option.value = value;
+        option.selected = value === initialRole;
         select.append(option);
       });
       label.append(select);
@@ -3695,7 +3905,7 @@ function openStaffInvitationDialog() {
         email: String(values.get("email") || "").trim(),
         requested_role: values.get("requested_role")
       });
-      await loadSection("users");
+      await refresh();
       void showAdminMessage(
         "Staff invitation sent",
         `A secure ${result.data.requested_role} onboarding invitation was sent to ${result.data.email}. The role stays inactive until an admin approves the completed profile.`

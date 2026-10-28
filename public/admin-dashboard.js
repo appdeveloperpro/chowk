@@ -826,15 +826,21 @@ function renderReporterAdminSection(section, root, data) {
     const rows = reporters.map((reporter) => {
       const assignments = Array.isArray(reporter.assignments) ? reporter.assignments : [];
       const current = assignments.find((assignment) => !assignment.effective_to);
+      const coverageArea = reporter.coverage_area_name || "Coverage area not recorded";
+      const formatAssignment = (assignment) => [
+        `${assignment.rto?.state?.state_code || ""}${assignment.rto?.rto_code || ""}`,
+        coverageArea,
+        assignment.reporter_designation?.name || "Designation not assigned"
+      ].filter(Boolean).join(" · ");
       return {
         full_name: reporter.user?.full_name || "—",
         email: reporter.user?.email || "—",
         reporter_code: reporter.reporter_code,
         current_assignment: current
-          ? `${current.rto?.state?.state_code || ""}${current.rto?.rto_code || ""} · ${current.reporter_designation?.name || "Designation not assigned"}`
+          ? formatAssignment(current)
           : "No current assignment",
         assignment_history: assignments.map((assignment) =>
-          `${assignment.rto?.state?.state_code || ""}${assignment.rto?.rto_code || ""} · ${assignment.reporter_designation?.name || "Designation not assigned"} · ${assignment.effective_to ? formatDate(assignment.effective_from) + " – " + formatDate(assignment.effective_to) : "Current"}`
+          `${formatAssignment(assignment)} · ${assignment.effective_to ? formatDate(assignment.effective_from) + " – " + formatDate(assignment.effective_to) : "Current"}`
         ).join(" | ") || "No assignment history",
         role: reporter.user?.role || "—",
         assignments: assignments.length,

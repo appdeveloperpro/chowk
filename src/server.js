@@ -2579,11 +2579,13 @@ async function adminRoute(request, response, requestUrl, session) {
       }
     };
     if (pathname === "/api/admin/reporter-directory" && request.method === "GET") {
-      const [reporters, assignments] = await Promise.all([
+      const [reporters, assignments, applications, applicationDetails] = await Promise.all([
         supabaseRequest("/rest/v1/reporter_profiles?select=user_id,reporter_code,created_at,user:profiles!reporter_profiles_user_id_fkey(id,email,full_name,phone,role,created_at)&order=created_at.desc&limit=1000", { token }),
-        supabaseRequest("/rest/v1/reporter_assignments?select=id,user_id,rto_office_id,reporter_designation_id,effective_from,effective_to,rto:rto_offices(rto_code,city_name,state:states(state_code,state_name)),reporter_designation:reporter_designations(id,name)&order=effective_from.desc&limit=2000", { token })
+        supabaseRequest("/rest/v1/reporter_assignments?select=id,user_id,rto_office_id,reporter_designation_id,effective_from,effective_to,rto:rto_offices(rto_code,city_name,state:states(state_code,state_name)),reporter_designation:reporter_designations(id,name)&order=effective_from.desc&limit=2000", { token }),
+        supabaseRequest("/rest/v1/reporter_applications?select=id,user_id,status,created_at&status=in.(approved,active)&order=created_at.desc&limit=1000", { token }),
+        supabaseRequest("/rest/v1/reporter_application_private_details?select=application_id,user_id,coverage_area:locations!reporter_application_private_details_coverage_area_id_fkey(name)&limit=1000", { token })
       ]);
-      for (const result of [reporters, assignments]) {
+      for (const result of [reporters, assignments, applications, applicationDetails]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Reporter directory could not be loaded.")
@@ -2597,10 +2599,22 @@ async function adminRoute(request, response, requestUrl, session) {
         history.push(assignment);
         assignmentsByUser.set(assignment.user_id, history);
       });
+      const detailsByApplication = new Map(
+        (applicationDetails.payload || []).map((details) => [String(details.application_id), details])
+      );
+      const coverageAreaByUser = new Map();
+      const usersWithLatestApplication = new Set();
+      (applications.payload || []).forEach((application) => {
+        if (usersWithLatestApplication.has(application.user_id)) return;
+        usersWithLatestApplication.add(application.user_id);
+        const details = detailsByApplication.get(String(application.id));
+        coverageAreaByUser.set(application.user_id, details?.coverage_area?.name || "");
+      });
       sendJson(response, 200, {
         success: true,
         data: (reporters.payload || []).map((reporter) => ({
           ...reporter,
+          coverage_area_name: coverageAreaByUser.get(reporter.user_id) || null,
           assignments: assignmentsByUser.get(reporter.user_id) || []
         }))
       });

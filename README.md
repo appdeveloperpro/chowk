@@ -193,6 +193,15 @@ Requires Node.js 18 or newer.
    when corrected profile details change the personalized copy, validates that
    copy again before activation, serializes approval with publishing and
    acceptance, and adds a sample preview for saved drafts.
+   Migration 0062 adds an Admin-managed staff job-title and duties catalog,
+   backfills Moderator/Editor role definitions, and records pending, active,
+   and ended primary assignments with title/duties snapshots. Admins can add
+   custom job titles mapped to the existing Moderator or Editor access profile,
+   invite staff through the same profile and agreement workflow, and reassign
+   active staff to another title using that same access profile. Custom titles
+   never grant new system permissions; reporter applications remain separate.
+   Role keys and access profiles are immutable after creation, and built-in
+   roles cannot be deactivated.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:
@@ -269,6 +278,12 @@ key and authenticated user tokens.
   Agreements separates role-specific templates from per-person issued and
   accepted records. Existing role-specific tables and legal history are
   retained rather than destructively merged or reset.
+  Staff job roles are managed separately from account permissions. Admins can
+  define newsroom titles and duties, map each title to the existing Moderator or
+  Editor access profile, invite staff through the shared onboarding and agreement
+  process, and preserve primary assignment changes as dated history. A custom job
+  title does not add permissions; a new access profile requires separate
+  authorization and workflow implementation.
 - System configuration includes shared locations, reporter application setup,
   and the organization legal profile used in reporter agreements; agreement
   wording and publication remain under Agreements.

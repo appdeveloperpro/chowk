@@ -1807,6 +1807,43 @@
   gap: 16px;
 }
 
+.admin-staff-role-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+
+.admin-staff-role-catalog > .admin-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.admin-staff-role-history {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.admin-staff-role-history li {
+  display: grid;
+  gap: 5px;
+  padding: 0 0 12px 4px;
+  border-bottom: 1px solid #e8ebf0;
+  color: #647086;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-staff-role-history li strong {
+  color: #29364d;
+}
+
+.admin-staff-role-history li p {
+  margin: 2px 0 0;
+}
+
 .admin-staff-onboarding-card {
   display: grid;
   align-content: start;

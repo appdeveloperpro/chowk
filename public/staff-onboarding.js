@@ -220,7 +220,7 @@ async function loadOnboarding() {
       showState(`This staff invitation was not approved. ${data.review_note || "Contact the administrator who invited you if you need more information."}`, "error");
       return;
     }
-    renderAgreement(data.agreement, data.requested_role, data.status);
+    renderAgreement(data.agreement, data.staff_role_name || data.requested_role, data.status);
     if (data.status === "submitted") {
       showState("Your profile has been submitted for review. Your account will remain limited until an administrator approves it.");
       return;

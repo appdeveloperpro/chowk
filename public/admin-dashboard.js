@@ -1,23 +1,6 @@
 const content = document.querySelector("#admin-content");
 const navItems = [...document.querySelectorAll(".admin-nav-item")];
 const agreementPreviewUrls = new Set();
-const reporterServiceTermFields = [
-  ["agreement_record_retention_period", "Records retention period", "Example format: a number of months or years."],
-  ["agreement_record_production_deadline", "Records production deadline", "How quickly records must be produced after a request."],
-  ["agreement_payment_deadline", "Payment deadline", "How long after the cycle ends payment is due."],
-  ["agreement_payment_cycle", "Payment cycle", "The period or event that determines when payment is calculated."],
-  ["agreement_legal_cost_reimbursement_deadline", "Legal-cost reimbursement deadline", "How long after an invoice and proof reimbursement is due."],
-  ["agreement_reporter_liability_clause", "Reporter liability clause (Section 11.7)", "Enter the complete approved clause, or explicit wording that no separate cap applies."],
-  ["agreement_story_exclusivity_period", "Story exclusivity period", "How long content remains exclusive before publication or rejection."],
-  ["agreement_term_period", "Agreement term", "The duration for each agreement term."],
-  ["agreement_termination_notice_period", "Termination notice period", "The notice period for termination without cause."],
-  ["agreement_company_liability_lookback_period", "Company liability lookback period", "The period used for the limitation in Section 17."],
-  ["agreement_arbitrator_appointment_method", "Arbitrator appointment method", "This follows the words “appointed by” in Section 19.3."],
-  ["agreement_arbitration_language", "Arbitration language", "The language used for arbitration proceedings."],
-  ["agreement_controlling_language", "Controlling language", "The language that prevails if the English and Hindi texts differ."],
-  ["agreement_fee_terms", "Fees", "The approved fee basis and amount or rate."],
-  ["agreement_insurance_terms", "Insurance terms", "Describe the approved coverage, or enter “None” if no insurance is provided."]
-];
 const sectionLabels = Object.fromEntries(
   navItems.map((item) => [
     item.dataset.section,
@@ -58,7 +41,6 @@ const legacySectionRoutes = {
   "reporter-applications": "applications",
   "reporter-directory": "directory",
   "reporter-credentials": "credentials",
-  "reporter-service-agreements": "agreements",
   "role-agreements": "agreements",
   "reporter-coverage": "coverage",
   "reporter-options": "reporter-configuration"
@@ -87,13 +69,17 @@ const modules = {
     path: "admin/users",
     description: "Manage general site accounts and access. Use Applications for newsroom staff invitations and reviews."
   },
+  "staff-roles": {
+    path: "admin/staff-roles",
+    description: "Define newsroom job titles and duties while keeping app access restricted to the existing moderator or editor profiles."
+  },
   "staff-onboarding": {
     path: "admin/staff-onboarding",
     description: "Review complete staff profiles before moderator or editor access is activated."
   },
   "role-agreements": {
     path: "admin/role-agreements",
-    description: "Manage moderator and editor agreement terms. Only super admins can edit or publish legal wording."
+    description: "Manage agreement terms for every staff role. Only super admins can edit or publish legal wording."
   },
   categories: {
     path: "admin/categories",
@@ -121,10 +107,6 @@ const modules = {
   "reporter-credentials": {
     path: "admin/reporter-credentials",
     description: "Issue ID cards and authority letters; reporter access starts only after the authority letter is acknowledged."
-  },
-  "reporter-service-agreements": {
-    path: "admin/reporter-service-agreement-template",
-    description: "Maintain the approved service agreement template and company legal details used to prepare agreements for approved reporters."
   },
   "reporter-configuration": {
     path: "admin/reporter-options",
@@ -418,7 +400,17 @@ function renderAgreementModeTabs(root) {
 }
 
 async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
-  if (!workflowTabs[page]?.some((tab) => tab.key === tabKey)) return;
+  let agreementRoleData = null;
+  if (page === "agreements") {
+    const roleResult = await apiRequest(modules["role-agreements"].path).catch(() => null);
+    agreementRoleData = roleResult ? unwrapData(roleResult) : null;
+    workflowTabs.agreements = (agreementRoleData?.roles || []).map((role) => ({
+      key: role.role,
+      label: role.label || role.role
+    }));
+  }
+  if (!workflowTabs[page]?.some((tab) => tab.key === tabKey)) tabKey = workflowTabs[page]?.[0]?.key;
+  if (!tabKey) return;
   activeWorkflowTabs[page] = tabKey;
   activeSection = page;
   const label = sectionLabels[page];
@@ -444,6 +436,10 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         const result = await apiRequest(modules["staff-onboarding"].path);
         const records = (unwrapData(result) || []).filter((row) => row.requested_role === tabKey);
         const actions = pageActions(root);
+        const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage staff job roles");
+        manageRoles.type = "button";
+        manageRoles.addEventListener("click", () => void loadSection("staff-roles"));
+        actions.append(manageRoles);
         const invite = makeElement("button", "admin-primary-button admin-create-button", `Invite ${tabKey}`);
         invite.type = "button";
         invite.addEventListener("click", () => void openStaffInvitationDialog(
@@ -464,10 +460,14 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         && ["moderator", "editor"].includes(row.requested_role)
         && ["all", row.requested_role].includes(tabKey)
       ).map((row) => ({
+        id: row.user_id,
+        staff_role_id: row.staff_role_id,
+        access_profile: row.requested_role,
+        _role_assignment_history: row.role_assignment_history || [],
         full_name: row.profile?.full_name || "—",
         email: row.profile?.email || "—",
         phone: row.profile?.phone || "—",
-        role: row.requested_role,
+        role: row.staff_role?.display_name || row.requested_role,
         status: "Active",
         active_since: formatDate(row.reviewed_at),
         location: row.permanent_address_city || "—"
@@ -482,12 +482,9 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
       if (agreementPanelMode === "records") {
         const result = await apiRequest(`admin/agreement-records?role=${encodeURIComponent(tabKey)}`);
         renderAgreementRecords(root, unwrapData(result));
-      } else if (tabKey === "reporter") {
-        const result = await apiRequest(modules["reporter-service-agreements"].path);
-        renderReporterAdminSection("reporter-service-agreements", root, unwrapData(result));
       } else {
-        const result = await apiRequest(modules["role-agreements"].path);
-        renderRoleAgreements(root, unwrapData(result), tabKey);
+        const result = agreementRoleData || unwrapData(await apiRequest(modules["role-agreements"].path));
+        renderRoleAgreements(root, result, tabKey);
       }
     } else if (page === "credentials") {
       root.append(makeElement(
@@ -512,9 +509,8 @@ async function loadSection(section) {
       const preferredTab = section === "reporter-applications" ? "reporter"
         : section === "staff-onboarding" ? (activeWorkflowTabs.applications === "reporter" ? "moderator" : activeWorkflowTabs.applications)
           : section === "reporter-directory" ? "reporter"
-            : section === "reporter-service-agreements" ? "reporter"
-              : section === "role-agreements" ? activeWorkflowTabs.agreements
-                : undefined;
+            : section === "role-agreements" ? activeWorkflowTabs.agreements
+              : undefined;
       return loadWorkflowPage(destination, preferredTab || activeWorkflowTabs[destination]);
     }
     section = destination;
@@ -545,6 +541,24 @@ async function loadSection(section) {
 
   if (section === "settings") {
     renderSettings();
+    return;
+  }
+
+  if (section === "staff-roles") {
+    try {
+      const result = await apiRequest(modules["staff-roles"].path);
+      const root = makeElement("div", "admin-section");
+      addHeading(root, "PEOPLE", "Staff job roles", modules["staff-roles"].description);
+      const actions = pageActions(root);
+      const addRole = makeElement("button", "admin-primary-button admin-create-button", "Add job role");
+      addRole.type = "button";
+      addRole.addEventListener("click", () => void openStaffRoleDialog(null, () => loadSection("staff-roles")));
+      actions.append(addRole);
+      renderStaffRoleCatalog(root, unwrapData(result) || []);
+      content.replaceChildren(root);
+    } catch (error) {
+      showPageError(error.message, () => void loadSection(section));
+    }
     return;
   }
 
@@ -915,60 +929,6 @@ function renderReporterAdminSection(section, root, data) {
     return;
   }
 
-  if (section === "reporter-service-agreements") {
-    const panel = makeElement("section", "admin-panel");
-    const header = makeElement("div", "admin-panel-heading");
-    header.append(makeElement("h2", "", "Approved service agreement"));
-    const published = data.published_version;
-    const latestDraft = data.latest_status === "draft";
-    header.append(makeElement(
-      "span",
-      "",
-      published ? `Published · ${published}` : "Not published"
-    ));
-    panel.append(header);
-    const body = makeElement("div", "admin-service-agreement-content");
-    body.append(makeElement(
-      "p",
-      "admin-dialog-help",
-      "Manage the reporter template here. Preview and issue each personalized copy from that reporter's application; issued and accepted copies remain in the reporter's agreement history."
-    ));
-    if (latestDraft) {
-      body.append(makeElement(
-        "p",
-        "admin-inline-warning",
-        "An unpublished draft is saved. Review and publish it before issuing agreements based on the updated terms."
-      ));
-    } else if (!published) {
-      body.append(makeElement(
-        "p",
-        "admin-inline-warning",
-        "No service agreement is published yet. Finalize the legal terms and verify company details before issuing agreements."
-      ));
-    }
-    const actions = makeElement("div", "admin-page-actions");
-    const editTemplate = makeElement(
-      "button",
-      sessionIdentity?.role === "super_admin" ? "admin-primary-button admin-create-button" : "admin-secondary-button",
-      sessionIdentity?.role === "super_admin"
-        ? (data.is_default ? "Set up and publish template" : "Edit and publish template")
-        : "Manage structured agreement terms"
-    );
-    editTemplate.type = "button";
-    editTemplate.addEventListener("click", () => {
-      if (sessionIdentity?.role === "super_admin") {
-        void openReporterServiceAgreementTemplateDialog();
-      } else {
-        void openReporterServiceAgreementTermsDialog();
-      }
-    });
-    actions.append(editTemplate);
-    body.append(actions);
-    panel.append(body);
-    root.append(panel);
-    return;
-  }
-
   if (section === "reporter-configuration" || section === "reporter-options") {
     renderReporterSetup(root, data);
   }
@@ -1079,11 +1039,9 @@ function renderReporterSetup(root, data) {
     const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
       makeElement("strong", "", reporterSetupReady && organizationProfile?.is_verified
-        ? "Reporter onboarding agreement published"
-        : "Applications open · service agreement setup needed"),
-      makeElement("span", "", reporterSetupReady
-        ? "Applicants submit details for review. After approval, the reporter receives and accepts their personalized service agreement before credentials can be issued."
-        : "Reporter applications can be submitted and reviewed without a contract. Verify company legal details and publish finalized service terms before issuing reporter credentials.")
+        ? "Reporter onboarding staff agreement published"
+        : "Applications open · staff agreement setup needed"),
+      makeElement("span", "", "Applicants submit details for review. After approval, the reporter accepts the published Reporter staff agreement before credentials can be issued.")
     );
     overview.append(setupNote);
     root.append(overview);
@@ -1192,7 +1150,7 @@ async function openReporterDesignationDialog(reporter, refresh) {
 
   openFormDialog(
     "Change reporter designation",
-    "This updates the reporter's current position. If it changes, a new dated assignment-history record is created. Any previously issued service-agreement PDF remains unchanged and continues to show the designation recorded when it was issued.",
+    "This updates the reporter's current position. If it changes, a new dated assignment-history record is created. Existing signed staff-agreement history remains unchanged.",
     (form) => {
       form.append(makeElement(
         "p",
@@ -1402,7 +1360,7 @@ async function openCredentialDialog(staff) {
   if (!eligibleStaff.length) {
     void showAdminMessage(
       "No eligible staff members",
-      "Credential issuance is available for newsroom staff and approved reporters who have accepted the current service agreement."
+      "Credential issuance is available for newsroom staff and approved reporters who have accepted their current staff agreement."
     );
     return;
   }
@@ -1419,7 +1377,7 @@ async function openCredentialDialog(staff) {
   }
   openFormDialog(
     "Issue staff credential",
-    "Approved applicants can receive an ID card and authority letter only after accepting the current service agreement. Reporter access starts only after they acknowledge a valid authority letter.",
+    "Approved applicants can receive an ID card and authority letter only after accepting their current staff agreement. Reporter access starts only after they acknowledge a valid authority letter.",
     (form) => {
       const userSelect = appendReporterSelect(form, "user_id", "Staff member", eligibleStaff,
         (person) => `${person.full_name || person.email} · ${person.onboarding_status
@@ -1490,239 +1448,6 @@ async function openCredentialDialog(staff) {
     },
     "Issue credential"
   );
-}
-
-async function openReporterServiceAgreementTemplateDialog() {
-  if (sessionIdentity?.role !== "super_admin") {
-    void showAdminMessage("Super admin access required", "Only a super admin can edit or publish reporter agreement wording.");
-    return;
-  }
-  let template = {};
-  try {
-    template = unwrapData(await apiRequest("admin/reporter-service-agreement-template")) || {};
-  } catch (error) {
-    void showAdminMessage("Template could not be loaded", error.message);
-    return;
-  }
-  return openReporterServiceAgreementTemplateEditor(template);
-}
-
-async function openReporterServiceAgreementTermsDialog() {
-  let template = {};
-  try {
-    template = unwrapData(await apiRequest("admin/reporter-service-agreement-template")) || {};
-  } catch (error) {
-    void showAdminMessage("Agreement terms could not be loaded", error.message);
-    return;
-  }
-  openFormDialog(
-    "Manage reporter agreement term values",
-    "These structured values may be maintained by admins. Only a super admin can edit or publish reporter agreement wording.",
-    (form) => {
-      reporterServiceTermFields
-        .filter(([name]) => name !== "agreement_reporter_liability_clause")
-        .forEach(([name, label, helpText]) => {
-        const fieldLabel = makeElement("label", "admin-form-field");
-        fieldLabel.append(makeElement("span", "", label));
-        const input = document.createElement("textarea");
-        input.name = name;
-        input.maxLength = 2000;
-        input.rows = ["agreement_reporter_liability_clause", "agreement_arbitrator_appointment_method", "agreement_fee_terms"].includes(name) ? 3 : 2;
-        input.value = template.agreement_terms?.[name] || "";
-        input.setAttribute("aria-label", label);
-        fieldLabel.append(input, makeElement("small", "admin-dialog-help", helpText));
-        form.append(fieldLabel);
-        });
-    },
-    async (values) => {
-      await apiRequest(
-        "admin/reporter-service-agreement-terms",
-        "PATCH",
-        Object.fromEntries(reporterServiceTermFields.map(([name]) => [name, values.get(name)]))
-      );
-      await loadSection("reporter-service-agreements");
-    },
-    "Save term values"
-  );
-}
-
-function openReporterServiceAgreementTemplateEditor(template) {
-  if (sessionIdentity?.role !== "super_admin") {
-    throw new Error("Only a super admin can edit agreement wording.");
-  }
-  let previewUrl = "";
-  let agreementTerms = { ...(template.agreement_terms || {}) };
-  try {
-    const dialog = openFormDialog(
-      "Approved reporter service agreement",
-      "Edit the template used for new reporter agreements. Save drafts while legal terms are unfinished. Publishing requires every required Admin-managed legal term to be saved and all template placeholders to be resolved; previous versions and issued agreements remain preserved.",
-      (form) => {
-        const contentLabel = makeElement("label", "admin-form-field admin-agreement-template-field");
-        contentLabel.append(makeElement("span", "", "Service agreement text"));
-        const content = document.createElement("textarea");
-        content.name = "template_content";
-        content.required = true;
-        content.minLength = 1000;
-        content.maxLength = 50000;
-        content.rows = 28;
-        content.spellcheck = false;
-        content.value = template.template_content || "";
-        contentLabel.append(content);
-        form.append(contentLabel);
-
-        const termsDetails = document.createElement("details");
-        termsDetails.className = "admin-agreement-template-fields";
-        const termsSummary = makeElement("summary", "", "Required legal and business terms");
-        termsDetails.append(termsSummary);
-        termsDetails.append(makeElement(
-          "p",
-          "admin-dialog-help",
-          "Enter the terms approved for your agreement. No sample values are prefilled. Use finalized wording and enter an explicit value such as “None” only when that is the approved term. Save these terms, then save a new template draft to snapshot them."
-        ));
-        reporterServiceTermFields.forEach(([name, label, helpText]) => {
-          const fieldLabel = makeElement("label", "admin-form-field");
-          fieldLabel.append(makeElement("span", "", label));
-          const input = document.createElement("textarea");
-          input.name = name;
-          input.maxLength = 2000;
-          input.rows = ["agreement_reporter_liability_clause", "agreement_arbitrator_appointment_method", "agreement_fee_terms"].includes(name) ? 3 : 2;
-          input.value = agreementTerms[name] || "";
-          input.setAttribute("aria-label", label);
-          fieldLabel.append(input, makeElement("small", "admin-dialog-help", helpText));
-          termsDetails.append(fieldLabel);
-        });
-        const saveTerms = makeElement("button", "admin-secondary-button", "Save legal terms");
-        saveTerms.type = "button";
-        const termsStatus = makeElement("p", "admin-dialog-help");
-        termsStatus.setAttribute("role", "status");
-        saveTerms.addEventListener("click", async () => {
-          saveTerms.disabled = true;
-          saveTerms.textContent = "Saving terms…";
-          termsStatus.textContent = "";
-          const values = new FormData(form);
-          const terms = Object.fromEntries(reporterServiceTermFields.map(([name]) => [name, values.get(name)]));
-          try {
-            const result = unwrapData(await apiRequest(
-              "admin/reporter-service-agreement-terms",
-              "PATCH",
-              terms
-            ));
-            agreementTerms = { ...agreementTerms, ...(result || terms) };
-            termsStatus.textContent = "Legal terms saved. Save a new template draft to snapshot these terms before publishing.";
-          } catch (error) {
-            termsStatus.textContent = `Legal terms could not be saved: ${error.message}`;
-          } finally {
-            saveTerms.disabled = false;
-            saveTerms.textContent = "Save legal terms";
-          }
-        });
-        termsDetails.append(saveTerms, termsStatus);
-        form.append(termsDetails);
-
-        const fields = makeElement("details", "admin-agreement-template-fields");
-        fields.append(makeElement("summary", "", "Available personalization fields"));
-        fields.append(makeElement("p", "admin-dialog-help", (template.supported_fields || []).join("  ·  ")));
-        form.append(fields);
-
-        const saveDraft = makeElement("button", "admin-secondary-button", "Save draft");
-        saveDraft.type = "button";
-        saveDraft.addEventListener("click", async () => {
-          const templateContent = content.value.trim();
-          if (templateContent.length < 1000 || templateContent.length > 50000) {
-            void showAdminMessage("Draft not saved", "The template must contain between 1,000 and 50,000 characters.");
-            return;
-          }
-          saveDraft.disabled = true;
-          saveDraft.textContent = "Saving draft…";
-          try {
-            await saveReporterServiceAgreementDraft(templateContent);
-            dialog.close();
-            await loadSection("reporter-service-agreements");
-            void showAdminMessage(
-              "Draft saved",
-              "Your template is saved. You can preview it for review; reporters cannot receive it until all legal terms are finalized and the template is published."
-            );
-          } catch (error) {
-            void showAdminMessage("Draft could not be saved", error.message);
-          } finally {
-            saveDraft.disabled = false;
-            saveDraft.textContent = "Save draft";
-          }
-        });
-        form.append(saveDraft);
-
-        const preview = makeElement("button", "admin-secondary-button", "Preview generated PDF");
-        preview.type = "button";
-        preview.addEventListener("click", async () => {
-          const previewWindow = window.open("about:blank", "_blank");
-          if (!previewWindow) {
-            void showAdminMessage("Preview unavailable", "Allow pop-ups to open the generated PDF preview.");
-            return;
-          }
-          previewWindow.opener = null;
-          preview.disabled = true;
-          try {
-            const response = await fetch(proxyUrl("admin/reporter-service-agreement-template/preview"), {
-              method: "POST",
-              cache: "no-store",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ template_content: content.value })
-            });
-            if (!response.ok) {
-              const result = await response.json().catch(() => ({}));
-              throw new Error(responseMessage(result));
-            }
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-            previewUrl = URL.createObjectURL(await response.blob());
-            previewWindow.location.replace(previewUrl);
-          } catch (error) {
-            previewWindow.close();
-            void showAdminMessage("Preview failed", error.message);
-          } finally {
-            preview.disabled = false;
-          }
-        });
-        form.append(preview);
-      },
-      async (values) => {
-        const templateContent = String(values.get("template_content") || "").trim();
-        const placeholders = [...new Set(
-          [...templateContent.matchAll(/\[([^\]]+)\]/g)].map((match) => match[0])
-        )];
-        if (placeholders.length) {
-          throw new Error(`This draft cannot be published yet. Save it as a draft, then resolve these legal terms before publishing: ${placeholders.slice(0, 5).join(", ")}${placeholders.length > 5 ? ", …" : ""}`);
-        }
-        if (templateContent.length < 1000 || templateContent.length > 50000) {
-          throw new Error("The service agreement must contain between 1,000 and 50,000 characters.");
-        }
-        const saved = await saveReporterServiceAgreementDraft(templateContent);
-        const agreementId = saved.data?.id;
-        if (!Number.isSafeInteger(agreementId) || agreementId < 1) {
-          throw new Error("The template draft was saved, but its version could not be identified for publishing. Refresh the page and try again.");
-        }
-        try {
-          await apiRequest(`admin/reporter-service-agreements/${agreementId}/publish`, "POST", {});
-        } catch (error) {
-          throw new Error(`The draft was saved but could not be published: ${error.message}`);
-        }
-        await loadSection("reporter-service-agreements");
-      },
-      "Publish approved template"
-    );
-    dialog.addEventListener("close", () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    }, { once: true });
-  } catch (error) {
-    void showAdminMessage("Template editor could not be opened", error.message);
-  }
-}
-
-async function saveReporterServiceAgreementDraft(templateContent) {
-  const version = `service-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return apiRequest("admin/reporter-service-agreements/template", "POST", {
-    version,
-    template_content: templateContent
-  });
 }
 
 function openReporterOrganizationProfileDialog(profile) {
@@ -2181,7 +1906,7 @@ function renderRoleAgreements(root, data, roleFilter) {
   root.append(makeElement(
     "p",
     "admin-dialog-help",
-    `${roleFilter ? `${roleFilter.charAt(0).toUpperCase()}${roleFilter.slice(1)}` : "Moderator and editor"} agreement wording is controlled by super admins. Paste the complete approved clauses directly into the wording template; structured key/value terms are optional and only needed when you want values inserted through matching placeholders.`
+    `${roleFilter ? allRoles.find((agreement) => agreement.role === roleFilter)?.label || roleFilter : "Staff role"} agreement wording is controlled by super admins. Paste the complete approved clauses directly into the wording template; structured key/value terms are optional and only needed when you want values inserted through matching placeholders.`
   ));
   roles.forEach((agreement) => {
     const role = agreement.role;
@@ -2190,7 +1915,7 @@ function renderRoleAgreements(root, data, roleFilter) {
     const card = makeElement("section", "admin-panel admin-role-agreement-card");
     const header = makeElement("div", "admin-panel-heading");
     header.append(
-      makeElement("h2", "", `${role.charAt(0).toUpperCase()}${role.slice(1)} agreement`),
+      makeElement("h2", "", `${agreement.label || role} agreement`),
       makeElement("span", "", published ? `Published · ${published.version}` : "Not published")
     );
     card.append(header);
@@ -2572,13 +2297,16 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
     const heading = makeElement("div", "admin-staff-onboarding-card-heading");
     const headingCopy = makeElement("div");
     headingCopy.append(
-      makeElement("span", "admin-eyebrow", String(record.requested_role || "staff").replaceAll("_", " ").toUpperCase()),
+      makeElement("span", "admin-eyebrow", String(record.staff_role?.display_name || record.requested_role || "staff").toUpperCase()),
       makeElement("h2", "", name),
       makeElement("p", "", profile.email || "Email unavailable")
     );
     const status = makeElement("span", `admin-staff-status ${record.status || "unknown"}`, String(record.status || "unknown").replaceAll("_", " "));
     heading.append(headingCopy, status);
     card.append(heading);
+    if (record.staff_role?.duties) {
+      card.append(makeElement("p", "admin-dialog-help", `Job duties: ${record.staff_role.duties}`));
+    }
     if (record.status === "submitted") {
       card.append(makeElement("p", "admin-dialog-help", "Profile submitted for review. Access is still restricted until approval."));
       const review = makeElement("button", "admin-primary-button", "Review profile");
@@ -2612,6 +2340,222 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
     grid.append(card);
   });
   root.append(grid);
+}
+
+function renderStaffRoleCatalog(root, roles) {
+  const records = Array.isArray(roles) ? roles : [];
+  const catalog = makeElement("div", "admin-staff-role-catalog");
+  if (!records.length) {
+    catalog.append(makeElement("section", "admin-panel admin-staff-onboarding-empty", "No staff job roles are configured."));
+  }
+  records.forEach((role) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const header = makeElement("div", "admin-panel-heading");
+    header.append(
+      makeElement("h2", "", role.display_name),
+      makeElement("span", "", role.is_active ? "Active" : "Inactive")
+    );
+    card.append(header);
+    card.append(makeElement(
+      "p",
+      "admin-dialog-help",
+      `${role.description || "No description"} · ${role.access_profile} access profile${role.is_builtin ? " · built-in" : ""}`
+    ));
+    card.append(makeElement("p", "", role.duties || "No duties defined."));
+    const edit = makeElement("button", "admin-secondary-button", "Edit role");
+    edit.type = "button";
+    edit.addEventListener("click", () => void openStaffRoleDialog(role, () => loadSection("staff-roles")));
+    card.append(edit);
+    catalog.append(card);
+  });
+  root.append(catalog);
+  root.append(makeElement(
+    "p",
+    "admin-dialog-help",
+    "Custom titles organize job duties only. Access remains limited to the built-in Moderator or Editor profile, and agreement acceptance is still required. Changing a title’s access profile is not supported."
+  ));
+}
+
+function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-roles")) {
+  const isEditing = Boolean(role);
+  openFormDialog(
+    isEditing ? "Edit staff job role" : "Create staff job role",
+    "Define the newsroom title and duties. This does not create new application permissions; choose the existing Moderator or Editor access profile.",
+    (form) => {
+      const nameInput = addField(form, "Job title", "display_name", "text", role?.display_name || "", {
+        minLength: 2,
+        maxLength: 80
+      });
+      nameInput.autocomplete = "off";
+      const keyLabel = makeElement("label", "admin-form-field");
+      keyLabel.append(makeElement("span", "", "Internal role key (lowercase English letters, numbers, underscores)"));
+      const keyInput = document.createElement("input");
+      keyInput.type = "text";
+      keyInput.name = "role_key";
+      keyInput.maxLength = 50;
+      keyInput.value = role?.role_key || "";
+      keyInput.readOnly = Boolean(role);
+      keyLabel.append(keyInput);
+      form.append(keyLabel);
+      if (!isEditing) {
+        nameInput.addEventListener("input", () => {
+          keyInput.value = nameInput.value.trim().toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^[^a-z]+/, "")
+            .replace(/_+$/g, "")
+            .slice(0, 50);
+        });
+      }
+      addField(form, "Short description (optional)", "description", "text", role?.description || "", {
+        required: false,
+        maxLength: 500
+      });
+      const dutiesLabel = makeElement("label", "admin-form-field");
+      dutiesLabel.append(makeElement("span", "", "Job duties"));
+      const duties = document.createElement("textarea");
+      duties.name = "duties";
+      duties.rows = 4;
+      duties.maxLength = 5000;
+      duties.value = role?.duties || "";
+      dutiesLabel.append(duties);
+      form.append(dutiesLabel);
+
+      const profileLabel = makeElement("label", "admin-form-field");
+      profileLabel.append(makeElement("span", "", "Access profile"));
+      const profileSelect = document.createElement("select");
+      profileSelect.name = "access_profile";
+      profileSelect.required = true;
+      ["moderator", "editor"].forEach((profile) => {
+        const option = makeElement("option", "", profile === "moderator"
+          ? "Moderator · submission review permissions"
+          : "Editor · editorial review and publishing permissions");
+        option.value = profile;
+        option.selected = profile === (role?.access_profile || "moderator");
+        profileSelect.append(option);
+      });
+      if (role) profileSelect.disabled = true;
+      profileLabel.append(profileSelect);
+      form.append(profileLabel);
+
+      const activeLabel = makeElement("label", "admin-form-field");
+      activeLabel.append(makeElement("span", "", "Available for new invitations"));
+      const active = document.createElement("input");
+      active.type = "checkbox";
+      active.name = "is_active";
+      active.checked = role?.is_active !== false;
+      active.disabled = Boolean(role?.is_builtin);
+      activeLabel.append(active);
+      form.append(activeLabel);
+    },
+    async (values) => {
+      const name = String(values.get("display_name") || "").trim();
+      const roleKey = String(values.get("role_key") || "").trim();
+      if (!/^[a-z][a-z0-9_]{1,49}$/.test(roleKey)) {
+        throw new Error("Enter an English job title that generates a valid internal key.");
+      }
+      await apiRequest("admin/staff-roles", "POST", {
+        id: role?.id || null,
+        role_key: roleKey,
+        display_name: name,
+        description: values.get("description"),
+        duties: values.get("duties"),
+        access_profile: role?.access_profile || values.get("access_profile"),
+        is_active: role?.is_builtin ? true : values.get("is_active") === "on"
+      });
+      await refresh();
+    },
+    isEditing ? "Save role" : "Create role"
+  );
+}
+
+async function openStaffJobRoleDialog(user, refresh) {
+  let roles;
+  try {
+    roles = unwrapData(await apiRequest("admin/staff-roles")) || [];
+  } catch (error) {
+    void showAdminMessage("Staff job roles could not be loaded", error.message);
+    return;
+  }
+  roles = roles.filter((role) =>
+    role.is_active
+    && role.access_profile === user.access_profile
+    && role.id !== user.staff_role_id
+  );
+  if (!roles.length) {
+    void showAdminMessage("No compatible active titles", "Create or activate a job title using this staff member’s current access profile.");
+    return;
+  }
+  openFormDialog(
+    "Change staff job title",
+    "This creates a dated assignment-history entry. The member’s access profile and agreement do not change.",
+    (form) => {
+      form.append(makeElement("p", "admin-dialog-help", `${user.full_name} · ${user.access_profile} access`));
+      const label = makeElement("label", "admin-form-field");
+      label.append(makeElement("span", "", "New job title"));
+      const select = document.createElement("select");
+      select.name = "staff_role_id";
+      select.required = true;
+      roles.forEach((role) => {
+        const option = makeElement("option", "", role.display_name);
+        option.value = role.id;
+        option.selected = role.id === user.staff_role_id;
+        select.append(option);
+      });
+      label.append(select);
+      form.append(label);
+    },
+    async (values) => {
+      await apiRequest(`admin/staff-onboarding/${user.id}/job-role`, "POST", {
+        staff_role_id: values.get("staff_role_id")
+      });
+      await refresh();
+    },
+    "Save job title"
+  );
+}
+
+function openStaffRoleHistoryDialog(user) {
+  const history = Array.isArray(user._role_assignment_history) ? user._role_assignment_history : [];
+  const dialog = document.createElement("dialog");
+  dialog.className = "admin-json-dialog";
+  const body = makeElement("section", "admin-json-form");
+  body.append(
+    makeElement("span", "admin-eyebrow", "STAFF ASSIGNMENT HISTORY"),
+    makeElement("h2", "", user.full_name || user.email || "Staff member"),
+    makeElement("p", "admin-dialog-help", `${user.email || "Email unavailable"} · ${user.access_profile} access`)
+  );
+  if (!history.length) {
+    body.append(makeElement("p", "admin-empty", "No assignment history is available."));
+  } else {
+    const list = document.createElement("ol");
+    list.className = "admin-staff-role-history";
+    history.forEach((assignment) => {
+      const item = document.createElement("li");
+      item.append(
+        makeElement("strong", "", assignment.display_name_snapshot),
+        makeElement("span", "", `${assignment.status.replaceAll("_", " ")} · assigned ${formatDate(assignment.assigned_at)}`)
+      );
+      if (assignment.starts_at) {
+        item.append(makeElement("span", "", `Effective from ${formatDate(assignment.starts_at)}`));
+      }
+      if (assignment.ended_at) {
+        item.append(makeElement("span", "", `Ended ${formatDate(assignment.ended_at)}${assignment.end_reason ? ` · ${assignment.end_reason}` : ""}`));
+      }
+      if (assignment.duties_snapshot) item.append(makeElement("p", "", assignment.duties_snapshot));
+      list.append(item);
+    });
+    body.append(list);
+  }
+  const actions = makeElement("div", "admin-dialog-actions");
+  const close = makeElement("button", "admin-secondary-button", "Close");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  actions.append(close);
+  body.append(actions);
+  dialog.append(body);
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  dialog.showModal();
 }
 
 function openStaffReviewDialog(record, refresh) {
@@ -2863,7 +2807,7 @@ function recordId(row) {
 function addRowActions(container, row, section) {
   const id = recordId(row);
   if (!id) return;
-  const refresh = () => loadSection(section);
+  const refresh = () => loadSection(section === "workflow-directory" ? "directory" : section);
 
   if (section === "users" || section === "accounts") {
     const role = document.createElement("select");
@@ -2926,6 +2870,14 @@ function addRowActions(container, row, section) {
     rowButton(container, "Update assignment", () => {
       void openReporterAssignmentDialog(row, refresh);
     });
+    return;
+  }
+
+  if (section === "workflow-directory") {
+    rowButton(container, "Change job title", () => {
+      void openStaffJobRoleDialog(row, refresh);
+    });
+    rowButton(container, "View assignment history", () => openStaffRoleHistoryDialog(row));
     return;
   }
 
@@ -3040,9 +2992,6 @@ function addRowActions(container, row, section) {
 
   if (section === "reporter-applications") {
     rowButton(container, "Private details", () => void openReporterPrivateDetailsDialog(row));
-    if (["approved", "active"].includes(row.status)) {
-      rowButton(container, "Preview / issue agreement", () => void openReporterServiceAgreementIssueDialog(row, refresh));
-    }
     if (["pending", "needs_information"].includes(row.status)) {
       rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
     }
@@ -3395,172 +3344,6 @@ async function openReporterPrivateDetailsDialog(application) {
   } catch (error) {
     void showAdminMessage("Application details unavailable", error.message);
   }
-}
-
-async function openReporterServiceAgreementIssueDialog(application, refresh) {
-  let options;
-  try {
-    options = unwrapData(await apiRequest("admin/reporter-options")) || {};
-  } catch (error) {
-    void showAdminMessage("Reporter designations could not be loaded", error.message);
-    return;
-  }
-  const designations = (options.reporter_designations || [])
-    .filter((item) => item.is_active);
-  if (!designations.length) {
-    void showAdminMessage("No active designations", "Configure at least one active reporter designation before issuing a service agreement.");
-    return;
-  }
-
-  const dialog = document.createElement("dialog");
-  dialog.className = "admin-json-dialog";
-  const body = makeElement("section", "admin-json-form");
-  body.append(
-    makeElement("span", "admin-eyebrow", "REPORTER-SPECIFIC SERVICE AGREEMENT"),
-    makeElement("h2", "", `Prepare agreement · ${application.applicant_name || application.user?.full_name || application.email || `application #${application.id}`}`),
-    makeElement(
-      "p",
-      "admin-dialog-help",
-      "Assign or confirm the reporter's current position before generating the PDF. The PDF records the designation at issue time; later admin changes update the current designation without altering previously issued PDFs. Draft templates can be previewed, but only a published template can be issued."
-    )
-  );
-  const designationSelect = appendReporterSelect(
-    body,
-    "designation_id",
-    "Reporter designation",
-    designations,
-    (item) => `${item.name} · Code ${item.designation_code}`
-  );
-  const currentDesignationId = String(application.reporter_designation_id || application.reporter_designation?.id || "");
-  if (currentDesignationId) designationSelect.value = currentDesignationId;
-  body.append(makeElement(
-    "p",
-    "admin-dialog-help",
-    "This choice updates the reporter's current assignment history before the PDF is generated. It does not change account permissions or the stable reporter ID; previously issued PDFs remain unchanged."
-  ));
-  const preview = makeElement("button", "admin-secondary-button", "Generate and preview reporter PDF");
-  preview.type = "button";
-  const publish = makeElement("button", "admin-primary-button", "Generate preview before issuing");
-  publish.type = "button";
-  publish.disabled = true;
-  const status = makeElement("p", "admin-dialog-help");
-  status.setAttribute("role", "status");
-  status.textContent = "Step 1: choose the designation and select “Generate and preview reporter PDF.” Step 2: review the PDF in the new tab. Step 3: return here to issue it. Issuing stays disabled until a published-template preview succeeds.";
-  let previewUrl = "";
-  let previewWindow = null;
-  let previewToken = "";
-  let previewIsPublished = false;
-  preview.addEventListener("click", async () => {
-    const nextPreviewWindow = window.open("about:blank", "_blank");
-    if (!nextPreviewWindow) {
-      void showAdminMessage("Preview unavailable", "Allow pop-ups to open the agreement PDF in a new tab.");
-      return;
-    }
-    nextPreviewWindow.opener = null;
-    preview.disabled = true;
-    preview.textContent = "Generating preview…";
-    publish.disabled = true;
-    publish.textContent = "Generate preview before issuing";
-    previewToken = "";
-    previewIsPublished = false;
-    if (previewWindow && !previewWindow.closed) previewWindow.close();
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      agreementPreviewUrls.delete(previewUrl);
-      previewUrl = "";
-    }
-    previewWindow = nextPreviewWindow;
-    previewWindow.document.title = "Preparing service agreement preview…";
-    previewWindow.document.body.textContent = "Generating the personalized agreement PDF…";
-    status.textContent = "Generating a personalized preview from the current template and reporter details…";
-    try {
-      const designationId = Number(designationSelect.value);
-      if (!Number.isSafeInteger(designationId) || designationId < 1) {
-        throw new Error("Choose an active reporter designation before generating the agreement.");
-      }
-      await apiRequest(`admin/reporter-applications/${application.id}/designation`, "POST", {
-        designation_id: designationId
-      });
-      application.reporter_designation_id = designationId;
-      application.reporter_designation = designations.find((item) => Number(item.id) === designationId) || null;
-      const response = await fetch(proxyUrl(`admin/reporter-applications/${application.id}/service-agreement/preview`), {
-        cache: "no-store"
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(responseMessage(result) || "The personalized agreement preview could not be generated.");
-      }
-      const token = response.headers.get("X-Preview-Token");
-      if (!token) {
-        throw new Error("The preview could not be secured for publishing. Generate a new preview.");
-      }
-      const publishedHeader = response.headers.get("X-Agreement-Published");
-      if (publishedHeader === null) {
-        throw new Error("The agreement preview service is outdated. Refresh the admin page after the server update is deployed.");
-      }
-      const pdf = await response.blob();
-      if (pdf.type !== "application/pdf") {
-        throw new Error("The preview service returned an invalid document. No agreement was published.");
-      }
-      previewToken = token;
-      previewIsPublished = publishedHeader === "true";
-      previewUrl = URL.createObjectURL(pdf);
-      agreementPreviewUrls.add(previewUrl);
-      previewWindow.location.replace(previewUrl);
-      publish.disabled = !previewIsPublished;
-      publish.textContent = previewIsPublished
-        ? "Issue agreement to reporter"
-        : "Publish template before issuing";
-      status.textContent = previewIsPublished
-        ? "Preview opened in a new tab. Review the full-size PDF, then return here to issue this exact copy to the reporter."
-        : "Draft preview opened in a new tab for review. It cannot be issued until the template is finalized and published.";
-    } catch (error) {
-      if (previewWindow && !previewWindow.closed) previewWindow.close();
-      previewWindow = null;
-      status.textContent = `Preview failed: ${error.message}`;
-    } finally {
-      preview.disabled = false;
-      preview.textContent = "Generate and preview reporter PDF";
-    }
-  });
-  publish.addEventListener("click", async () => {
-    if (!previewIsPublished || !previewToken) {
-      status.textContent = "Only a preview generated from the currently published template can be issued.";
-      publish.disabled = true;
-      publish.textContent = "Generate preview before issuing";
-      return;
-    }
-    publish.disabled = true;
-    preview.disabled = true;
-    publish.textContent = "Issuing agreement…";
-    status.textContent = "Issuing the reviewed agreement to the reporter…";
-    try {
-      await apiRequest(`admin/reporter-applications/${application.id}/service-agreement/publish`, "POST", {
-        preview_token: previewToken
-      });
-      status.textContent = "The personalized agreement was issued and is now available to the reporter.";
-      previewToken = "";
-      dialog.close();
-    } catch (error) {
-      previewToken = "";
-      status.textContent = `Publish failed: ${error.message} Generate and review a fresh preview before trying again.`;
-      publish.disabled = true;
-      publish.textContent = "Generate a new preview to retry";
-      preview.disabled = false;
-      return;
-    }
-    await refresh();
-  });
-  const close = makeElement("button", "admin-secondary-button", "Close");
-  close.type = "button";
-  close.addEventListener("click", () => dialog.close());
-  body.append(preview, publish, close, status);
-  dialog.append(body);
-  dialog.addEventListener("close", () => {
-    dialog.remove();
-  }, { once: true });
-  document.body.append(dialog);
-  dialog.showModal();
 }
 
 async function openReporterReviewDialog(application, refresh) {
@@ -3916,46 +3699,66 @@ async function openUserDialog() {
   );
 }
 
-function openStaffInvitationDialog(refresh = () => loadSection("applications"), initialRole = "moderator") {
+async function openStaffInvitationDialog(refresh = () => loadSection("applications"), initialRole = "moderator") {
+  let roles;
+  try {
+    roles = unwrapData(await apiRequest("admin/staff-roles")) || [];
+  } catch (error) {
+    void showAdminMessage("Staff job roles could not be loaded", error.message);
+    return;
+  }
+  roles = roles.filter((role) => role.is_active);
+  if (!roles.length) {
+    void showAdminMessage("No active staff job roles", "Create or activate a staff job role before sending an invitation.");
+    return;
+  }
   openFormDialog(
-    "Invite a moderator or editor",
-    "We will email a secure invitation link. The invited person completes their private staff profile and sets their password; they remain a subscriber until an admin reviews and approves the profile.",
+    "Invite newsroom staff",
+    "We will email a secure invitation link. The invitee completes the shared staff profile and accepts the agreement for the selected access profile; their account remains limited until admin review and approval.",
     (form) => {
       addField(form, "Staff member email", "email", "email", "", {
         maxLength: 254,
         autocomplete: "email"
       });
       const label = makeElement("label", "admin-form-field");
-      label.append(makeElement("span", "", "Requested newsroom role"));
+      label.append(makeElement("span", "", "Job title"));
       const select = document.createElement("select");
-      select.name = "requested_role";
+      select.name = "staff_role_id";
       select.required = true;
-      [
-        ["moderator", "Moderator · review reporter submissions"],
-        ["editor", "Editor · manage editorial review and publishing"]
-      ].forEach(([value, text]) => {
-        const option = makeElement("option", "", text);
-        option.value = value;
-        option.selected = value === initialRole;
+      const preferredRole = roles.find((role) => role.access_profile === initialRole) || roles[0];
+      roles.forEach((role) => {
+        const option = makeElement("option", "", `${role.display_name} · ${role.access_profile} access`);
+        option.value = role.id;
+        option.selected = role.id === preferredRole.id;
         select.append(option);
       });
       label.append(select);
       form.append(label);
+      const duties = makeElement("p", "admin-dialog-help");
+      const updateDuties = () => {
+        const selected = roles.find((role) => role.id === select.value);
+        duties.textContent = selected?.duties
+          ? `Duties: ${selected.duties}`
+          : "No duties have been described for this title.";
+      };
+      select.addEventListener("change", updateDuties);
+      updateDuties();
+      form.append(duties);
       form.append(makeElement(
         "p",
         "admin-dialog-help",
-        "This form does not collect Aadhaar, PAN, bank, or reporter coverage details."
+        "Job title and duties do not grant new permissions. The selected moderator/editor access profile determines the agreement and system access. Reporter applications remain a separate workflow."
       ));
     },
     async (values) => {
       const result = await apiRequest("admin/staff-invitations", "POST", {
         email: String(values.get("email") || "").trim(),
-        requested_role: values.get("requested_role")
+        staff_role_id: values.get("staff_role_id")
       });
       await refresh();
       void showAdminMessage(
         "Staff invitation sent",
-        `A secure ${result.data.requested_role} onboarding invitation was sent to ${result.data.email}. The role stays inactive until an admin approves the completed profile.`
+        `A secure ${result.data.staff_role_name} onboarding invitation was sent to ${result.data.email}. The role stays inactive until an admin approves the completed profile.`
       );
     },
     "Send invitation"

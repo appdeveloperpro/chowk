@@ -9,6 +9,7 @@ const messagePanel = document.querySelector("#reporter-message");
 let identity = null;
 let options = null;
 let reporterData = null;
+let reporterStaffAgreement = null;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -1314,114 +1315,45 @@ function dataItem(label, value, code = false) {
 
 function renderServiceAgreement(application) {
   if (!["approved", "active"].includes(application.status)) return;
-  const activeReporter = application.status === "active";
-  const publishedAgreement = options.service_agreement;
-  const publishedIssue = application.service_agreement_issue;
-  const personalizedIssueIsCurrent = publishedAgreement?.template_content
-    && publishedIssue?.status === "published"
-    && publishedIssue.agreement_version === publishedAgreement.version
-    && publishedIssue.agreement_sha256 === publishedAgreement.sha256;
-  const current = personalizedIssueIsCurrent
-    ? {
-        ...publishedIssue,
-        issue_id: publishedIssue.id,
-        version: publishedIssue.agreement_version,
-        sha256: publishedIssue.agreement_sha256,
-        document_url: `/api/reporter/service-agreement-issued-document?issue_id=${encodeURIComponent(publishedIssue.id)}`
-      }
-    : null;
-  const acceptedCurrent = current
-    && application.service_agreement_version === current.version
-    && application.service_agreement_sha256 === current.sha256
-    && application.service_agreement_accepted_at
-    && (application.service_acceptances || []).some((receipt) =>
-      String(receipt.issue_id) === String(current.issue_id));
+  const agreement = reporterStaffAgreement;
   const panel = element("section", "reporter-onboarding-step");
-  panel.append(element("h3", "", activeReporter
-    ? "Service / appointment agreement"
-    : "Step 1 · Service / appointment agreement"));
-  if (acceptedCurrent) {
-    panel.append(
-      element("span", "reporter-status-pill active", `Accepted · v${current.version}`),
-      element("p", "reporter-card-copy", `Accepted by ${application.service_agreement_signer_name || identity.full_name} on ${formatDate(application.service_agreement_accepted_at)}.`)
-    );
-    const link = element("a", "", "View the accepted service agreement");
-    link.href = application.service_agreement_document_url || current.document_url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    const download = element("a", "", "Download the accepted service agreement");
-    download.href = `${link.href}${link.href.includes("?") ? "&" : "?"}download=1`;
-    download.target = "_blank";
-    download.rel = "noopener noreferrer";
-    panel.append(link, download);
-    panel.append(element("p", "reporter-card-copy", activeReporter
-      ? "Your current service agreement is on file. Keep the issued authority letter current for your assigned area."
-      : "Next: Chowk issues an authority letter for your assigned reporting area. Reporter access activates only after you acknowledge that letter."));
-  } else if (!publishedAgreement?.template_content) {
-    panel.append(element(
-      "p",
-      "reporter-review-note",
-      "Chowk has not published a personalized service-agreement template yet. An administrator must publish finalized terms and issue your individualized PDF before you can review or accept it."
-    ));
-  } else if (publishedAgreement.template_content && !personalizedIssueIsCurrent) {
-    panel.append(element(
-      "p",
-      "reporter-review-note",
-      publishedIssue?.status === "published"
-        ? "A newer service-agreement version is published. Chowk must review and issue your updated personalized PDF before you can accept it."
-        : "Chowk is preparing your personalized service agreement using the verified company details and your approved application. It will appear here for PDF review and acceptance once an administrator issues it."
-    ));
+  if (!agreement) {
+    panel.append(element("h3", "", "Reporter staff agreement"));
+    panel.append(element("p", "reporter-review-note", "No Reporter staff agreement is published yet. Account activation remains unavailable until an administrator publishes it."));
+    applicationPanel.hidden = false;
+    applicationPanel.append(panel);
+    return;
+  }
+  panel.append(element("h3", "", application.status === "active"
+    ? "Reporter staff agreement"
+    : "Step 1 · Reporter staff agreement"));
+  panel.append(element("p", "reporter-card-copy", `Review the exact personalized agreement, version ${agreement.version}.`));
+  panel.append(element("pre", "staff-agreement-copy", agreement.resolved_content));
+  if (agreement.accepted) {
+    panel.append(element("span", "reporter-status-pill active", `Accepted · v${agreement.version}`));
+    panel.append(element("p", "reporter-card-copy", `Accepted on ${formatDate(agreement.accepted_at)}.`));
   } else {
-    panel.append(element("p", "reporter-card-copy", activeReporter
-      ? `Review the new service / appointment agreement, version ${current.version}. Accepting it records the current terms for any renewed authority.`
-      : `Review your personalized service / appointment agreement, version ${current.version}.`));
-    const link = element("a", "", "Open the full service agreement");
-    link.href = current.document_url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    const download = element("a", "", "Download service agreement PDF");
-    download.href = `${current.document_url}${current.document_url.includes("?") ? "&" : "?"}download=1`;
-    download.target = "_blank";
-    download.rel = "noopener noreferrer";
-    const documentHash = current.document_sha256 || current.sha256;
-    panel.append(
-      link,
-      download,
-      element("span", "reporter-card-copy", `Document SHA-256: ${documentHash}`),
-      ...(current.document_sha256
-        ? [element("span", "reporter-card-copy", `Agreement terms SHA-256: ${current.sha256}`)]
-        : [])
-    );
-    const form = element("form", "reporter-service-agreement-form");
-    const signer = addField(form, "Type your account full name", "signer_name", "text", identity.full_name || identity.name);
-    signer.autocomplete = "name";
-    signer.minLength = 2;
-    const acceptance = document.createElement("label");
-    acceptance.className = "reporter-check";
+    const form = element("form", "staff-agreement-form");
+    const acceptance = element("label", "reporter-check");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.required = true;
-    acceptance.append(
-      checkbox,
-      element("span", "", "I have reviewed and accept this service / appointment agreement.")
-    );
+    acceptance.append(checkbox, element("span", "", "I have reviewed and accept this Reporter staff agreement."));
     form.append(acceptance);
-    const submit = element("button", "reporter-button", "Accept service agreement");
+    const submit = element("button", "reporter-button", "Accept staff agreement");
     submit.type = "submit";
     form.append(submit);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!form.reportValidity()) return;
       submit.disabled = true;
       try {
-        await request("/api/reporter/service-agreement/accept", "POST", {
-          agreement_version: current.version,
-          agreement_sha256: current.sha256,
-          ...(current.issue_id ? { issue_id: current.issue_id } : {}),
-          signer_name: signer.value.trim(),
-          acceptance_statement: "I have reviewed and accept the Chowk reporter service agreement."
+        await request("/api/reporter/staff-agreement/accept", "POST", {
+          agreement_version_id: agreement.id,
+          sha256: agreement.sha256,
+          rendered_content: agreement.resolved_content,
+          rendered_sha256: agreement.rendered_sha256
         });
-        showMessage("Your service agreement acceptance was recorded. Chowk can now issue your authority letter.", true);
+        showMessage("Your Reporter staff agreement acceptance was recorded.", true);
         await loadReporterDesk();
       } catch (error) {
         showMessage(error.message);
@@ -1431,33 +1363,9 @@ function renderServiceAgreement(application) {
     });
     panel.append(form);
   }
-  const acceptanceReceipts = application.service_acceptances || [];
-  if (acceptanceReceipts.length) {
-    panel.append(element("h4", "", "Service agreement acceptance history"));
-    acceptanceReceipts.forEach((receipt) => {
-      panel.append(element(
-        "p",
-        "reporter-card-copy",
-        `Acceptance record · v${receipt.agreement_version} · ${receipt.signer_name} · ${formatDate(receipt.accepted_at)} · SHA-256 ${receipt.agreement_sha256}`
-      ));
-      if (receipt.document_storage_path && receipt.id) {
-        const receiptLink = element("a", "", `View accepted copy · v${receipt.agreement_version}`);
-        const receiptUrl = `/api/reporter/service-agreement-accepted-document?acceptance_id=${encodeURIComponent(receipt.id)}`;
-        receiptLink.href = receiptUrl;
-        receiptLink.target = "_blank";
-        receiptLink.rel = "noopener noreferrer";
-        const receiptDownload = element("a", "", `Download accepted copy · v${receipt.agreement_version}`);
-        receiptDownload.href = `${receiptUrl}&download=1`;
-        receiptDownload.target = "_blank";
-        receiptDownload.rel = "noopener noreferrer";
-        panel.append(receiptLink, receiptDownload);
-      }
-    });
-  }
   applicationPanel.hidden = false;
   applicationPanel.append(panel);
 }
-
 function renderStatus() {
   statusPanel.replaceChildren();
   statusPanel.hidden = false;
@@ -1483,19 +1391,12 @@ function renderStatus() {
         && credential.valid_from <= new Date().toISOString().slice(0, 10)
         && credential.valid_until >= new Date().toISOString().slice(0, 10)
     );
-    const currentServiceAgreement = options.service_agreement;
-    const acceptedCurrentServiceAgreement = currentServiceAgreement
-      && application.service_agreement_version === currentServiceAgreement.version
-      && application.service_agreement_sha256 === currentServiceAgreement.sha256
-      && Boolean(application.service_agreement_accepted_at)
-      && Boolean(application.service_agreement_issue_id)
-      && (application.service_acceptances || []).some((receipt) =>
-        String(receipt.issue_id) === String(application.service_agreement_issue_id));
+    const acceptedCurrentServiceAgreement = Boolean(reporterStaffAgreement?.accepted);
     const stages = [
       ["Account", true],
       ["Application", true],
       ["Review", application.status !== "pending"],
-      ["Service terms", Boolean(acceptedCurrentServiceAgreement)],
+      ["Staff agreement", Boolean(acceptedCurrentServiceAgreement)],
       ["Authority letter", Boolean(activeAuthority)],
       ["Reporter access", identity.role === "reporter" && application.status === "active"]
     ];
@@ -1583,7 +1484,7 @@ function renderStatus() {
       statusPanel.append(element(
         "p",
         "reporter-next-step",
-        "Approved does not mean field-authorized yet. Accept the service agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."
+        "Approved does not mean field-authorized yet. Accept the Reporter staff agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."
       ));
     } else if (application.status === "active") {
       statusPanel.append(element("p", "reporter-next-step success", "Your valid authority letter was acknowledged and reporter access is active."));
@@ -1736,12 +1637,15 @@ async function loadReporterDesk() {
       element("h2", "", `Welcome, ${identity.name || identity.email}`),
       element("p", "reporter-card-copy", `Account role: ${identity.role}. Reporter access is activated only after application approval and required onboarding acknowledgements.`)
     );
-    const [optionResult, statusResult] = await Promise.all([
+    const [optionResult, statusResult, agreementResult] = await Promise.all([
       request("/api/reporter/options"),
-      request("/api/reporter/status")
+      request("/api/reporter/status"),
+      request("/api/reporter/staff-agreement").catch((error) => ({ error: error.message }))
     ]);
     options = optionResult.data || {};
     reporterData = statusResult.data || {};
+    reporterStaffAgreement = agreementResult.data?.agreement || null;
+    if (agreementResult.error) reporterStaffAgreement = null;
     renderStatus();
     renderCredentials();
   } catch (error) {

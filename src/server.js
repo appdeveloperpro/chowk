@@ -67,6 +67,59 @@ function reporterServiceAgreementVersionHash(template, terms) {
     .digest("hex");
 }
 
+function staffAgreementValues(profile, onboarding) {
+  const address = [
+    onboarding.permanent_address_line1,
+    onboarding.permanent_address_line2,
+    onboarding.permanent_address_city,
+    onboarding.permanent_address_district,
+    onboarding.permanent_address_state,
+    onboarding.permanent_address_postal_code
+  ].map((value) => String(value || "").trim()).filter(Boolean).join(", ");
+  return {
+    "staff.full_name": profile.full_name || "",
+    "staff.email": profile.email || "",
+    "staff.phone": profile.phone || "",
+    "staff.role": onboarding.requested_role || "",
+    "staff.address": address,
+    "staff.address_line1": onboarding.permanent_address_line1 || "",
+    "staff.address_line2": onboarding.permanent_address_line2 || "",
+    "staff.city": onboarding.permanent_address_city || "",
+    "staff.district": onboarding.permanent_address_district || "",
+    "staff.state": onboarding.permanent_address_state || "",
+    "staff.postal_code": onboarding.permanent_address_postal_code || "",
+    "staff.date_of_birth": onboarding.date_of_birth || ""
+  };
+}
+
+function renderStaffAgreement(template, terms, profile, onboarding) {
+  const values = staffAgreementValues(profile, onboarding);
+  const allowedTokens = new Set(Object.keys(values));
+  const rendered = template.replace(/\{\{([^{}]+)\}\}/g, (token, key) => {
+    if (key.startsWith("terms.")) {
+      const termKey = key.slice("terms.".length);
+      if (!/^[a-z][a-z0-9_]{0,49}$/.test(termKey)
+          || !Object.hasOwn(terms, termKey)
+          || typeof terms[termKey] !== "string"
+          || !terms[termKey].trim()) {
+        throw new Error(`Agreement contains an unknown or unresolved term placeholder: ${token}`);
+      }
+      return terms[termKey];
+    }
+    if (!allowedTokens.has(key)) {
+      throw new Error(`Agreement contains an unknown placeholder: ${token}`);
+    }
+    return String(values[key] ?? "");
+  });
+  if (rendered.includes("{{") || rendered.includes("}}")) {
+    throw new Error("Agreement contains an unresolved or malformed placeholder.");
+  }
+  if (rendered.length > 200000) {
+    throw new Error("The personalized agreement exceeds the maximum supported size.");
+  }
+  return rendered;
+}
+
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
@@ -1935,13 +1988,165 @@ async function publicMedia(response, requestUrl) {
 }
 
 async function adminRoute(request, response, requestUrl, session) {
-  const { token } = session;
+  const { token, identity } = session;
   const pathname = requestUrl.pathname;
   try {
     if (request.method !== "GET" && !isSameOrigin(request)) {
       sendJson(response, 403, { error: "Cross-origin request rejected." });
       return;
     }
+    if (pathname === "/api/admin/role-agreements" && request.method === "GET") {
+      const [termsResult, versionsResult] = await Promise.all([
+        supabaseRequest("/rest/v1/staff_role_agreement_terms?select=role,terms,updated_at,updated_by", { token }),
+        supabaseRequest("/rest/v1/staff_role_agreement_versions?select=id,role,version,status,sha256,created_at,published_at,template_content,terms_snapshot&order=created_at.desc&limit=100", { token })
+      ]);
+      for (const result of [termsResult, versionsResult]) {
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "Role agreement setup could not be loaded.")
+          });
+          return;
+        }
+      }
+      const termsByRole = new Map((termsResult.payload || []).map((row) => [row.role, row]));
+      const versionsByRole = new Map();
+      for (const version of versionsResult.payload || []) {
+        const versions = versionsByRole.get(version.role) || [];
+        versions.push(version);
+        versionsByRole.set(version.role, versions);
+      }
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          roles: ["moderator", "editor"].map((role) => ({
+            role,
+            terms: termsByRole.get(role)?.terms || {},
+            versions: versionsByRole.get(role) || []
+          })),
+          can_edit_wording: identity.role === "super_admin"
+        }
+      });
+      return;
+    }
+
+    const roleAgreementTerms = pathname.match(/^\/api\/admin\/role-agreements\/(moderator|editor)\/terms$/);
+    if (roleAgreementTerms && request.method === "PATCH") {
+      const body = await readJsonBody(request);
+      if (!body.terms || typeof body.terms !== "object" || Array.isArray(body.terms)
+          || Object.keys(body.terms).length > 100
+          || Object.entries(body.terms).some(([key, value]) =>
+            !/^[a-z][a-z0-9_]{0,49}$/.test(key) || typeof value !== "string" || value.length > 5000)) {
+        sendJson(response, 400, { error: "Terms must be a structured object of short keys and text values." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_staff_role_agreement_terms", {
+        method: "POST",
+        token,
+        body: { target_role: roleAgreementTerms[1], target_terms: body.terms }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Structured agreement terms could not be saved.") });
+      return;
+    }
+
+    const roleAgreementPreview = pathname.match(
+      /^\/api\/admin\/role-agreements\/(moderator|editor)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/preview$/i
+    );
+    if (roleAgreementPreview && request.method === "GET") {
+      if (identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only a super admin can preview agreement wording drafts." });
+        return;
+      }
+      const result = await supabaseRequest(
+        `/rest/v1/staff_role_agreement_versions?select=id,role,version,status,template_content,terms_snapshot&id=eq.${encodeURIComponent(roleAgreementPreview[2])}&role=eq.${encodeURIComponent(roleAgreementPreview[1])}&status=eq.draft&limit=1`,
+        { token }
+      );
+      if (!result.response.ok || !result.payload?.[0]) {
+        sendJson(response, result.response.ok ? 404 : result.response.status, {
+          error: apiErrorMessage(result.payload, "The agreement draft could not be loaded for preview.")
+        });
+        return;
+      }
+      const draft = result.payload[0];
+      try {
+        const resolvedContent = renderStaffAgreement(
+          draft.template_content,
+          draft.terms_snapshot || {},
+          {
+            full_name: "Sample Staff Member",
+            email: "sample.staff@example.invalid",
+            phone: "+10000000000"
+          },
+          {
+            requested_role: draft.role,
+            permanent_address_line1: "100 Sample Road",
+            permanent_address_line2: "Sample Locality",
+            permanent_address_city: "Sample City",
+            permanent_address_district: "Sample District",
+            permanent_address_state: "Sample State",
+            permanent_address_postal_code: "000000",
+            date_of_birth: "1990-01-01"
+          }
+        );
+        sendJson(response, 200, { success: true, data: { resolved_content: resolvedContent } });
+      } catch (error) {
+        sendJson(response, 409, { error: error.message });
+      }
+      return;
+    }
+
+    const roleAgreementDraft = pathname.match(/^\/api\/admin\/role-agreements\/(moderator|editor)\/drafts$/);
+    if (roleAgreementDraft && request.method === "POST") {
+      if (identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only a super admin can edit agreement wording." });
+        return;
+      }
+      const body = await readJsonBody(request, 60 * 1024);
+      const version = typeof body.version === "string" ? body.version.trim() : "";
+      const template = typeof body.template_content === "string" ? body.template_content : "";
+      if (!/^[A-Za-z0-9._-]{1,40}$/.test(version)
+          || !template.trim() || template.length > 50000) {
+        sendJson(response, 400, { error: "Provide a version label and non-empty agreement wording up to 50,000 characters." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_superadmin_save_staff_role_agreement_draft", {
+        method: "POST",
+        token,
+        body: {
+          target_role: roleAgreementDraft[1],
+          target_version: version,
+          target_template: template,
+          target_sha256: createHash("sha256").update(template, "utf8").digest("hex")
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: { id: result.payload } }
+        : { error: apiErrorMessage(result.payload, "Agreement wording draft could not be saved.") });
+      return;
+    }
+
+    const roleAgreementPublish = pathname.match(/^\/api\/admin\/role-agreements\/(moderator|editor)\/([^/]+)\/publish$/);
+    if (roleAgreementPublish && request.method === "POST") {
+      if (identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only a super admin can publish agreement wording." });
+        return;
+      }
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roleAgreementPublish[2])) {
+        sendJson(response, 400, { error: "Choose a valid agreement draft to publish." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_superadmin_publish_staff_role_agreement", {
+        method: "POST",
+        token,
+        body: { target_version: roleAgreementPublish[2] }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Agreement wording could not be published.") });
+      return;
+    }
+
     if (pathname === "/api/admin/staff-onboarding" && request.method === "GET") {
       const onboarding = await supabaseRequest(
         "/rest/v1/staff_onboarding?select=*&order=submitted_at.desc.nullslast,invited_at.desc&limit=500",
@@ -2019,7 +2224,14 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         return;
       }
-      sendJson(response, 200, { success: true });
+      const currentStatus = await supabaseRequest(
+        `/rest/v1/staff_onboarding?select=status&user_id=eq.${encodeURIComponent(staffReview[1])}&limit=1`,
+        { token }
+      );
+      sendJson(response, 200, {
+        success: true,
+        status: currentStatus.payload?.[0]?.status || null
+      });
       return;
     }
 
@@ -2422,6 +2634,10 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-service-agreements/template" && request.method === "POST") {
+      if (session.identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only a super admin can edit agreement wording." });
+        return;
+      }
       const body = await readJsonBody(request, 1024 * 1024);
       const version = typeof body.version === "string" ? body.version.trim() : "";
       if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version)) {
@@ -2473,9 +2689,20 @@ async function adminRoute(request, response, requestUrl, session) {
     if (pathname === "/api/admin/reporter-service-agreement-terms" && request.method === "PATCH") {
       const body = await readJsonBody(request);
       const terms = {};
+      let liabilityClause = "";
       for (const { column, label } of reporterServiceAgreementLegalTerms) {
         if (column === "agreement_reporter_liability_summary") {
           terms[column] = reporterServiceAgreementLiabilityReference;
+          continue;
+        }
+        if (column === "agreement_reporter_liability_clause") {
+          if (session.identity.role === "super_admin") {
+            liabilityClause = typeof body[column] === "string" ? body[column].trim() : "";
+            if (!liabilityClause || liabilityClause.length > 2000) {
+              sendJson(response, 400, { error: `${label} is required and must be 2,000 characters or fewer.` });
+              return;
+            }
+          }
           continue;
         }
         const value = typeof body[column] === "string" ? body[column].trim() : "";
@@ -2485,18 +2712,43 @@ async function adminRoute(request, response, requestUrl, session) {
         }
         terms[column] = value;
       }
+      const currentClause = await supabaseRequest(
+        "/rest/v1/reporter_organization_profile?select=agreement_reporter_liability_clause&id=eq.true&limit=1",
+        { token }
+      );
+      if (!currentClause.response.ok || !currentClause.payload?.[0]) {
+        sendJson(response, currentClause.response.ok ? 404 : currentClause.response.status, {
+          error: apiErrorMessage(currentClause.payload, "The reporter liability wording could not be loaded.")
+        });
+        return;
+      }
       const result = await supabaseRequest("/rest/v1/reporter_organization_profile?id=eq.true", {
         method: "PATCH",
         token,
         body: { ...terms, updated_by: session.identity.id },
         prefer: "return=representation"
       });
+      if (result.response.ok && liabilityClause) {
+        const clauseUpdate = await supabaseRequest("/rest/v1/rpc/chowk_superadmin_set_reporter_liability_clause", {
+          method: "POST",
+          token,
+          body: { target_clause: liabilityClause }
+        });
+        if (!clauseUpdate.response.ok) {
+          sendJson(response, clauseUpdate.response.status, {
+            error: apiErrorMessage(clauseUpdate.payload, "Approved liability wording could not be saved.")
+          });
+          return;
+        }
+      }
       sendJson(response, result.response.status, result.response.ok && result.payload?.[0]
         ? {
             success: true,
             data: Object.fromEntries(reporterServiceAgreementLegalTerms.map(({ column }) => [
               column,
-              result.payload[0][column]
+              column === "agreement_reporter_liability_clause"
+                ? (liabilityClause || currentClause.payload[0][column])
+                : result.payload[0][column]
             ]))
           }
         : { error: apiErrorMessage(result.payload, "Agreement legal terms could not be saved.") });
@@ -3052,6 +3304,10 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-agreements" && request.method === "POST") {
+      if (session.identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only a super admin can edit agreement wording." });
+        return;
+      }
       const body = await readJsonBody(request, 1024 * 1024);
       const version = typeof body.version === "string" ? body.version.trim() : "";
       if (!/^[a-zA-Z0-9._-]{1,40}$/.test(version)) {
@@ -4428,6 +4684,67 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
         sendJson(response, 404, { error: "There is no staff invitation for this account." });
         return;
       }
+      const agreementResult = await supabaseRequest(
+        `/rest/v1/staff_role_agreement_versions?select=id,role,version,template_content,terms_snapshot,sha256,published_at&role=eq.${encodeURIComponent(onboarding.requested_role)}&status=eq.published&order=published_at.desc&limit=1`,
+        { token }
+      );
+      if (!agreementResult.response.ok) {
+        sendJson(response, agreementResult.response.status, {
+          error: apiErrorMessage(agreementResult.payload, "The current staff agreement could not be loaded.")
+        });
+        return;
+      }
+      const publishedAgreement = agreementResult.payload?.[0] || null;
+      const acceptanceResult = publishedAgreement
+        ? await supabaseRequest(
+          `/rest/v1/staff_role_agreement_acceptances?select=id,agreement_version,agreement_sha256,rendered_content,rendered_sha256,accepted_at&user_id=eq.${encodeURIComponent(identity.id)}&role=eq.${encodeURIComponent(onboarding.requested_role)}&agreement_version_id=eq.${encodeURIComponent(publishedAgreement.id)}&limit=1`,
+          { token }
+        )
+        : { response: { ok: true }, payload: [] };
+      if (!acceptanceResult.response.ok) {
+        sendJson(response, acceptanceResult.response.status, {
+          error: apiErrorMessage(acceptanceResult.payload, "Your agreement acceptance could not be checked.")
+        });
+        return;
+      }
+      const acceptance = acceptanceResult.payload?.[0];
+      let accepted = false;
+      let resolvedAgreement = null;
+      if (publishedAgreement
+          && ["submitted", "approved_pending_agreement"].includes(onboarding.status)) {
+        const profileResult = await supabaseRequest(
+          `/rest/v1/profiles?select=full_name,email,phone&id=eq.${encodeURIComponent(identity.id)}&limit=1`,
+          { token }
+        );
+        if (!profileResult.response.ok || !profileResult.payload?.[0]) {
+          sendJson(response, profileResult.response.status || 404, {
+            error: apiErrorMessage(profileResult.payload, "Your staff profile details could not be loaded for the agreement.")
+          });
+          return;
+        }
+        try {
+          const resolvedContent = renderStaffAgreement(
+            publishedAgreement.template_content,
+            publishedAgreement.terms_snapshot || {},
+            profileResult.payload[0],
+            onboarding
+          );
+          const renderedSha256 = createHash("sha256").update(resolvedContent, "utf8").digest("hex");
+          accepted = Boolean(
+            acceptance?.rendered_content === resolvedContent
+            && acceptance?.rendered_sha256 === renderedSha256
+          );
+          resolvedAgreement = {
+            ...publishedAgreement,
+            template_content: undefined,
+            resolved_content: resolvedContent,
+            rendered_sha256: renderedSha256
+          };
+        } catch (error) {
+          sendJson(response, 409, { error: error.message });
+          return;
+        }
+      }
       const profilePhotoUrl = onboarding.profile_photo_path
         ? await signedStaffProfilePhotoUrl(onboarding.profile_photo_path, identity.id, token)
         : null;
@@ -4438,9 +4755,43 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
           email: identity.email,
           full_name: identity.full_name,
           phone: identity.phone,
-          profile_photo_url: profilePhotoUrl
+          profile_photo_url: profilePhotoUrl,
+          agreement: resolvedAgreement ? {
+            ...resolvedAgreement,
+            accepted
+          } : null
         }
       });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/staff/onboarding/agreement" && request.method === "POST") {
+      const body = await readJsonBody(request, maxRequestBodyBytes);
+      if (typeof body.agreement_version_id !== "string"
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.agreement_version_id)
+          || typeof body.sha256 !== "string"
+          || !/^[a-f0-9]{64}$/.test(body.sha256)
+          || typeof body.rendered_content !== "string"
+          || body.rendered_content.length > 200000
+          || typeof body.rendered_sha256 !== "string"
+          || !/^[a-f0-9]{64}$/.test(body.rendered_sha256)
+          || createHash("sha256").update(body.rendered_content, "utf8").digest("hex") !== body.rendered_sha256) {
+        sendJson(response, 400, { error: "Review the current published agreement before accepting it." });
+        return;
+      }
+      const accepted = await supabaseRequest("/rest/v1/rpc/chowk_accept_current_staff_role_agreement", {
+        method: "POST",
+        token,
+        body: {
+          target_version: body.agreement_version_id,
+          target_sha256: body.sha256,
+          target_rendered_content: body.rendered_content,
+          target_rendered_sha256: body.rendered_sha256
+        }
+      });
+      sendJson(response, accepted.response.status, accepted.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(accepted.payload, "The staff agreement could not be accepted.") });
       return;
     }
 

@@ -274,7 +274,7 @@
   text-align: left;
 }
 
-.admin-nav-item > span {
+.admin-nav-item > .admin-nav-icon {
   width: 20px;
   color: #7e899c;
   font-size: 16px;
@@ -1694,26 +1694,16 @@
     margin: 0 4px 12px;
   }
 
-  .admin-nav-heading,
   .admin-sidebar-bottom {
     display: none;
   }
 
   .admin-nav {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: #c9ced8 transparent;
-  }
-
-  .admin-nav::-webkit-scrollbar {
-    height: 4px;
-  }
-
-  .admin-nav::-webkit-scrollbar-thumb {
-    border-radius: 4px;
-    background: #c9ced8;
+    display: grid;
+    max-height: 40vh;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    overflow-y: auto;
   }
 
   .admin-nav-group {
@@ -1721,18 +1711,21 @@
   }
 
   .admin-nav-group .admin-nav-heading {
-    display: none;
+    display: block;
+    grid-column: 1 / -1;
+    padding: 8px 4px 2px;
   }
 
   .admin-nav-item {
-    min-height: 34px;
-    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 38px;
     padding-inline: 9px;
-    font-size: 10px;
+    font-size: 11px;
   }
 
-  .admin-nav-item > span {
-    width: auto;
+  .admin-nav-item > .admin-nav-icon {
+    flex: 0 0 16px;
+    width: 16px;
     font-size: 13px;
   }
 
@@ -2003,5 +1996,135 @@
 
   .reporter-organization-fields dd {
     padding-top: 3px;
+  }
+}
+
+.admin-role-agreement-card {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.admin-role-agreement-card > .admin-primary-button {
+  justify-self: start;
+}
+
+.admin-role-agreement-terms {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdfa;
+}
+
+.admin-role-agreement-terms h3 {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.admin-role-agreement-term-list {
+  display: grid;
+  grid-template-columns: minmax(140px, .7fr) minmax(0, 1.3fr);
+  gap: 8px 14px;
+  margin: 0 0 14px;
+}
+
+.admin-role-agreement-term-list dt {
+  color: #788398;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.admin-role-agreement-term-list dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-role-agreement-wording pre {
+  max-height: 420px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fffdfa;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-role-agreement-preview-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: 760px;
+}
+
+.admin-role-agreement-preview-copy {
+  max-height: min(65vh, 680px);
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fffdfa;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-role-agreement-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: #69758b;
+  font-size: 12px;
+}
+
+.admin-role-agreement-term-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-role-agreement-term-row {
+  display: grid;
+  grid-template-columns: minmax(130px, .6fr) minmax(0, 1.4fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.admin-role-agreement-term-row input,
+.admin-role-agreement-term-row textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .admin-role-agreement-term-list {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .admin-role-agreement-term-list dd {
+    margin-bottom: 8px;
+  }
+
+  .admin-role-agreement-term-row {
+    grid-template-columns: 1fr;
   }
 }

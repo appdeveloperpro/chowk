@@ -170,7 +170,26 @@ Requires Node.js 18 or newer.
    where their foreign keys already support anonymization. Migration 0054
    requires at least one specific field request when asking an applicant for
    more information, so applications without requested changes can proceed to
-   approval. Apply 0051 through 0054 in order.
+   approval. Migration 0059 depends on `staff_onboarding` created by
+   `0058_staff_member_onboarding.sql`; do not run 0059 by itself. Apply
+   migrations 0001 through 0058 in order before applying 0059, then apply
+   0060 and 0061 in order. Migration 0059 adds moderator/editor agreement
+   setup, immutable wording versions and acceptance snapshots, and requires
+   acceptance of the currently published role agreement before staff access
+   is activated.
+   Moderator and editor agreements remain unpublished until a super admin
+   supplies and publishes their approved wording. Admins can manage structured
+   term values; only super admins can edit or publish agreement wording.
+   Migration 0060 adds safe `{{staff.*}}` and `{{terms.<key>}}` placeholders, rejects
+   unknown or unresolved placeholders at publish/accept time, and stores the
+   exact personalized agreement and SHA-256 accepted by each staff invitee.
+   Existing active moderator/editor accounts retain their current access when
+   the migration is applied; the agreement gate applies to new activations.
+   Plan a separate re-acceptance rollout for existing staff after approved
+   wording is published. Migration 0061 allows a fresh immutable acceptance
+   when corrected profile details change the personalized copy, validates that
+   copy again before activation, serializes approval with publishing and
+   acceptance, and adds a sample preview for saved drafts.
    Existing installations must run all additive migrations in order before
    deploying these features.
 4. Start the portal:

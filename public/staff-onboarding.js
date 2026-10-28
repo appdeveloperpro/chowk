@@ -2,6 +2,7 @@ const form = document.querySelector("#staff-onboarding-form");
 const statePanel = document.querySelector("#staff-onboarding-state");
 const messagePanel = document.querySelector("#staff-onboarding-message");
 const submitButton = document.querySelector("#staff-onboarding-submit");
+const agreementPanel = document.querySelector("#staff-agreement-panel");
 const photoInput = document.querySelector("#staff-profile-photo");
 const photoPreview = document.querySelector("#staff-photo-image");
 const photoPlaceholder = document.querySelector("#staff-photo-placeholder");
@@ -21,6 +22,89 @@ function showState(message, kind = "info") {
 function showFormMessage(message) {
   messagePanel.textContent = message;
   messagePanel.hidden = false;
+}
+
+function renderAgreement(agreement, role, onboardingStatus) {
+  agreementPanel.replaceChildren();
+  agreementPanel.hidden = false;
+  agreementPanel.append(
+    document.createElement("h2"),
+    document.createElement("p")
+  );
+  const heading = agreementPanel.children[0];
+  const description = agreementPanel.children[1];
+  heading.textContent = `${role.charAt(0).toUpperCase()}${role.slice(1)} agreement`;
+
+  if (!["submitted", "approved_pending_agreement"].includes(onboardingStatus)) {
+    description.textContent =
+      "Complete and submit your profile first. You can then review the agreement personalized with your details.";
+    return;
+  }
+
+  if (!agreement) {
+    description.textContent =
+      `No agreement is currently published for the ${role} role. Account activation is unavailable until a super admin publishes one.`;
+    return;
+  }
+
+  heading.textContent = `${role.charAt(0).toUpperCase()}${role.slice(1)} agreement · ${agreement.version}`;
+  description.textContent = `Published ${new Intl.DateTimeFormat("en", {
+    dateStyle: "medium"
+  }).format(new Date(agreement.published_at))}. Review the exact personalized wording below.`;
+  const wordingHeading = document.createElement("h3");
+  wordingHeading.textContent = "Published wording";
+  const wording = document.createElement("pre");
+  wording.className = "staff-agreement-copy";
+  wording.textContent = agreement.resolved_content;
+  agreementPanel.append(wordingHeading, wording);
+
+  if (agreement.accepted) {
+    const accepted = document.createElement("p");
+    accepted.setAttribute("role", "status");
+    accepted.textContent = `You accepted the currently published version ${agreement.version}.`;
+    agreementPanel.append(accepted);
+    return;
+  }
+
+  const acceptLabel = document.createElement("label");
+  acceptLabel.className = "staff-agreement-accept";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.required = true;
+  const confirmation = document.createElement("span");
+  confirmation.textContent = "I have reviewed and accept this published agreement version.";
+  acceptLabel.append(checkbox, confirmation);
+  const acceptButton = document.createElement("button");
+  acceptButton.className = "staff-submit-button";
+  acceptButton.type = "button";
+  acceptButton.disabled = true;
+  acceptButton.textContent = "Accept published agreement";
+  checkbox.addEventListener("change", () => {
+    acceptButton.disabled = !checkbox.checked;
+  });
+  acceptButton.addEventListener("click", async () => {
+    if (!checkbox.checked) return;
+    acceptButton.disabled = true;
+    acceptButton.textContent = "Recording acceptance…";
+    try {
+      await request("/api/staff/onboarding/agreement", "POST", {
+        agreement_version_id: agreement.id,
+        sha256: agreement.sha256,
+        rendered_content: agreement.resolved_content,
+        rendered_sha256: agreement.rendered_sha256
+      });
+      if (onboardingStatus === "approved_pending_agreement") {
+        window.location.replace("/workspace");
+        return;
+      }
+      renderAgreement({ ...agreement, accepted: true }, role, onboardingStatus);
+    } catch (error) {
+      showFormMessage(error instanceof Error ? error.message : "The agreement could not be accepted.");
+      acceptButton.disabled = false;
+      acceptButton.textContent = "Accept published agreement";
+    }
+  });
+  agreementPanel.append(acceptLabel, acceptButton);
 }
 
 async function request(path, method = "GET", body) {
@@ -131,12 +215,18 @@ async function loadOnboarding() {
       window.location.replace("/workspace");
       return;
     }
+    if (data.status === "rejected") {
+      agreementPanel.hidden = true;
+      showState(`This staff invitation was not approved. ${data.review_note || "Contact the administrator who invited you if you need more information."}`, "error");
+      return;
+    }
+    renderAgreement(data.agreement, data.requested_role, data.status);
     if (data.status === "submitted") {
       showState("Your profile has been submitted for review. Your account will remain limited until an administrator approves it.");
       return;
     }
-    if (data.status === "rejected") {
-      showState(`This staff invitation was not approved. ${data.review_note || "Contact the administrator who invited you if you need more information."}`, "error");
+    if (data.status === "approved_pending_agreement") {
+      showState("Your profile is approved. Accept the currently published agreement above to activate your newsroom access.");
       return;
     }
     if (!["invited", "changes_requested"].includes(data.status)) {
@@ -223,7 +313,7 @@ form.addEventListener("submit", async (event) => {
       confirm_password: form.elements.confirm_password.value
     });
     form.reset();
-    showState("Your profile is submitted. An administrator will review it before your newsroom access is activated.");
+    await loadOnboarding();
   } catch (error) {
     window.ChowkInlineFeedback?.clear(form);
     showFormMessage(error instanceof Error ? error.message : "The staff profile could not be submitted.");

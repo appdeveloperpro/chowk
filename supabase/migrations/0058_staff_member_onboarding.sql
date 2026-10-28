@@ -133,9 +133,9 @@ begin
 end;
 $$;
 
-revoke all on function public.chow_admin_create_staff_onboarding_invitation(uuid, text)
+revoke all on function public.chowk_admin_create_staff_onboarding_invitation(uuid, text)
   from public, anon;
-grant execute on function public.chow_admin_create_staff_onboarding_invitation(uuid, text)
+grant execute on function public.chowk_admin_create_staff_onboarding_invitation(uuid, text)
   to authenticated;
 
 create or replace function public.chow_submit_staff_onboarding(profile_data jsonb)
@@ -252,7 +252,7 @@ $$;
 revoke all on function public.chow_submit_staff_onboarding(jsonb) from public, anon;
 grant execute on function public.chow_submit_staff_onboarding(jsonb) to authenticated;
 
-create or replace function public.chow_admin_review_staff_onboarding(
+create or replace function public.chowk_admin_review_staff_onboarding(
   target_user uuid,
   decision text,
   review_message text default ''

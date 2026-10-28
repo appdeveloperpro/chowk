@@ -59,6 +59,83 @@
   line-height: 1.6;
 }
 
+.staff-agreement-panel {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 20px;
+  border: 1px solid #e8ebf0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.staff-agreement-panel[hidden] {
+  display: none;
+}
+
+.staff-agreement-panel h2,
+.staff-agreement-panel h3 {
+  margin: 0;
+  color: #202b40;
+}
+
+.staff-agreement-panel h2 {
+  font-size: 20px;
+}
+
+.staff-agreement-panel h3 {
+  font-size: 14px;
+}
+
+.staff-agreement-copy {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #e8ebf0;
+  border-radius: 9px;
+  background: #fbfcfe;
+  color: #354158;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.staff-agreement-terms {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.staff-agreement-terms dt {
+  color: #667287;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.staff-agreement-terms dd {
+  margin: -5px 0 6px;
+  color: #354158;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.staff-agreement-accept {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #354158;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.staff-agreement-accept button {
+  flex: 0 0 auto;
+}
+
 .staff-onboarding-spinner {
   width: 18px;
   height: 18px;

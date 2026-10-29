@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf0">
+    <title>Organization policies | CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/staff-onboarding.css">
+    <script src="/site-shell.js" defer></script>
+    <script src="/hr-policies.js" type="module"></script>
+  </head>
+  <body>
+    <div data-site-shell-header></div>
+    <main class="staff-onboarding-main">
+      <section class="staff-onboarding-intro">
+        <span class="staff-onboarding-eyebrow">CHOWK NEWS · EMPLOYEE POLICIES</span>
+        <h1>Organization policies</h1>
+        <p>Review and accept the current published policy versions assigned to employees. Your acceptance is recorded against the exact version.</p>
+        <p><a href="/organization">Open organization workspace</a></p>
+      </section>
+      <section id="hr-policy-state" class="staff-onboarding-state" aria-live="polite">
+        <span class="staff-onboarding-spinner" aria-hidden="true"></span>
+        <span>Loading current policies…</span>
+      </section>
+      <form id="hr-profile-form" class="staff-onboarding-form" hidden>
+        <section class="staff-form-card" aria-labelledby="hr-profile-heading">
+          <div class="staff-form-card-heading">
+            <span class="staff-form-step">01</span>
+            <div>
+              <h2 id="hr-profile-heading">Your employee profile</h2>
+              <p>Confirm the contact details connected to your organization account.</p>
+            </div>
+          </div>
+          <div class="staff-form-grid">
+            <label class="staff-field">
+              <span>Full name <b>*</b></span>
+              <input name="full_name" type="text" minlength="2" maxlength="120" required>
+            </label>
+            <label class="staff-field">
+              <span>Email address</span>
+              <input name="email" type="email" readonly>
+            </label>
+            <label class="staff-field">
+              <span>Phone number</span>
+              <input name="phone" type="tel" autocomplete="tel">
+            </label>
+          </div>
+          <p id="hr-profile-message" class="staff-onboarding-message" hidden></p>
+          <button class="staff-submit-button" type="submit">Save employee profile</button>
+        </section>
+      </form>
+      <section id="hr-policy-list" class="staff-agreement-panel" aria-live="polite" hidden></section>
+    </main>
+  </body>
+</html>

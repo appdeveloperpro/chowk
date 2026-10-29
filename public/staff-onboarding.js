@@ -3,6 +3,7 @@ const statePanel = document.querySelector("#staff-onboarding-state");
 const messagePanel = document.querySelector("#staff-onboarding-message");
 const submitButton = document.querySelector("#staff-onboarding-submit");
 const agreementPanel = document.querySelector("#staff-agreement-panel");
+const hrPolicyPanel = document.querySelector("#hr-policy-panel");
 const photoInput = document.querySelector("#staff-profile-photo");
 const photoPreview = document.querySelector("#staff-photo-image");
 const photoPlaceholder = document.querySelector("#staff-photo-placeholder");
@@ -94,7 +95,7 @@ function renderAgreement(agreement, role, onboardingStatus) {
         rendered_sha256: agreement.rendered_sha256
       });
       if (onboardingStatus === "approved_pending_agreement") {
-        window.location.replace("/workspace");
+        await loadOnboarding();
         return;
       }
       renderAgreement({ ...agreement, accepted: true }, role, onboardingStatus);
@@ -206,13 +207,87 @@ async function acceptInviteFromHash() {
   });
 }
 
+function renderHrPolicies(policies, onboardingStatus) {
+  hrPolicyPanel.replaceChildren();
+  hrPolicyPanel.hidden = policies.length === 0;
+  if (!policies.length) return;
+  const heading = document.createElement("h2");
+  heading.textContent = "Required organization policies";
+  hrPolicyPanel.append(heading);
+  const description = document.createElement("p");
+  description.textContent = "Review and accept the current published versions. Staff access cannot activate until every required policy is accepted.";
+  hrPolicyPanel.append(description);
+
+  policies.forEach((policyVersion) => {
+    const policy = Array.isArray(policyVersion.policy) ? policyVersion.policy[0] : policyVersion.policy;
+    const card = document.createElement("article");
+    card.className = "staff-policy-card";
+    const title = document.createElement("h3");
+    title.textContent = `${policy?.title || policy?.policy_key || "Organization policy"} · ${policyVersion.version}`;
+    const wording = document.createElement("pre");
+    wording.className = "staff-agreement-copy";
+    wording.textContent = policyVersion.content;
+    card.append(title, wording);
+    if (policyVersion.accepted_at) {
+      const accepted = document.createElement("p");
+      accepted.setAttribute("role", "status");
+      accepted.textContent = `Accepted on ${new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(policyVersion.accepted_at))}.`;
+      card.append(accepted);
+    } else {
+      const label = document.createElement("label");
+      label.className = "staff-agreement-accept";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      const text = document.createElement("span");
+      text.textContent = "I have reviewed this exact policy version and agree to it.";
+      label.append(checkbox, text);
+      const accept = document.createElement("button");
+      accept.className = "staff-submit-button";
+      accept.type = "button";
+      accept.disabled = true;
+      accept.textContent = "Accept policy";
+      checkbox.addEventListener("change", () => { accept.disabled = !checkbox.checked; });
+      accept.addEventListener("click", async () => {
+        if (!checkbox.checked) return;
+        accept.disabled = true;
+        accept.textContent = "Recording acceptance…";
+        try {
+          await request("/api/staff/hr-policies/accept", "POST", {
+            policy_version_id: policyVersion.id
+          });
+          if (onboardingStatus === "active") {
+            await loadOnboarding();
+            return;
+          }
+          policyVersion.accepted_at = new Date().toISOString();
+          renderHrPolicies(policies, onboardingStatus);
+        } catch (error) {
+          showFormMessage(error instanceof Error ? error.message : "Policy acceptance could not be recorded.");
+          accept.disabled = false;
+          accept.textContent = "Accept policy";
+        }
+      });
+      card.append(label, accept);
+    }
+    hrPolicyPanel.append(card);
+  });
+}
+
 async function loadOnboarding() {
   try {
     await acceptInviteFromHash();
     const result = await request("/api/staff/onboarding");
     const data = result.data;
+    const policyResult = await request("/api/staff/hr-policies");
+    const requiredPolicies = policyResult.data || [];
+    renderHrPolicies(requiredPolicies, data.status);
     if (data.status === "active") {
-      window.location.replace("/workspace");
+      if (requiredPolicies.every((policy) => policy.accepted_at)) {
+        window.location.replace("/workspace");
+        return;
+      }
+      agreementPanel.hidden = true;
+      showState("Your staff access is active, but current organization policies still require your review and acceptance.");
       return;
     }
     if (data.status === "rejected") {

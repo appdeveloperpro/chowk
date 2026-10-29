@@ -250,6 +250,81 @@
   gap: 3px;
 }
 
+.admin-nav-group[hidden],
+.admin-nav-item[hidden] {
+  display: none;
+}
+
+.admin-hr-permission-row,
+.admin-hr-policy-version {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, auto);
+  align-items: center;
+  gap: 8px 14px;
+  padding: 12px 0;
+  border-top: 1px solid #edf0f4;
+}
+
+.admin-hr-permission-row small {
+  grid-column: 1;
+  color: #748096;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.admin-hr-permission-row > select {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-height: 36px;
+  border: 1px solid #dfe4ec;
+  border-radius: 6px;
+  background: #fff;
+  color: #27334a;
+}
+
+.admin-hr-policy-version {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.admin-hr-policy-version .admin-dialog-help {
+  grid-column: 1 / -1;
+}
+
+.admin-hr-model-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.admin-hr-model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+  color: #27334a;
+  font-size: 13px;
+}
+
+.admin-hr-model-item > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .admin-hr-permission-row,
+  .admin-hr-policy-version {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-hr-permission-row > select {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
 .admin-nav-heading {
   padding: 4px 12px 6px;
   color: #a0a9b8;
@@ -2097,6 +2172,48 @@
 
 .admin-role-agreement-card > :last-child {
   margin-bottom: 18px;
+}
+
+.admin-organization-summary {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 10px 18px;
+  margin: 20px 0 0;
+}
+
+.admin-organization-summary dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.admin-organization-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-organization-json {
+  max-height: 260px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7f8fa;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-organization-workflow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-organization-workflow-row > span {
+  flex: 1 1 260px;
+  overflow-wrap: anywhere;
 }
 
 .admin-role-agreement-terms {

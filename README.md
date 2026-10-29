@@ -197,13 +197,126 @@ Requires Node.js 18 or newer.
    backfills Moderator/Editor role definitions, and records pending, active,
    and ended primary assignments with title/duties snapshots. Admins can add
    custom job titles mapped to the existing Moderator or Editor access profile,
-   invite staff through the same profile and agreement workflow, and reassign
-   active staff to another title using that same access profile. Custom titles
+   invite newsroom collaborators through the same profile and agreement
+   workflow, and reassign active collaborators to another title using that
+   same access profile. Custom titles
    never grant new system permissions; reporter applications remain separate.
    Role keys and access profiles are immutable after creation, and built-in
    roles cannot be deactivated.
    Existing installations must run all additive migrations in order before
-   deploying these features.
+   deploying these features. Migration 0064 introduces the configurable HR
+   foundation: departments, job positions, employee records and numbers,
+   effective-dated employee assignments, scoped access permissions, versioned
+   policies, immutable acceptance records, and safe deletion rules. Migration
+   0065 adds configurable
+   organization data models, typed fields, per-role action scopes, configurable
+   workflow transitions, optimistic record revisions, soft deletion, and
+   immutable record history. Administrators configure these models in Admin →
+   HR management → Data models; permitted employees use `/organization`. Custom
+   model rules are enforced by database functions rather than the UI.
+   Migration 0066 adds the single-organization identity, explicit employee and
+   newsroom-collaborator relationship history, organization-scoped IDs for
+   existing HR/model records, a module catalog, and reusable workflow
+   definitions. Migration 0067 adds super-admin identity/settings/module
+   configuration, organization-person access assignment, reusable workflow
+   states/transitions, workflow instances and approvals, permission lookup,
+   and organization-role enforcement for newsroom article operations. Disabled
+   modules are checked by application routes and permission lookups. The
+   generic workflow runtime is available at `/organization-workflows`; native
+   newsroom content still retains its domain-specific editorial states and
+   validation.
+   The module catalog includes optional domains such as payroll and
+   recruitment, but catalog entries do not implement those modules. Admin
+   newsroom routes and employee HR policy/profile endpoints check their module
+   state. Native article creation, editing, reading, and transitions also
+   require an active organization permission assignment; department-scoped
+   permissions do not grant newsroom article access because articles do not
+   currently carry an organization department.
+  Super admins retain full organization-configuration control; other admins
+  retain existing account-level administration. Ordinary admins do not inherit
+  organization permissions or HR access; HR access requires an active
+  organization relationship with `hr.console.access`. Used organization,
+   access, and policy records are deactivated or retired rather than erased;
+   model records retain their history. Apply migration 0064 after 0063 and
+  migration 0065 after 0064, before deploying the matching application code,
+  then apply migrations 0066, 0067, 0068, 0069, and 0070 in order. Migration 0068
+   adds organization IDs and composite foreign keys to workflow and
+   access-history rows so records cannot reference a workflow, state, role,
+   department, or relationship owned by another organization. Migration 0069
+   enforces organization scope across HR, people, policy, custom-model, and
+   configuration-history references. It checks existing references before
+   adding constraints and updates the configuration-history writers to include
+   organization scope. This scope-integrity migration does not complete the
+   architecture's separate audit-event store, notification outbox, module
+   readiness/dependency lifecycle, immutable custom-model publication
+   revisions, or second-person approval policy; those require their own
+   reviewed implementation and acceptance tests. Do not apply 0066 to
+   a database with an independently created organization identity, legacy
+   function bodies, or both legacy and canonical table names until its schema
+   has been reconciled. The migration rejects known incompatible function
+  bodies rather than leave the application calling renamed tables. Migration
+  0070 removes implicit organization-permission grants for ordinary admin
+  accounts; explicit organization access-role assignments are now required
+  for organization and HR capabilities. Apply it after 0069 and before
+  deploying the matching server code.
+
+  The generic workflow runtime currently stores a format-validated subject
+  type and ID as text; it does not resolve or bind them to authoritative
+  domain records. Starts, transitions, and approval decisions are therefore
+  blocked for newsroom, reporter, agreement, and HR modules until domain-bound
+  adapters are implemented.
+
+The HR vocabulary is intentional: a **profile** is an account/identity;
+`hr_employees` is the employment record linked to that profile (its ID is the
+profile ID), with a generated `employee_number`, `employment_type`,
+`employment_status`, `hired_on`, and `terminated_on`. An
+`hr_employee_assignments` row links an employee to a department, position,
+access role, manager employee, and dated assignment status. **Position** means
+the job in the organization; **access role** means database-enforced
+permissions. Policy acceptances reference `employee_id` and an immutable
+policy-version hash. Employment types are `full_time`, `part_time`,
+`fixed_term`, `temporary`, `intern`, or `other`; employment lifecycle states
+are `preboarding`, `active`, `suspended`, and `terminated`.
+
+The HR employee model is not a relabeling of every newsroom participant.
+Reporter applications and service agreements remain in their existing
+reporter domain; moderators/editors and other non-employees are not silently
+classified as employees. Employee policy acceptance is enforced only for HR
+employees. `newsroom.people.manage` is the catalogued newsroom people
+capability, while `hr.employee.*` governs employment records.
+
+Core tables and ownership:
+
+- `hr_departments`: `id`, unique `department_key`, `name`, `description`,
+  `parent_id`, active flag, creator, and timestamps.
+- `hr_positions`: `id`, unique `position_key`, `title`, `description`,
+  `department_id`, active flag, creator, and timestamps.
+- `hr_employees`: shared profile `id`, generated unique `employee_number`,
+  `employment_type`, `employment_status`, `hired_on`, `terminated_on`,
+  creator, and timestamps. Its shared primary key avoids duplicating account
+  identity or contact data.
+- `hr_employee_assignments`: `id`, `employee_id`, `department_id`,
+  `position_id`, `access_role_id`, `manager_employee_id`, assignment `status`,
+  `is_primary`, `starts_at`, `ends_at`, `end_reason`, `assigned_by`, and
+  timestamps. Ended assignments remain for history.
+- `hr_access_roles`, `hr_permission_catalog`, and
+  `hr_access_role_permissions`: named authorization roles, registered
+  capabilities, and each role's permission scope.
+- `hr_policy_documents`, `hr_policy_versions`, and `hr_policy_acceptances`:
+  policy metadata, immutable version content/hash, and acceptance tied to
+  `employee_id` plus the exact version.
+- `hr_custom_models`, `hr_custom_model_fields`,
+  `hr_custom_model_permissions`, and `hr_custom_model_transitions`: configured
+  record types, typed field definitions, role/action scopes, and valid state
+  changes.
+- `hr_custom_records` and `hr_custom_record_events`: validated JSON record
+  values with revision numbers and preserved change/deletion history.
+
+Employee activation is derived transactionally from assignment lifecycle
+changes: a pending assignment creates a `preboarding` employee, an active
+assignment activates the employment record after profile and policy checks,
+and ending the last current assignment terminates it. The model stores no
+payroll or sensitive identity-document data in these general HR tables.
 4. Start the portal:
 
    ```powershell
@@ -215,9 +328,9 @@ Requires Node.js 18 or newer.
    the Node.js process is responding, not that Supabase credentials or the schema
    are configured.
 
-The SQL migrations are additive, but inspect them before running; they install a trigger on
-`auth.users` to create a subscriber profile when a Supabase Auth account is
-created.
+Migrations are versioned and must be inspected before running; some rename or
+backfill existing schema and data. They also install a trigger on `auth.users`
+to create a subscriber profile when a Supabase Auth account is created.
 
 ## First admin account
 
@@ -278,12 +391,35 @@ key and authenticated user tokens.
   Agreements separates role-specific templates from per-person issued and
   accepted records. Existing role-specific tables and legal history are
   retained rather than destructively merged or reset.
-  Staff job roles are managed separately from account permissions. Admins can
+  Newsroom job titles are managed separately from account permissions. Admins can
   define newsroom titles and duties, map each title to the existing Moderator or
   Editor access profile, invite staff through the shared onboarding and agreement
   process, and preserve primary assignment changes as dated history. A custom job
   title does not add permissions; a new access profile requires separate
   authorization and workflow implementation.
+- HR management adds organization departments and positions, employee records
+  with generated employee numbers and employment lifecycle/type, configurable
+  access-role permission bundles with `all`, `department`, `assigned`, and
+  `own` scopes, employee assignment lifecycle history, and versioned required
+  policy acceptance. Super admins can configure and delegate HR access; users
+  with delegated HR access are restricted to HR endpoints. Permissions for
+  existing newsroom features are catalogued for role configuration but must
+  be connected to the corresponding newsroom authorization checks before
+  custom roles can replace the existing fixed newsroom account roles.
+- Organization model builder adds admin-defined business forms with typed and
+  validated fields, per-access-role CRUD/workflow permissions and record
+  scopes, configurable state transitions, and employee record history. Employees
+  use `/organization`; updates require the current record revision, deletes
+  are soft deletes, and data model rules are checked in database functions.
+  These custom models extend the organization with configurable records; they
+  do not replace native newsroom article, reporter, or location tables or their
+  existing fixed-role workflows.
+- The organization-platform migration adds an organization root, organization
+  relationship history for employees and newsroom collaborators, module
+  catalog metadata, and reusable workflow-definition tables. Those catalog and
+  workflow records are not yet managed through the admin UI or enforced by all
+  native modules. Optional modules listed in the catalog (for example payroll,
+  leave/attendance, and recruitment) are not implemented features.
 - System configuration includes shared locations, reporter application setup,
   and the organization legal profile used in reporter agreements; agreement
   wording and publication remain under Agreements.
@@ -418,9 +554,11 @@ public homepage category chips load active categories from the database.
 Migration 0058 adds secure moderator/editor invitations, private staff profile
 completion, Admin review, and database-enforced role activation. Apply it after
 migration 0057 and before deploying the matching application code. Staff
-invitations require `SUPABASE_SERVICE_ROLE_KEY` on the server and the
-`/staff-onboarding` URL must be included in Supabase Auth's allowed redirect
-URLs so invite links return to the profile form.
+invitations require `SUPABASE_SERVICE_ROLE_KEY` on the server. Include both
+`/staff-onboarding` and `/hr-policies` in Supabase Auth's allowed redirect URLs
+so legacy staff and HR invitations return to the correct profile and policy
+workflows. Authenticated staff use `/organization` to access the custom models
+assigned to their active HR access role.
 The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.

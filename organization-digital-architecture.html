@@ -1,0 +1,1637 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A reviewable implementation specification for Chowk's configurable organization platform, including governed AI-assisted workflows, architecture, decisions, security, acceptance criteria, delivery phases, and estimates.">
+  <title>Organization Digital Architecture | CHOWK NEWS</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17212b;
+      --muted: #566575;
+      --line: #d7e0e8;
+      --paper: #fff;
+      --wash: #f3f6f9;
+      --navy: #102b46;
+      --blue: #1769aa;
+      --cyan: #e7f4fb;
+      --green: #eaf5ee;
+      --amber: #fff4dc;
+      --red: #fff0ed;
+      --shadow: 0 14px 36px rgba(16, 43, 70, .09);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--wash);
+      color: var(--ink);
+      font: 16px/1.65 "Segoe UI", Arial, sans-serif;
+    }
+
+    a { color: #075d9d; }
+
+    .hero {
+      padding: 54px max(24px, calc((100% - 1160px) / 2)) 48px;
+      background:
+        radial-gradient(circle at 88% 18%, rgba(84, 180, 218, .24), transparent 28%),
+        linear-gradient(125deg, #102b46 0%, #174e78 66%, #18759a 100%);
+      color: #fff;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: #b9e7fa;
+      font-size: .78rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-size: clamp(2.1rem, 5vw, 3.65rem);
+      letter-spacing: -.04em;
+      line-height: 1.08;
+    }
+
+    .hero p {
+      max-width: 850px;
+      margin: 20px 0 0;
+      color: #e5f1f8;
+      font-size: 1.08rem;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 26px;
+    }
+
+    .hero-meta span {
+      padding: 7px 12px;
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px;
+      background: rgba(255,255,255,.09);
+      color: #fff;
+      font-size: .88rem;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-top: 26px;
+    }
+
+    .print-button {
+      padding: 9px 14px;
+      border: 1px solid rgba(255,255,255,.55);
+      border-radius: 8px;
+      background: rgba(255,255,255,.13);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .print-button:hover, .print-button:focus-visible {
+      background: rgba(255,255,255,.24);
+      outline: 2px solid #fff;
+      outline-offset: 2px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      gap: 28px;
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      padding: 28px 24px 64px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 18px;
+      align-self: start;
+      max-height: calc(100vh - 36px);
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .toc strong {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--navy);
+    }
+
+    .toc a {
+      display: block;
+      padding: 5px 0;
+      color: var(--muted);
+      font-size: .9rem;
+      text-decoration: none;
+    }
+
+    .toc a:hover { color: var(--blue); }
+
+    .toc details { margin-top: 8px; }
+
+    .toc summary {
+      padding: 6px 0;
+      color: var(--navy);
+      font-size: .9rem;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .toc details a { padding-left: 12px; font-size: .84rem; }
+
+    main { min-width: 0; max-width: 1100px; }
+
+    section {
+      margin: 0 0 22px;
+      padding: clamp(22px, 4vw, 38px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      scroll-margin-top: 18px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      color: var(--navy);
+      font-size: clamp(1.45rem, 3vw, 2rem);
+      letter-spacing: -.025em;
+      line-height: 1.2;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      color: #173c5c;
+      font-size: 1.12rem;
+      line-height: 1.35;
+    }
+
+    h4 {
+      margin: 0 0 7px;
+      color: var(--navy);
+      font-size: 1rem;
+    }
+
+    p { margin: 8px 0 12px; }
+
+    ul, ol { padding-left: 1.3rem; }
+
+    li { margin: 5px 0; }
+
+    .lead {
+      color: #344b5d;
+      font-size: 1.08rem;
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 16px 18px;
+      border-left: 4px solid var(--blue);
+      border-radius: 8px;
+      background: var(--cyan);
+    }
+
+    .callout.warning {
+      border-left-color: #c17a00;
+      background: var(--amber);
+    }
+
+    .callout.risk {
+      border-left-color: #bf4936;
+      background: var(--red);
+    }
+
+    .callout.success {
+      border-left-color: #328451;
+      background: var(--green);
+    }
+
+    .callout strong { color: var(--navy); }
+
+    .section-kicker {
+      margin: 0 0 6px;
+      color: #35749d;
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .workflow-card {
+      margin: 18px 0;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+    }
+
+    .workflow-card h3 { margin-top: 0; }
+
+    .workflow-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: 8px 0 12px;
+    }
+
+    .workflow-meta span {
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e8f1f8;
+      color: #174b70;
+      font-size: .78rem;
+      font-weight: 700;
+    }
+
+    .stats, .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+
+    .stat, .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+    }
+
+    .stat b {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--blue);
+      font-size: 1.25rem;
+    }
+
+    .stat span, .small { color: var(--muted); font-size: .91rem; }
+
+    .card p:last-child { margin-bottom: 0; }
+
+    .scroll-table {
+      width: 100%;
+      overflow-x: auto;
+      margin: 16px 0 20px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 700px;
+      border-collapse: collapse;
+      font-size: .93rem;
+    }
+
+    th, td {
+      padding: 11px 13px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf3f7;
+      color: #193b56;
+      font-weight: 750;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    td strong { color: var(--navy); }
+
+    .pill {
+      display: inline-block;
+      margin: 2px 3px 2px 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e8f1f8;
+      color: #174b70;
+      font-size: .79rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .flow span {
+      flex: 1 1 135px;
+      padding: 12px;
+      border: 1px solid #c9dce9;
+      border-radius: 9px;
+      background: #f4f9fc;
+      color: #183c59;
+      font-size: .91rem;
+      font-weight: 650;
+      text-align: center;
+    }
+
+    .flow i {
+      align-self: center;
+      color: #5e778b;
+      font-style: normal;
+      font-weight: 800;
+    }
+
+    .code {
+      overflow-x: auto;
+      padding: 16px;
+      border-radius: 10px;
+      background: #13283a;
+      color: #e5f1f8;
+      font: .9rem/1.6 Consolas, "Courier New", monospace;
+      white-space: pre;
+    }
+
+    .phase {
+      margin: 18px 0;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fcfdff;
+      break-inside: avoid;
+    }
+
+    .phase-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+
+    .phase-header h3 { margin: 0; }
+
+    .phase-meta {
+      color: #1769aa;
+      font-size: .9rem;
+      font-weight: 750;
+    }
+
+    .footer {
+      padding: 0 24px 38px;
+      color: var(--muted);
+      font-size: .88rem;
+      text-align: center;
+    }
+
+    @media (max-width: 920px) {
+      .layout { grid-template-columns: 1fr; }
+      .toc { position: static; max-height: none; }
+      .toc nav { columns: 2; }
+    }
+
+    @media (max-width: 650px) {
+      .hero { padding: 38px 20px; }
+      .layout { padding: 16px 12px 40px; }
+      section { padding: 21px 17px; }
+      .stats, .cards { grid-template-columns: 1fr; }
+      .toc nav { columns: 1; }
+    }
+
+    @media print {
+      body { background: #fff; font-size: 10.5pt; }
+      .hero { padding: 28px; print-color-adjust: exact; }
+      .hero-actions { display: none; }
+      .layout { display: block; width: auto; padding: 16px 0; }
+      .toc { display: none; }
+      section { margin: 0 0 14px; padding: 20px; box-shadow: none; break-inside: auto; }
+      .phase, .card, .callout { break-inside: avoid; }
+      .scroll-table { overflow: visible; }
+      table { min-width: 0; font-size: 9pt; }
+      th, td { padding: 7px; }
+      a { color: inherit; text-decoration: none; }
+      .footer { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <p class="eyebrow">CHOWK NEWS · Implementation specification baseline</p>
+    <h1>Organization Digital Architecture</h1>
+    <p>
+      A build-ready baseline for configuring the organization, people,
+      permissions, management models, operational workflows, controls, and
+      delivery—from first super-admin setup through production operations.
+    </p>
+    <div class="hero-meta">
+      <span>Planning baseline: 29 October 2026</span>
+      <span>Target: single organization, tenant-ready foundations</span>
+      <span>Indicative delivery: 14–20 weeks</span>
+      <span>Indicative budget: ₹10.0–₹16.9 lakh</span>
+      <span>Specification version: 1.2 review draft</span>
+    </div>
+    <div class="hero-actions">
+      <button class="print-button" type="button" onclick="window.print()">Print / save as PDF</button>
+      <span>Owner sign-off is required before production policy or data migration.</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="toc" aria-label="Document contents">
+      <strong>On this page</strong>
+      <nav>
+        <a href="#executive">Executive summary</a>
+        <a href="#truth">Current state and boundaries</a>
+        <a href="#principles">Architecture principles</a>
+        <a href="#structure">Digital organization structure</a>
+        <a href="#domains">Management domains</a>
+        <a href="#data">Data architecture</a>
+        <a href="#access">Identity and access</a>
+        <details>
+          <summary>End-to-end workflows</summary>
+          <a href="#workflows">Workflow overview</a>
+          <a href="#editorial-workflow">Editorial lifecycle</a>
+          <a href="#reporter-workflow">Reporter lifecycle</a>
+          <a href="#ai-workflow">AI-assisted workflows and governance</a>
+          <a href="#workflow-coverage">Workflow coverage checklist</a>
+        </details>
+        <a href="#admin">Super-admin operating journey</a>
+        <a href="#security">Security and governance</a>
+        <a href="#phases">Development phases</a>
+        <a href="#cost">Duration and cost</a>
+        <a href="#acceptance">Acceptance and release gates</a>
+        <a href="#risks">Risks and decisions</a>
+        <a href="#operations">After launch</a>
+        <a href="#baseline-decisions">V1 decisions</a>
+        <a href="#implementation-contract">Implementation contract</a>
+        <a href="#domain-specifications">Domain specifications</a>
+        <a href="#technical-contract">Technical contracts</a>
+        <a href="#nonfunctional">Non-functional requirements</a>
+        <a href="#governance">Owners and approvals</a>
+        <a href="#delivery-controls">Migration and release</a>
+      </nav>
+    </aside>
+
+    <main>
+      <section id="executive">
+        <h2>1. Executive summary</h2>
+        <p class="lead">
+          The goal is not one giant “HR table” or a screen where an administrator
+          can arbitrarily change every database field. The goal is a controlled
+          organization platform: super admins define the organization and its
+          supported modules, assign people and access, configure safe business
+          models and workflows, and review an immutable record of important actions.
+        </p>
+        <div class="stats">
+          <div class="stat"><b>One identity</b><span>Profile/login is separate from employment, reporter, or vendor relationships.</span></div>
+          <div class="stat"><b>One policy engine</b><span>Access is enforced by database permissions and server routes, not only hidden UI.</span></div>
+          <div class="stat"><b>One governed platform</b><span>Native product modules and custom models share audit, ownership, and lifecycle rules.</span></div>
+        </div>
+        <div class="callout success">
+          <strong>Recommended delivery shape:</strong> finish and verify the
+          organization foundation first; then integrate existing newsroom and
+          HR operations; then add genuinely new business modules only when
+          their requirements are approved. Do not label payroll, recruitment,
+          attendance, or accounting “complete” just because their module names
+          appear in a catalog.
+        </div>
+        <div class="cards">
+          <article class="card"><h4>What this document is</h4><p>A proposed, testable implementation baseline for one organization, built around the existing Chowk portal.</p></article>
+          <article class="card"><h4>What it is not</h4><p>It is not proof that the current code/database is production-ready, and it is not approval for payroll, legal, or privacy policy.</p></article>
+          <article class="card"><h4>How to use it</h4><p>Business owners approve the decision baseline; engineering turns the requirements and acceptance evidence into milestones and tests.</p></article>
+        </div>
+        <div class="callout">
+          <strong>Quick reading paths:</strong>
+          <ul>
+            <li><strong>Executive/business owner:</strong> Sections 1–5, 11–17, and 21.</li>
+            <li><strong>HR/newsroom owner:</strong> Sections 5–9, 16–18, and 21.</li>
+            <li><strong>Engineering/security:</strong> Sections 6–8, 10, 16–22.</li>
+            <li><strong>AI/product owners:</strong> Section 8.18, decisions D-18/D-19, and Sections 10, 17, 19, and 21.</li>
+          </ul>
+          Start with Section 16 for proposed decisions. If a default is not
+          accepted, record the alternative and its impact before building that
+          part of the system.
+        </div>
+        <p><strong>Recommended v1 scope:</strong> organization setup, access, employee HR lifecycle and policies, safe custom models, workflow foundation, and integration of the existing newsroom/reporting domains. AI is an optional, separately gated assistant capability: start with a small newsroom pilot and low-risk internal knowledge assistance; never use it as an autonomous decision-maker. New modules such as payroll remain separately scoped.</p>
+        <p>
+          The current application is a Node.js portal using Supabase Auth,
+          PostgREST, PostgreSQL, RLS/security-definer functions, and additive SQL
+          migrations. Current local work has added employee/HR foundations,
+          configurable record models, organization settings/modules/roles, and
+          a generic workflow runtime. These are development changes, not proof
+          of a deployed or fully tested production system.
+        </p>
+      </section>
+
+      <section id="truth">
+        <h2>2. Current state: honest baseline and boundaries</h2>
+        <div class="callout warning">
+          <strong>Pause point:</strong> this document is the requested planning
+          deliverable. It does not apply database migrations or continue feature
+          implementation. No production or development database was verified
+          during preparation.
+        </div>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Area</th><th>Current foundation</th><th>What still requires engineering and verification</th></tr></thead>
+            <tbody>
+              <tr><td>Portal core</td><td>Existing news portal, Node server, Supabase authentication and PostgreSQL migrations.</td><td>Reconcile the real target schema and migration history before applying the new organization migrations.</td></tr>
+              <tr><td>Employees and HR</td><td>Employee identity, assignments, departments, positions, policies, acceptance, and admin-facing work started.</td><td>Exercise complete employee lifecycle with real test accounts, prove policy enforcement, improve error handling, and reconcile older staff data without losing history.</td></tr>
+              <tr><td>Custom models</td><td>Configurable models, typed fields, permissions, transitions, revisions, and record history are represented in migration/application code.</td><td>Define safe schema limits, index/search strategy, field-level privacy, data export/retention, robust CRUD tests, and business-owner validation.</td></tr>
+              <tr><td>Organization setup</td><td>Organization identity, settings, module catalog, relationship directory, and configuration screens are in progress.</td><td>Verify migration ordering and trigger behavior on a reconciled development database; complete authenticated end-to-end testing and recovery.</td></tr>
+              <tr><td>Generic workflows</td><td>Workflow definitions, states, transitions, approvals, and runtime UI/API are being added.</td><td>Connect workflows to authoritative domain records; enforce specific state invariants; test concurrency, delegation, stale approvals, and notification/retry behavior.</td></tr>
+              <tr><td>Authorization</td><td>Permission catalog and role-assignment foundations exist; article workflows have started integration.</td><td>Audit every API, RPC, RLS policy, storage path, and UI route. Legacy fixed-role logic remains in parts of the portal and other newsroom domains.</td></tr>
+              <tr><td>Optional modules</td><td>Some prospective modules may be catalogued as future domains.</td><td>Recruitment, payroll, attendance, accounting, assets, learning, and performance require separate, approved implementation scope. Cataloging is not implementation.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Treat migrations 0064–0070 as unverified development source until the
+          current remote schema, applied migration versions, Supabase functions,
+          and existing data have been inspected and reconciled. Use a disposable
+          or backed-up staging project first. Never run schema-renaming or
+          backfill migrations directly against production without a rehearsed
+          rollback/recovery plan.
+        </p>
+      </section>
+
+      <section id="principles">
+        <h2>3. Architecture principles and operating rules</h2>
+        <div class="cards">
+          <article class="card"><h4>Clear domain ownership</h4><p>Employment records belong to HR; reporter credentials and coverage belong to newsroom operations; an account/profile represents identity. The same person may have multiple relationships without duplicate login identities.</p></article>
+          <article class="card"><h4>Configuration is bounded</h4><p>Admins configure supported entities, fields, access, and transitions. They do not execute arbitrary SQL, create unsafe code, or override platform-level invariants from a form.</p></article>
+          <article class="card"><h4>Fail closed</h4><p>Unknown permission, disabled module, inactive role, or invalid lifecycle transition denies the operation. User-facing errors explain what action is needed; server logs preserve diagnostic detail.</p></article>
+          <article class="card"><h4>Audit before convenience</h4><p>Capture actor, target, time, reason, old/new values where safe, request/correlation ID, and revision for access, lifecycle, settings, workflow, and sensitive-data changes.</p></article>
+          <article class="card"><h4>Version configuration</h4><p>Published policies and workflow/model configurations are versioned. New rules should not rewrite the historical basis for a prior approval or employee acceptance.</p></article>
+          <article class="card"><h4>Delete with retention awareness</h4><p>Prefer deactivate, archive, or end-date. Hard deletion is limited to unused drafts or legally approved erasure; preserve audit records and referential integrity.</p></article>
+        </div>
+        <div class="callout">
+          <strong>Recommended scope:</strong> deliver a single-organization
+          application with an explicit organization ID on organization-owned
+          records and strict organization scoping in all queries. This gives
+          clean boundaries and a possible future path to multi-tenant SaaS,
+          without pretending that one deployment is already a tested
+          multi-tenant product.
+        </div>
+      </section>
+
+      <section id="structure">
+        <h2>4. Digital organization structure: from root to individual record</h2>
+        <p>Use a stable hierarchy of concepts. Do not overload “role” to mean job title, department, account type, or permission.</p>
+        <div class="code">Organization
+├── Organization identity, legal profile, locales, settings, policies
+├── Structure
+│   ├── Departments / teams (parent-child)
+│   ├── Positions / job titles (what work is done)
+│   └── Reporting relationships (who reports to whom)
+├── People directory
+│   ├── Account / profile (authentication and contact identity)
+│   ├── Employee relationship (employment lifecycle and assignments)
+│   ├── Reporter relationship (approval, credentials, coverage, agreement)
+│   ├── Newsroom collaborator relationship (editor/moderator/publisher)
+│   └── Other supported people (contractor/vendor/volunteer, if approved)
+├── Access
+│   ├── Access roles (permission bundles)
+│   ├── Permissions (named actions)
+│   ├── Scope rules (organization / department / assigned / own)
+│   └── Exceptions, expiry, review, and audit history
+├── Management modules
+│   ├── Native modules (HR, newsroom, reporters, media, locations, ...)
+│   └── Admin-defined models (bounded custom data types and rules)
+└── Operations
+    ├── Workflow definitions, instances, approvals, notifications
+    ├── Audit/event history and reports
+    └── Retention, exports, backups, and monitoring</div>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Term</th><th>Meaning</th><th>Example</th><th>Must not be confused with</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Profile</strong></td><td>One account and identity used to authenticate.</td><td>Name, email, phone, auth ID.</td><td>Employment status or permissions.</td></tr>
+              <tr><td><strong>Relationship</strong></td><td>A person's association with the organization in a specific capacity.</td><td>Employee, reporter, contractor.</td><td>A second login or a job title.</td></tr>
+              <tr><td><strong>Department</strong></td><td>A structural unit or team; may have a parent.</td><td>Editorial → Investigations.</td><td>Permission role.</td></tr>
+              <tr><td><strong>Position</strong></td><td>A job performed by an employee.</td><td>Senior Reporter.</td><td>Access role, even if mapped to one.</td></tr>
+              <tr><td><strong>Assignment</strong></td><td>A time-bounded placement of a person in a department/position/reporting line.</td><td>Employee assigned to Editorial from a start date.</td><td>Permanent identity data.</td></tr>
+              <tr><td><strong>Access role</strong></td><td>A named, reusable bundle of permissions and scopes.</td><td>HR administrator.</td><td>Job title or department.</td></tr>
+              <tr><td><strong>Module</strong></td><td>A product capability that has its own routes, data, and enablement rules.</td><td>Human resources.</td><td>A label alone in a catalog.</td></tr>
+              <tr><td><strong>Management model</strong></td><td>A supported configurable record type with validated fields/actions.</td><td>Travel request.</td><td>Arbitrary database schema or code execution.</td></tr>
+              <tr><td><strong>Workflow</strong></td><td>A governed set of state transitions and optional approvals for a record.</td><td>Draft → Submitted → Approved.</td><td>A UI-only status dropdown.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="domains">
+        <h2>5. Management domains the organization needs</h2>
+        <p>Build a coherent platform around current organizational needs. Implement each domain only to its validated acceptance scope; do not activate a placeholder module as if it were a working product.</p>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Domain</th><th>Core capabilities</th><th>Important records</th><th>Priority</th></tr></thead>
+            <tbody>
+              <tr><td>Organization administration</td><td>Identity, legal/operating profile, locale/timezone/currency, settings, configuration history, organization lifecycle.</td><td>Organization, setting and revision, configuration event.</td><td>Foundation</td></tr>
+              <tr><td>Structure directory</td><td>Department trees, positions, manager relationships, effective dates, deactivation and history.</td><td>Department, position, assignment.</td><td>Foundation</td></tr>
+              <tr><td>People and access</td><td>Profiles, relationships, invitation, access assignment, scope, expiry, access review, account suspension.</td><td>Profile, organization person, access role, permission grant, access event.</td><td>Foundation</td></tr>
+              <tr><td>Human resources</td><td>Employee lifecycle, employment assignments, HR policies, acceptance, onboarding/offboarding, employee self-service.</td><td>Employee, assignment, policy, version, acceptance.</td><td>Foundation/current portal</td></tr>
+              <tr><td>Newsroom and editorial</td><td>Articles, category, review queues, edit revisions, publication/scheduling, editorial audit.</td><td>Article, revision, workflow event, category.</td><td>Current portal integration</td></tr>
+              <tr><td>Reporter operations</td><td>Application, identity verification, agreement, credential lifecycle, location/coverage assignment, termination.</td><td>Application, reporter profile, agreement version, coverage assignment.</td><td>Current portal integration</td></tr>
+              <tr><td>Media, locations, moderation</td><td>Secure media metadata/storage; geographic hierarchy; comments/reports and moderation queue.</td><td>Media object, location/mapping, comment, report, decision.</td><td>Current portal integration</td></tr>
+              <tr><td>Custom management models</td><td>Admin-configured bounded record types, fields, list/detail forms, access, validated transitions, history.</td><td>Model definition/version, field definition, record/revision/event.</td><td>Foundation; controlled</td></tr>
+              <tr><td>Notifications and tasks</td><td>In-app/email delivery, reminders, retries, deduplication, user preferences, delivery status.</td><td>Notification, delivery attempt, task/outbox event.</td><td>Foundation support</td></tr>
+              <tr><td>Audit, reporting and exports</td><td>Searchable admin audit, operational dashboards, approved exports, retention and legal holds.</td><td>Audit event, saved report definition, export job.</td><td>Foundation support</td></tr>
+              <tr><td>Recruitment</td><td>Requisitions, candidate pipeline, interview feedback, offer, conversion into employee invitation.</td><td>Requisition, candidate, interview, offer.</td><td>Separate phase if needed</td></tr>
+              <tr><td>Attendance and leave</td><td>Schedules, attendance corrections, leave balances, policies, manager approval, payroll export.</td><td>Shift, time entry, leave request, balance ledger.</td><td>Separate phase; clarify local rules</td></tr>
+              <tr><td>Payroll and finance</td><td>Compensation, tax/statutory handling, payroll run, approvals, payslip, accounting export.</td><td>Compensation, payroll run/item, payment record.</td><td>Separate high-risk product scope</td></tr>
+              <tr><td>Assets, expenses, learning, performance</td><td>Custody, expense claim/reimbursement, training, review cycles and goals.</td><td>Asset assignment, claim, course, review.</td><td>Separate prioritized modules</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout risk">
+          Payroll, statutory compliance, tax, employment contracts, identity
+          document handling, and retention need jurisdiction-specific legal and
+          accounting review. This technical plan is not legal, tax, or HR advice.
+        </div>
+      </section>
+
+      <section id="data">
+        <h2>6. Data architecture and naming contract</h2>
+        <h3>6.1 Core relational model</h3>
+        <div class="code">organizations
+  ├─ organization_settings → setting revisions / events
+  ├─ hr_departments → hr_positions
+  ├─ profiles (auth identity)
+  │    └─ organization_people (relationship + organization scope)
+  │         ├─ access_role_id → organization_access_roles
+  │         │                    └─ role_permissions → permission_catalog
+  │         └─ relationship lifecycle / source reference
+  ├─ hr_employees (profile-linked employment record)
+  │    ├─ hr_employee_assignments → department, position, manager, access role
+  │    ├─ hr_policy_documents → immutable policy versions
+  │    └─ hr_policy_acceptances → employee + exact version + timestamp
+  ├─ organization_module_catalog → organization_modules → config versions
+  ├─ organization_models → fields, permissions, transitions
+  │    └─ organization_records → revisions / immutable events
+  └─ organization_workflows → states, transitions
+       └─ workflow_instances → events + approval requests</div>
+        <h3>6.2 Naming and identity rules</h3>
+        <ul>
+          <li>Use stable UUID primary keys for domain rows; use readable employee numbers and reporter IDs as unique display/business identifiers, not foreign keys.</li>
+          <li>Use `employee_id` for the HR person reference and `manager_employee_id` for a manager relationship. Do not call employee rows “staff”. Existing newsroom “staff” tables must be migrated deliberately, not renamed blindly.</li>
+          <li>Use `profile_id`/`person_id` for account identity references where the concept is a person, `organization_id` on organization-owned records, and explicit source type/ID for traceable synchronization.</li>
+          <li>Keep department, position, access role, permission, and employment status as distinct fields/concepts.</li>
+          <li>Use immutable or append-only event tables for policy acceptance, access changes, approval decisions, and important configuration revisions.</li>
+          <li>Use `created_at`, `updated_at`, `created_by`, `updated_by`, `starts_at`, `ends_at`, and explicit lifecycle status consistently. Enforce valid status/date combinations with constraints or transaction functions.</li>
+          <li>Use database constraints and unique indexes for rules that must remain true under concurrent requests. Do not rely on browser validation.</li>
+        </ul>
+        <h3>6.3 Custom-model safety envelope</h3>
+        <p>
+          Admin-defined models should use metadata plus typed JSON records only
+          inside an explicit product envelope: allowed field types, field-count
+          and payload-size limits, required/indexed fields, permitted reference
+          types, field visibility, validation rules, export behavior, retention,
+          versioning, and role-scoped CRUD. Reject executable expressions,
+          arbitrary SQL, unsafe HTML, and references that cross organization
+          boundaries. Native employee, payroll, reporter, and article records
+          remain native relational domains where integrity or law requires them.
+        </p>
+      </section>
+
+      <section id="access">
+        <h2>7. Identity, access control, and role assignment</h2>
+        <h3>7.1 Authorization decision</h3>
+        <p>An access decision is based on the authenticated actor, active organization relationship, active role and grant, module state, requested action, target record, and scope. Every layer must agree.</p>
+        <div class="code">allow(actor, action, resource) =
+  authenticated(actor)
+  AND relationship_is_active(actor, resource.organization_id)
+  AND module_is_enabled(resource.module)
+  AND role_is_active(actor, resource.module)
+  AND permission_is_active(action)
+  AND grant_contains(role, action)
+  AND scope_matches(actor, resource, action)
+  AND lifecycle_transition_is_valid(resource, action)</div>
+        <h3>7.2 Roles and scope</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Scope</th><th>Meaning</th><th>Example</th><th>Required data support</th></tr></thead>
+            <tbody>
+              <tr><td>Organization-wide</td><td>All records in the authorized organization/module.</td><td>Super-admin configuration or explicitly delegated organization-wide manager.</td><td>organization_id and active membership.</td></tr>
+              <tr><td>Department</td><td>Records whose department is within an allowed department boundary.</td><td>Department HR partner views employees in that department.</td><td>Department ownership on each protected record; ancestor rules defined.</td></tr>
+              <tr><td>Assigned</td><td>Records explicitly assigned to the actor or covered by a valid delegation rule.</td><td>Reviewer works their queue.</td><td>Assignee/coverage and date-effective assignment.</td></tr>
+              <tr><td>Own</td><td>Actor's own record(s), constrained by record ownership.</td><td>Employee updates their own contact details or policy acknowledgement.</td><td>Owner ID; sensitive fields remain separately protected.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>7.3 Super-admin controls and guardrails</h3>
+        <ul>
+          <li>Bootstrap one verified super-admin through a controlled server-side procedure; require MFA, strong recovery, and a documented break-glass process.</li>
+          <li>Super admin can configure organization identity, structure, modules, access role catalog, permission assignments, policies, and supported workflows.</li>
+          <li>Do not allow removal/deactivation of the last active super-admin without first promoting and verifying a replacement.</li>
+          <li>Role changes affecting the acting user, service accounts, or privileged accounts should require step-up authentication and an audit reason.</li>
+          <li>Use least privilege for ordinary administrators. “Admin dashboard access” must not silently mean “all personal data access”.</li>
+          <li>Access assignment must not exceed the actor's delegation authority except for the protected super-admin operation. Log both requested and effective grants.</li>
+          <li>On termination/suspension, revoke sessions/tokens where supported, disable relationships and assignments, remove access grants, preserve records, and notify owners.</li>
+        </ul>
+        <div class="callout warning">
+          Permission labels and route middleware are not enough. Verify authorization
+          in server routes, security-definer database functions, row-level
+          policies, storage policies, scheduled jobs, and direct PostgREST access.
+        </div>
+      </section>
+
+      <section id="workflows">
+        <h2>8. End-to-end workflows</h2>
+
+        <h3>8.1 Initial organization bootstrap</h3>
+        <div class="flow"><span>Provision project and secure secrets</span><i>→</i><span>Reconcile schema and migration history</span><i>→</i><span>Create organization root</span><i>→</i><span>Verify super-admin</span><i>→</i><span>Run setup checklist</span><i>→</i><span>Publish baseline</span></div>
+        <ol>
+          <li>Provision a staging Supabase project and application environment; confirm backups, auth email configuration, storage bucket policies, and secret management.</li>
+          <li>Inspect the actual schema, applied migrations, existing profiles, staff/reporter records, triggers, RLS policies, and storage objects. Produce a reviewed migration/backfill plan.</li>
+          <li>Create the organization identity, primary locale/timezone/currency, legal-contact profile, and default configuration revision. Verify legal values rather than using demo defaults.</li>
+          <li>Promote/verify the initial super-admin through the bootstrap command; enforce MFA/recovery and record the bootstrap event.</li>
+          <li>Complete setup checklist: organization profile, departments/positions, access roles, enabled modules, policies, notification channels, retention, and first admin review.</li>
+          <li>Publish configuration only after required settings validate. Keep an export/snapshot and change log for the initial version.</li>
+        </ol>
+        <p><strong>Failure path:</strong> setup is resumable and idempotent. A partial setup shows exactly which prerequisites remain; it must not create duplicate organizations or silently elevate the first ordinary signup.</p>
+
+        <h3>8.2 Configure structure and management</h3>
+        <div class="flow"><span>Create department tree</span><i>→</i><span>Define positions</span><i>→</i><span>Map permissions to roles</span><i>→</i><span>Assign accountable owners</span><i>→</i><span>Validate module readiness</span></div>
+        <ol>
+          <li>Create top-level departments, then child teams; prevent cycles, invalid parents, and deleting a department with active dependencies.</li>
+          <li>Define positions with clear title, department applicability, job description, and effective status. A position is not a permission.</li>
+          <li>Define access roles by responsibility; attach only supported permission keys and allowed scope. Show a “who can do what” preview before saving.</li>
+          <li>Assign module owners and workflow approvers. Require a second approver for selected high-impact changes if the organization chooses separation of duties.</li>
+          <li>Run a readiness check for orphaned roles, unassigned permissions, missing owners, inactive modules, and unresolved workflow configurations.</li>
+        </ol>
+
+        <h3>8.3 Employee lifecycle</h3>
+        <div class="flow"><span>Authorized invitation</span><i>→</i><span>Identity verified</span><i>→</i><span>Preboarding</span><i>→</i><span>Assignment and access</span><i>→</i><span>Policy acknowledgement</span><i>→</i><span>Active employment</span><i>→</i><span>Change, suspend, or exit</span></div>
+        <ol>
+          <li>HR creates an employee invitation with approved email, employment type, planned start date, manager, department, position, and proposed access role.</li>
+          <li>Invitee verifies identity using the controlled invite flow and sets credentials. The account profile and HR employee relationship remain separate records with linked IDs.</li>
+          <li>Employee enters preboarding; the system provisions only the minimum required access. No privileged role is activated merely because an invite was accepted.</li>
+          <li>HR completes required fields, assignments, equipment/access checklist where implemented, and assigns policy versions. The employee reads and accepts the exact published version; record immutable evidence.</li>
+          <li>Authorized manager/HR approves activation. System checks all requirements transactionally, creates effective assignment, enables the role, and records the actor and timestamp.</li>
+          <li>For transfer/promotion, close the previous assignment with a reason and date; add the new assignment; recalculate access; preserve historical snapshots.</li>
+          <li>For suspension or termination, set effective dates, revoke access, cancel outstanding sessions/invitations, hand off approvals, retain lawful records, and produce an offboarding audit packet.</li>
+        </ol>
+
+        <h3 id="reporter-workflow">8.4 Reporter / external newsroom collaborator lifecycle</h3>
+        <div class="flow"><span>Application or invitation</span><i>→</i><span>Review and verification</span><i>→</i><span>Agreement issued</span><i>→</i><span>Exact version accepted</span><i>→</i><span>Credentials and coverage</span><i>→</i><span>Renew, suspend, or revoke</span></div>
+        <ol>
+          <li>Applicant creates an account/application; intake validates required fields, consent/accuracy declaration, allowed masked documents, and preferred coverage. Submission is not reporter approval.</li>
+          <li>Reporter operations reviews identity, documents, qualifications, conflicts, and coverage; each request-for-information, resubmission, rejection, or approval has an actor, reason, and history.</li>
+          <li>After approval, authorized admin verifies the organization's legal profile, generates the exact service-agreement version, previews it, and issues it through a private, expiring delivery channel.</li>
+          <li>Applicant accepts the exact issued PDF/version; hash, version, actor, and timestamp are recorded. Credentials are not issued before the required agreement/authority steps complete.</li>
+          <li>Admin issues a unique reporter credential/ID, activates the reporter relationship, and assigns valid coverage. Coverage must be active in the location hierarchy and effective dates may not overlap improperly.</li>
+          <li>Renewal or change requires explicit new assignment/agreement version as policy requires. Expiry, suspension, termination, or application deletion revokes access and credentials while preserving required evidence.</li>
+          <li>Editors/moderators/publishers are newsroom collaborator relationships. They receive only the access role needed for the job; do not silently create an employee record unless a separate employment process says so.</li>
+        </ol>
+        <p><strong>Failure paths:</strong> missing/invalid documents return the application to a named state with an applicant-visible request; agreement delivery failure retries without marking acceptance; coverage conflict blocks credential activation; revocation blocks the next protected operation.</p>
+
+        <h3 id="editorial-workflow">8.4a Article editorial lifecycle</h3>
+        <div class="flow"><span>Draft by reporter/editor</span><i>→</i><span>Submit + coverage check</span><i>→</i><span>Moderator review</span><i>→</i><span>Editor review</span><i>→</i><span>Schedule / publish</span><i>→</i><span>Correct / archive</span></div>
+        <ul>
+          <li><strong>Draft:</strong> author creates/edits within assigned coverage and required fields. Each edit creates a revision; media/category/location references must be active and authorized.</li>
+          <li><strong>Submit:</strong> verify minimum content, reporter status/credential, active assignment, coverage, category, location, and module state. Submission records timestamp and routes to the eligible queue.</li>
+          <li><strong>Moderator:</strong> assigned moderator may start review, request changes, reject with reason, or send to editor. Assignment/coverage rules are rechecked at action time.</li>
+          <li><strong>Editor/publisher:</strong> review, return with reason, schedule for a future time, publish, unschedule, or archive according to the permission key and allowed current state.</li>
+          <li><strong>Scheduled job:</strong> immediately before publishing, re-check article revision/state, module, category/location status, author/approvals, and scheduled time. Job is idempotent and emits an immutable event.</li>
+          <li><strong>Correction after publication:</strong> create a new revision and correction reason; retain the prior published version and record who authorized the correction. Never silently replace the audit history.</li>
+        </ul>
+        <p><strong>Failure paths:</strong> stale revision returns conflict and reload; invalid coverage blocks submit/review; publisher/job outage preserves scheduled state and retries; a disabled newsroom pauses publication; public read policy only exposes currently published and enabled content.</p>
+
+        <h3>8.4b Access to a record under review (owner and delegation)</h3>
+        <p>Every review item has one accountable owner or queue plus a permissible coverage/department scope. A manager may delegate only to an active, eligible user for a bounded date range. Delegation records grantor, delegate, resource scope, reason, expiry, and revocation. Delegation cannot transfer super-admin, unrestricted export, or legal-hold authority. On leave/termination, unowned items enter a visible reassignment queue; no silent reassignment grants broader access.</p>
+
+        <h3>8.5 Admin-configured management model</h3>
+        <div class="flow"><span>Choose supported model type</span><i>→</i><span>Define fields and validation</span><i>→</i><span>Set access and scope</span><i>→</i><span>Define transitions/approvals</span><i>→</i><span>Preview and test</span><i>→</i><span>Publish version</span><i>→</i><span>Operate and audit</span></div>
+        <ol>
+          <li>Admin creates a model such as Travel Request, names its owner, retention policy, and sensitivity classification.</li>
+          <li>Select allowed fields (text, number, date, boolean, single/multi choice, approved relationship, attachment reference); define required, length/range, uniqueness, and visibility rules.</li>
+          <li>Define list/read/create/update/archive permissions per role and scope; define field-level visibility for sensitive values where required.</li>
+          <li>Define valid states, transitions, transition permissions, required reason, approver count, and any SLA/reminder. No free-form executable expressions.</li>
+          <li>Preview create/edit/list screens; run validation examples; show the effective permission matrix; require a publish confirmation and version increment.</li>
+          <li>Records reference the published model version, keep revisions and state events, and obey organization boundaries. Model changes cannot corrupt old record history.</li>
+          <li>Retire a model only after reviewing active records, integrations, exports, workflow approvals, and retention. Archive rather than cascade-delete used data.</li>
+        </ol>
+
+        <h3>8.6 Workflow and approval lifecycle</h3>
+        <div class="flow"><span>Start with valid subject</span><i>→</i><span>Initial state</span><i>→</i><span>Authorized transition</span><i>→</i><span>Approval pending, if configured</span><i>→</i><span>Decision and revision check</span><i>→</i><span>State change + immutable event</span><i>→</i><span>Notification/outbox</span></div>
+        <ul>
+          <li>The current generic runtime stores a format-validated subject type and ID as text; it does not resolve or bind them to authoritative domain records. Starts, transitions, and approval decisions are blocked for newsroom, reporter, agreement, and HR modules until a foreign key or validated domain adapter exists. Other generic instances are non-authoritative tracking, not enforcement for critical records.</li>
+          <li>At transition, lock or compare expected revision; validate current state, target state, permission, scope, module, required reason, and approval policy in one transaction.</li>
+          <li>Approval requests are unique per pending action, assigned to eligible approvers, expire or become stale safely, and cannot be approved by the requester where separation is required.</li>
+          <li>Write the state change and immutable audit event atomically. Use an outbox for notifications so delivery failure does not roll back an approved business action.</li>
+          <li>Do not let generic workflow configuration bypass hard domain invariants such as reporter credential requirements, employment termination controls, or article publication validation.</li>
+        </ul>
+
+        <h3>8.7 Deletion, correction, and records handling</h3>
+        <ul>
+          <li>Unused drafts: hard-delete only when no dependent record, acceptance, approval, or audit retention rule applies.</li>
+          <li>Used departments, positions, roles, models, policies, and modules: deactivate/retire; preserve references and history.</li>
+          <li>Employee/reporting relationships: end-date with reason; do not delete the person's identity to remove access.</li>
+          <li>Personal data correction: update the authoritative field, record actor/reason, preserve legally required evidence, and avoid copying sensitive values into general audit logs.</li>
+          <li>Legal erasure requests: route through a documented privacy process with retention/legal-hold checks, controlled anonymization, and proof of completion.</li>
+        </ul>
+
+        <h3>8.8 Access request, approval, and periodic review</h3>
+        <div class="flow"><span>Request access with purpose and expiry</span><i>→</i><span>Manager validates job need</span><i>→</i><span>Data/module owner approves scope</span><i>→</i><span>System checks delegation and conflicts</span><i>→</i><span>Grant with expiry + audit</span><i>→</i><span>Quarterly recertification</span><i>→</i><span>Revoke or renew</span></div>
+        <ol>
+          <li>Employee or manager requests a named role/permission, scope, business purpose, start date, and end date; requests cannot be for arbitrary permissions outside the catalog.</li>
+          <li>Manager confirms job need. The protected data/module owner confirms the requested scope. High-impact grants follow the second-person rule in D-09.</li>
+          <li>The system rejects inactive users, disabled modules, invalid departments, self-approval, privilege escalation by an unauthorized delegator, and grants without an expiry where policy requires one.</li>
+          <li>On approval, write the grant and immutable event atomically; notify requester and owner. Grant becomes effective at the approved time and expires automatically.</li>
+          <li>At least quarterly, each manager/module owner reviews a roster of active grants with last-used time and relationship/assignment status. Decisions are renew, narrow, revoke, or investigate.</li>
+          <li>Unreviewed high-risk grants are not silently left active: escalate to owner; after the configured grace period (proposed: 14 days), suspend the grant and notify the user.</li>
+        </ol>
+        <p><strong>Evidence:</strong> request, business purpose, requester, approvers, permission/scope, effective/expiry time, before/after grant, notification outcome, and review decision. Failure to notify does not undo a valid grant; the outbox retries and alerts the owner.</p>
+
+        <h3>8.9 Department, position, or manager change</h3>
+        <div class="flow"><span>Propose change + effective date</span><i>→</i><span>Impact preview</span><i>→</i><span>Owner approval</span><i>→</i><span>Close old assignment</span><i>→</i><span>Create new assignment</span><i>→</i><span>Recompute access</span><i>→</i><span>Notify affected owners</span></div>
+        <ol>
+          <li>Authorized HR user selects person, new department/position/manager, effective time, reason, and whether access should change.</li>
+          <li>Preview reports direct and inherited department scope effects, current/pending approvals, record ownership, manager delegation, policy applicability, and grants that will be gained/lost.</li>
+          <li>Validate the manager is active and not the employee; validate the department tree has no cycle; reject overlapping primary assignments and invalid effective dates.</li>
+          <li>At the effective timestamp, close the prior assignment and create the new version without erasing history. Recompute grants using the approved assignment model.</li>
+          <li>Reassign approval queues and owned records explicitly; do not silently transfer confidential records. Notify employee, old/new manager, HR, and module owners as applicable.</li>
+        </ol>
+        <p><strong>Failure path:</strong> transaction rolls back if assignment or grant recalculation fails. If an external notification fails after commit, retain the committed assignment and retry notification through the outbox.</p>
+
+        <h3>8.10 Module readiness, enablement, disablement, and resume</h3>
+        <div class="flow"><span>Module planned</span><i>→</i><span>Owner + controls assigned</span><i>→</i><span>Readiness evidence passes</span><i>→</i><span>Super-admin requests enable</span><i>→</i><span>Second approval if required</span><i>→</i><span>Enable and smoke-test</span></div>
+        <ol>
+          <li>Module owner supplies implemented version, dependencies, permissions, data classification, retention, support contact, readiness tests, and operational runbook.</li>
+          <li>System shows readiness separately from the desired enabled flag. Block enablement when code version, required migration, dependency, owner, or acceptance evidence is missing.</li>
+          <li>Before enablement, preview affected routes, existing data, jobs, roles, and public surfaces. Confirm configuration validation and owner sign-off.</li>
+          <li>On disablement, block ordinary reads/writes according to D-11, pause jobs/approvals, retain records, emit an audit event, and alert the module owner. Security/administrative alerts continue.</li>
+          <li>To resume, verify code/schema version, data integrity, pending queues, deadlines, external integrations, and overdue scheduled actions. Require an explicit resume preview; do not auto-run stale work.</li>
+        </ol>
+        <p><strong>Emergency disable:</strong> a super-admin may immediately disable a module for active risk. It records a reason, alerts security and the module owner, and opens an incident review. Re-enable requires a second approver and a documented corrective action.</p>
+
+        <h3>8.11 Policy drafting, review, publication, and acknowledgement</h3>
+        <div class="flow"><span>Owner drafts</span><i>→</i><span>HR/legal review</span><i>→</i><span>Applicability and impact check</span><i>→</i><span>Publish immutable version</span><i>→</i><span>Notify affected people</span><i>→</i><span>Collect exact-version acceptance</span><i>→</i><span>Escalate overdue cases</span></div>
+        <ol>
+          <li>Policy owner creates a draft with purpose, effective date, owner, audience selector, acknowledgement requirement, renewal trigger, and prior-version relationship.</li>
+          <li>HR/legal reviewer approves content and retention basis. A policy cannot be published with placeholder legal/company details or an empty audience.</li>
+          <li>Before publish, preview who is included/excluded, who will be re-prompted, and what workflows/actions will be blocked if acknowledgement is mandatory.</li>
+          <li>Publish creates an immutable version and content hash. Notify affected employees through the outbox; keep delivery state separate from acceptance state.</li>
+          <li>Employee accepts the exact version while authenticated; record version/hash, actor, time, and evidence. A newer version creates a new requirement only for its configured audience.</li>
+          <li>Overdue acknowledgement escalates to manager/HR after configured intervals. Block only explicitly named actions (proposed default: sensitive HR self-service or activation readiness), not unrelated public/newsroom access.</li>
+        </ol>
+
+        <h3>8.12 Account recovery, suspected compromise, and security incident</h3>
+        <div class="flow"><span>Detect or receive report</span><i>→</i><span>Open incident + severity</span><i>→</i><span>Contain account/module/session</span><i>→</i><span>Preserve evidence</span><i>→</i><span>Investigate and notify owners</span><i>→</i><span>Recover safely</span><i>→</i><span>Post-incident review</span></div>
+        <ol>
+          <li>Reporter or monitoring creates an incident record with reporter, time, affected identity/module/data, evidence references, and a severity. Proposed levels: Sev-1 active sensitive-data exposure/service-wide compromise; Sev-2 privileged account compromise or major module outage; Sev-3 contained single-user issue; Sev-4 request/minor defect.</li>
+          <li>On-call security owner acknowledges proposed Sev-1/2 within 30 minutes during declared coverage hours; outside those hours, publish the actual support coverage and response commitment before launch.</li>
+          <li>Contain by revoking sessions, suspending affected relationship, rotating compromised secrets, pausing risky integrations/module, or restricting access. Record every emergency action and actor.</li>
+          <li>Preserve audit/log evidence with restricted access and chain-of-custody metadata. Do not copy passwords, tokens, or sensitive document contents into incident comments.</li>
+          <li>Recovery uses independently verified identity, reissued credentials/MFA, reviewed permissions, and a test of affected business functions. Restore access minimally; do not re-enable old grants automatically.</li>
+          <li>Security/privacy/legal owner determines notification obligations. Close incident only with root cause, impact, remediation, residual risk, and follow-up owner/date.</li>
+        </ol>
+        <p><strong>Account recovery:</strong> use the identity provider's verified recovery process. A super-admin must never set/read a user's password or bypass identity verification. Break-glass access is separate, time-bounded, alerted, and reviewed next business day.</p>
+
+        <h3>8.13 Sensitive-data access, export, correction, and erasure</h3>
+        <div class="flow"><span>Authenticated subject or authorized requester</span><i>→</i><span>Verify identity and authority</span><i>→</i><span>Privacy owner classifies request</span><i>→</i><span>Check scope, retention, legal hold</span><i>→</i><span>Approve minimal action</span><i>→</i><span>Execute + verify</span><i>→</i><span>Record outcome</span></div>
+        <ol>
+          <li>Create a tracked request with request type (access, correction, export, deletion/restriction), identity verification result, jurisdiction, due date, and assigned privacy owner.</li>
+          <li>Locate data across profile, HR, reporter, media/document storage, audit, exports, and backups using a controlled inventory. Do not expose unrelated people's data.</li>
+          <li>Check statutory/business retention and legal holds. Legal/privacy owner decides whether to provide, correct, restrict, anonymize, or reject a requested deletion and records the basis.</li>
+          <li>Generate exports as encrypted, expiring, audited jobs with recipient verification and download limits. Never place sensitive exports in public storage or ordinary email attachments.</li>
+          <li>Execute corrections/deletion as a staged job; preserve only permitted evidence, references, and audit. Verify the result and record exceptions and affected systems.</li>
+          <li>Close only after requester communication and owner review. Backup expiry behavior and third-party processor deletion are recorded in the request.</li>
+        </ol>
+
+        <h3>8.14 Notification, scheduled action, and background-job failure</h3>
+        <div class="flow"><span>Business transaction commits</span><i>→</i><span>Outbox event stored atomically</span><i>→</i><span>Worker claims idempotently</span><i>→</i><span>Retry with backoff</span><i>→</i><span>Deliver or dead-letter</span><i>→</i><span>Alert owner and reconcile</span></div>
+        <ul>
+          <li>Business record and outbox event commit together. Worker delivery never determines whether an already-committed approval or assignment is valid.</li>
+          <li>Every job has an idempotency key, bounded attempts, exponential backoff with jitter, visibility timeout/lease, and dead-letter state. Reprocessing must not duplicate credentials, payments, approvals, or publication.</li>
+          <li>For expired/invalid recipients, mark permanent failure and create an owner task. For provider outage, retry and alert after threshold. Never silently discard.</li>
+          <li>Scheduled publication and lifecycle jobs re-check module state, record revision, current authorization/policy, and scheduled time immediately before execution.</li>
+          <li>Operators can pause/replay a job only with permission and reason; replay is audited and safe to run more than once.</li>
+        </ul>
+
+        <h3>8.15 Recovery from failed release or data migration</h3>
+        <div class="flow"><span>Detect failed post-check</span><i>→</i><span>Stop writes / declare incident</span><i>→</i><span>Choose rollback or forward fix</span><i>→</i><span>Restore or reconcile snapshot</span><i>→</i><span>Validate counts and critical flows</span><i>→</i><span>Owner go/no-go</span></div>
+        <ol>
+          <li>Each release names objective stop conditions (integrity mismatch, elevated 5xx/authorization errors, unavailable sign-in, unsafe data exposure) and an incident commander.</li>
+          <li>Prefer feature-flag disable or forward fix for additive changes. Restore a backup only under the data-loss decision and RPO policy; a database restore can discard valid writes after the snapshot.</li>
+          <li>After restore/fix, compare migration version, record counts/checksums, relationship mappings, grants, storage references, scheduled work, and audit continuity.</li>
+          <li>Resume writes only after technical lead, database operator, affected domain owner, and incident commander approve the go/no-go checklist.</li>
+          <li>Publish user impact and next update; preserve incident evidence and complete root-cause review within five business days (proposed target).</li>
+        </ol>
+
+        <h3 id="workflow-coverage">8.16 Workflow coverage checklist</h3>
+        <p>These are the v1 operational flows that must have an owner, supported states, a permission policy, a failure path, and automated acceptance tests before the relevant module is called complete.</p>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Workflow</th><th>Primary owner</th><th>Required control</th><th>Release proof</th></tr></thead>
+            <tbody>
+              <tr><td>Organization bootstrap and setup</td><td>Super-admin owner</td><td>Idempotent setup, verified identity, no auto-promotion.</td><td>Fresh staging setup and safe resume after interruption.</td></tr>
+              <tr><td>Department/position change</td><td>HR owner</td><td>No cycles, assignment impact preview, effective dates.</td><td>Transfer test proves old access ends and history remains.</td></tr>
+              <tr><td>Employee hire/transfer/leave/rehire</td><td>HR owner</td><td>Explicit state transitions, identity verification, grant recomputation.</td><td>Lifecycle tests including termination and duplicate invitation.</td></tr>
+              <tr><td>Reporter/collaborator onboarding</td><td>Newsroom/reporter owner</td><td>Agreement, credential, coverage and employment are separate checks.</td><td>Agreement/coverage failure blocks activation; revoke blocks access.</td></tr>
+              <tr><td>Access request and periodic review</td><td>Manager + module owner</td><td>Least privilege, delegation checks, expiry, independent approval.</td><td>Expired/unreviewed grant is revoked/escalated as configured.</td></tr>
+              <tr><td>Role/module/configuration publication</td><td>Product + security owners</td><td>Draft, preview, approval, immutable version, rollback as new version.</td><td>Unauthorized and self-approval tests; old revision remains readable.</td></tr>
+              <tr><td>Policy publication and acknowledgement</td><td>HR/legal owner</td><td>Exact version/hash, audience preview, delivery separate from acceptance.</td><td>New version creates correct audience requirement only.</td></tr>
+              <tr><td>Custom model/record workflow</td><td>Model owner</td><td>Typed data, validated edges, revision checks, archive/retention.</td><td>Boundary, unauthorized, stale revision, and cross-org tests.</td></tr>
+              <tr><td>Article editorial workflow</td><td>Editorial owner</td><td>Coverage, assignment, review reason, publication validation.</td><td>Reporter→moderator→editor→publish test with denied paths.</td></tr>
+              <tr><td>AI-assisted work (if enabled)</td><td>AI/service owner + HR/editorial owner</td><td>Approved use case/data/provider; user-visible draft; cited/traceable sources; human review; no autonomous consequential action; kill switch/manual fallback.</td><td>Unauthorized retrieval, prompt injection, sensitive-data, provider outage, usage limit, human-disposition, and no-mutation tests pass.</td></tr>
+              <tr><td>Privacy request/export/erasure</td><td>Privacy/legal owner</td><td>Identity check, legal hold, minimal encrypted export, retention rules.</td><td>Test export expiry, access log, and approved erasure exception.</td></tr>
+              <tr><td>Security incident/account recovery</td><td>Security owner</td><td>Containment, evidence, verified recovery, incident notifications.</td><td>Tabletop exercise and session revoke/recovery proof.</td></tr>
+              <tr><td>Notification/job failure</td><td>Platform operator</td><td>Outbox, idempotency, retries, dead-letter and owner alert.</td><td>Provider outage simulation; no duplicate business action.</td></tr>
+              <tr><td>Migration/release recovery</td><td>Technical lead + DB operator</td><td>Snapshot, stop conditions, restore/forward-fix choice, reconciliation.</td><td>Timed rehearsal and signed go/no-go evidence.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warning">
+          A row marked “release proof” is a requirement, not evidence that the
+          existing code already passes it. Track actual test links/results in
+          the engineering release record.
+        </div>
+
+        <h3>8.17 Controlled people/data import</h3>
+        <div class="flow"><span>Choose approved template</span><i>→</i><span>Upload to private staging area</span><i>→</i><span>Validate and match identities</span><i>→</i><span>Preview changes and errors</span><i>→</i><span>Owner approves batch</span><i>→</i><span>Commit idempotently</span><i>→</i><span>Reconcile and remove source file</span></div>
+        <ol>
+          <li>Import operator selects a versioned template and authorized relationship type. Do not mix employee, reporter, and general contact imports in one untyped file.</li>
+          <li>File is uploaded privately, encrypted in transit/at rest as supported, size-limited, malware-scanned where available, and assigned an import batch ID. Raw files are never placed in public buckets or ordinary logs.</li>
+          <li>Dry-run validates columns, formats, required fields, duplicate emails/IDs, department/position keys, manager references, status-date combinations, and proposed access changes. Matching an existing identity requires verified stable identifiers, not name similarity.</li>
+          <li>Preview reports inserts, updates, rejected rows, duplicate candidates, and calculated access deltas. Sensitive values are masked. A business owner resolves each conflict; no silent “last row wins”.</li>
+          <li>Authorized data owner approves the exact preview checksum/count. Commit uses idempotency keys and row-level transactions; a failed batch can resume without duplicating profiles or assignments.</li>
+          <li>Post-import reconciliation compares source/accepted/rejected counts and sampled references, tests representative sign-in/permissions, and records the final report and approver.</li>
+          <li>Delete or quarantine the source file and temporary exports according to the approved retention schedule. Preserve only the minimal restricted batch manifest required for audit.</li>
+        </ol>
+        <p><strong>Default:</strong> imported accounts do not receive privileged access automatically. Role grants are a separately reviewed part of the batch and must pass the same delegation and high-impact approval checks as manual grants.</p>
+
+        <h3 id="ai-workflow">8.18 AI-assisted workflows, impact, and human control</h3>
+        <p class="lead">AI can reduce repetitive drafting, discovery, and summarization work across the newsroom and organization. It is an optional assistant, not an identity, policy, workflow, or source-of-truth engine. A human with normal permissions owns every consequential decision and final action.</p>
+        <div class="flow"><span>Owner approves; user invokes</span><i>→</i><span>Server checks scope and minimizes data</span><i>→</i><span>AI returns labeled draft with sources</span><i>→</i><span>Human verifies; authorized workflow saves/publishes</span></div>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Area</th><th>Useful AI assistance</th><th>Human-owned boundary</th><th>Default data boundary</th></tr></thead>
+            <tbody>
+              <tr><td>Newsroom and reporters</td><td>Transcribe approved audio; summarize a story or interview; suggest headline, tags, translation, accessibility text, or questions for follow-up; find relevant passages in approved internal style/policy material.</td><td>Journalist verifies quotes, names, dates, context, translation, attribution, legality, and factual claims. Editor alone approves or publishes. AI output never counts as independent verification or a source.</td><td>Use only explicitly selected story material and approved references. Confidential sources, embargoed content, identity documents, credentials, and sensitive attachments are excluded unless separately approved and technically protected.</td></tr>
+              <tr><td>HR and organization operations</td><td>Draft a job description or policy outline; explain approved procedures using cited current policy; summarize a non-sensitive queue; suggest configuration or form wording in a draft.</td><td>HR/legal approves policy wording and applicability. An authorized admin reviews and publishes configuration. AI does not decide hiring, promotion, pay, performance, discipline, leave eligibility, termination, access grants, or employee risk/merit.</td><td>No employee case files, applicant evaluations, identity documents, health/pay data, disciplinary details, or private personnel records sent to a model by default. HR use with personal data needs a separate approved purpose and review.</td></tr>
+              <tr><td>Setup and support</td><td>Explain setup errors and configuration concepts; answer questions from approved versioned documentation; summarize operational metrics that the requesting user may already access.</td><td>AI cannot execute SQL, change roles/modules, invite users, approve requests, export records, or perform administrative actions. Help text must link to the source and expose uncertainty.</td><td>Retrieval uses the caller's existing permissions and approved knowledge sources. Do not index secrets, unrestricted audit details, or documents the caller cannot read.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h4>Required interaction and control sequence</h4>
+        <ol>
+          <li>AI owner registers each use case with purpose, owner, audience, allowed data classes, provider/model, jurisdiction, retention, output destination, risk rating, evaluation tests, and an accountable human reviewer. Default state is disabled until approved.</li>
+          <li>User starts an explicit action from a supported screen; show what content will be sent, to which approved provider/use case, and any sensitive-data warning. No background processing or surprise AI rewriting.</li>
+          <li>Server authenticates the user, checks module/use-case enablement and the user's access to each source before retrieval, applies data minimization/redaction, rate and cost limits, then calls the provider through the server-side AI gateway. Never trust a client-supplied role or source list.</li>
+          <li>Return a clearly marked, editable draft. Where knowledge retrieval is used, include links to the exact authorized source passages and version. If evidence is absent or conflicting, say so; citations do not guarantee truth.</li>
+          <li>Human verifies against the original material, edits, and explicitly accepts or discards the draft. Saving uses the existing domain API and its normal authorization, validation, approval, audit, revision, and publication workflow. AI acceptance is not approval.</li>
+          <li>Record a minimal interaction event: actor, use-case/config version, provider/model version, time, request/correlation ID, source record IDs/revisions, status, latency/cost, and human disposition where available. Do not persist full prompts, outputs, or sensitive payloads by default; retention exceptions require approval.</li>
+          <li>Provider timeout, quota exhaustion, invalid output, or low-confidence retrieval leaves source records unchanged, reports a useful error, and offers the normal manual path. Retry only safe/idempotent requests; never silently substitute another provider with different data terms.</li>
+        </ol>
+        <div class="callout warning">
+          <strong>Hard boundary:</strong> no autonomous publication, personnel decisions,
+          privilege changes, workflow approvals, record deletion, sensitive exports,
+          or external messages. No arbitrary tools, SQL, shell, or unrestricted
+          database access for a model. Prompt-injection text in stories or
+          retrieved documents is untrusted data, never an instruction to the system.
+        </div>
+        <p><strong>Rollout:</strong> Phase 0 selects a low-risk pilot and approves the data/provider terms. First launch a limited editorial drafting/transcription or documentation Q&amp;A use case with test data and a kill switch. Expand to additional content types only after quality, privacy, security, cost, and user-review evidence passes. Keep AI optional; core organization and newsroom workflows must continue when the provider is unavailable or AI is disabled.</p>
+
+      </section>
+
+      <section id="admin">
+        <h2>9. Super-admin day-one configuration journey</h2>
+        <ol>
+          <li><strong>Secure the account:</strong> confirm a trusted super-admin, MFA, recovery contact, and break-glass owner.</li>
+          <li><strong>Set organization identity:</strong> display/legal name, verified domain/contact, country, timezone, locale, currency, and legal address/details needed by agreements.</li>
+          <li><strong>Set structure:</strong> department/team hierarchy, job positions, default managers, reporting relationships, location structure, and effective-date rules.</li>
+          <li><strong>Define access:</strong> create roles, review permission catalog, set scopes, assign role owners, test representative accounts, and verify the last-super-admin protection.</li>
+          <li><strong>Enable modules:</strong> review prerequisites, owner, data classification, retention, and readiness checklist; enable only implemented and tested modules.</li>
+          <li><strong>Configure policies:</strong> publish versioned HR/security/editorial policies; specify applicability and acknowledgment/renewal behavior.</li>
+          <li><strong>Configure models:</strong> define only supported custom processes; validate fields, scopes, transitions, deletion behavior, and reports.</li>
+          <li><strong>Configure workflows:</strong> set state graph, approvers, delegation, SLA, reasons, notifications, and escalation owner.</li>
+          <li><strong>Invite the first users:</strong> add HR/admin owners; then employees and newsroom people using the correct relationship workflow.</li>
+          <li><strong>Test organization:</strong> use test accounts for allow/deny cases, cross-department cases, module-off behavior, termination, approvals, and audit export.</li>
+          <li><strong>Go live:</strong> sign off migration, backup, monitoring, recovery, support contacts, training, and data-processing responsibilities.</li>
+        </ol>
+        <p>Every setup page should display: current version, draft/published state, last editor, last change time, dependencies, impact preview, and an audit-history link.</p>
+      </section>
+
+      <section id="security">
+        <h2>10. Security, privacy, and operational governance</h2>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Control</th><th>Implementation expectation</th><th>Release evidence</th></tr></thead>
+            <tbody>
+              <tr><td>Authentication</td><td>Supabase Auth, MFA for privileged roles, safe invitation expiry, session revocation/refresh review, account recovery.</td><td>Role-based login tests and privileged-account recovery exercise.</td></tr>
+              <tr><td>Authorization</td><td>RLS for direct database paths; server checks; security-definer function ownership/search_path review; storage policies; fail-closed unknown routes.</td><td>Automated negative tests for anon, employee, reporter, delegated admin, and super-admin.</td></tr>
+              <tr><td>Secrets</td><td>Service-role/database credentials server-only; rotate, restrict, and store in deployment secret manager; no secrets in HTML, logs, or repository.</td><td>Secret scanning and deployment configuration review.</td></tr>
+              <tr><td>Personal/sensitive data</td><td>Data inventory, purpose limitation, least-privilege views, secure private storage, signed access where appropriate, retention and redaction rules.</td><td>Privacy review, storage-policy tests, and no sensitive-data leakage in exports/logs.</td></tr>
+              <tr><td>AI and external model providers</td><td>Per-use-case approval; server-side gateway; least-data input; caller-authorized retrieval; reviewed provider/subprocessor terms, location, retention, and no-training settings; user-visible AI disclosure; human review; rate/cost limits; disable switch. AI is off until approved.</td><td>Privacy/security sign-off, provider contract/config evidence, prompt-injection and access-boundary tests, output provenance, human-review UX, failure/kill-switch exercise, and proof AI cannot mutate protected state.</td></tr>
+              <tr><td>Audit</td><td>Append-only or protected events for privileged change; actor, subject, reason, revision, timestamp; restricted audit-reader access.</td><td>Audit trail verified for role, policy, module, record, and lifecycle changes.</td></tr>
+              <tr><td>Reliability</td><td>Backups/PITR as supported, migration checkpoints, idempotent jobs, retry queues, monitoring and incident playbook.</td><td>Restore rehearsal and notification retry test.</td></tr>
+              <tr><td>Change management</td><td>Peer-reviewed migrations, staging deploy, migration ledger, compatibility checks, feature flags, rollback/forward-fix plan.</td><td>Successful clean install and upgrade rehearsals on representative copies.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The portal may process identity and financial evidence for reporter
+          applications. Minimize collection, restrict access to the specific
+          review roles, avoid unnecessary replication, use private buckets,
+          define retention/deletion policy with counsel, and test that URLs
+          cannot become public. A system administrator should not automatically
+          receive unrestricted visibility into every sensitive document.
+        </p>
+      </section>
+
+      <section id="phases">
+        <h2>11. Development plan by phase</h2>
+        <p>Estimates assume a focused team and an existing working portal. Phase durations are calendar ranges and may overlap after prerequisites; the total is not the arithmetic sum of the maximums.</p>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 0 — Discovery, schema inventory, and acceptance contract</h3><span class="phase-meta">1–2 weeks · ₹0.45–0.70 lakh</span></div>
+          <p>Interview super-admin, HR, editorial, reporter operations, AI/service, and finance/legal stakeholders. Inventory existing schema, routes, policies, data, migration versions, security ownership, and deployment. Freeze terminology, relationship types, supported v1 modules, data migration scope, and acceptance scenarios. If AI is in scope, select one low-risk pilot and classify its exact data before provider selection.</p>
+          <p><strong>Deliverables:</strong> signed domain glossary, ERD, permission matrix, migration reconciliation report, prioritized requirements/backlog, test plan, approved v1 boundary, and (if AI is proposed) a use-case/provider/data review and evaluation plan.</p>
+          <p><strong>Exit gate:</strong> no unresolved conflict about employee vs reporter vs collaborator; database source of truth and staging environment known.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 1 — Database baseline and migration safety</h3><span class="phase-meta">1–2 weeks · ₹0.80–1.30 lakh</span></div>
+          <p>Reconcile migrations 0064–0070 against the real schema; correct incompatibilities, constraints, trigger ordering, RLS, function grants, naming and backfills. Add migration ledger/rehearsal, rollback/forward-recovery notes, backup snapshot, and clean staging install.</p>
+          <p><strong>Deliverables:</strong> reviewed versioned migrations, data mapping scripts, dry-run counts, reconciliation report, staging schema, and recovery procedure.</p>
+          <p><strong>Exit gate:</strong> clean install and representative upgrade pass; row counts and relationship mappings reconcile; no production writes.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 2 — Organization root, structure, and identity directory</h3><span class="phase-meta">1.5–2.5 weeks · ₹0.90–1.50 lakh</span></div>
+          <p>Finalize organization profile/settings, organization-scoped ownership, department/position management, people directory, relationship history, effective dates, deactivation, CRUD safeguards, audit, and initial setup readiness checklist.</p>
+          <p><strong>Deliverables:</strong> super-admin setup UX, typed APIs/RPCs, constraints, audit feed, organization snapshot/export, and setup tests.</p>
+          <p><strong>Exit gate:</strong> administrator can create/update/archive structure without orphaning assignments or deleting used records.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 3 — Access roles, permission engine, and account lifecycle</h3><span class="phase-meta">2–3 weeks · ₹0.85–1.45 lakh</span></div>
+          <p>Define stable permission catalog; implement role-to-permission scopes, safe delegation, admin and super-admin boundaries, invitations, access reviews, suspension, session revocation, last-super-admin guard, and deny-by-default authorization tests.</p>
+          <p><strong>Deliverables:</strong> permission matrix UI, access change audit, API/RLS/storage enforcement map, account-role tests, and break-glass runbook.</p>
+          <p><strong>Exit gate:</strong> custom role assignment actually works through every tested data path; a UI-only permission cannot grant access.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 4 — Employee lifecycle and HR configuration</h3><span class="phase-meta">2–3 weeks · ₹0.90–1.50 lakh</span></div>
+          <p>Complete employee invite, preboarding, activation, assignment, transfer, manager change, policy version/acceptance, suspension, termination, access cleanup, employee self-service, and HR reporting. Migrate only verified employee relationships; retain external newsroom identities separately.</p>
+          <p><strong>Deliverables:</strong> verified employee CRUD/lifecycle, effective assignment history, policy evidence, offboarding checklist, import mapping, and acceptance tests.</p>
+          <p><strong>Exit gate:</strong> terminate/suspend test revokes access immediately while preserving required history and records.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 5 — Configurable models and safe CRUD</h3><span class="phase-meta">2–3 weeks · ₹0.95–1.65 lakh</span></div>
+          <p>Finalize allowed field types/limits, model versioning, record validation, scope, list/detail UI, revision conflict handling, archive/delete semantics, reference integrity, search/index policy, export, and history. Add tests for malformed or oversized input and cross-organization references.</p>
+          <p><strong>Deliverables:</strong> model builder and end-user CRUD, preview, publication versioning, record history, permission checks, schema limits, and regression suite.</p>
+          <p><strong>Exit gate:</strong> custom model can be operated end-to-end without arbitrary SQL/code or access bypass; records survive model deactivation.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 6 — Workflow definitions, approvals, and notifications</h3><span class="phase-meta">2–3 weeks · ₹0.95–1.65 lakh</span></div>
+          <p>Implement typed workflow-to-domain adapters, state/transition validation, approval eligibility and separation of duties, revision locking, escalation/expiry, audit, notification outbox/retries, and actionable inbox. Keep domain invariants authoritative.</p>
+          <p><strong>Deliverables:</strong> visual workflow configuration, runtime queues, approval inbox, immutable event history, retryable notifications, and concurrency tests.</p>
+          <p><strong>Exit gate:</strong> duplicate/stale approvals and unauthorized transitions fail consistently; state and audit commit atomically.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 7 — Existing newsroom and reporter integration</h3><span class="phase-meta">2–4 weeks · ₹1.00–1.80 lakh</span></div>
+          <p>Complete route/RPC/RLS/storage audit for articles, comments, reports, media, categories, locations, reporter applications, agreements, coverage, onboarding, admin user management, and public surfaces. Replace fixed-role dependencies carefully; preserve reporter coverage, assignment, publication and credential rules.</p>
+          <p><strong>Deliverables:</strong> permission/module integration matrix, forward migrations, compatibility tests, role-by-role workflows, and an approved exception list.</p>
+          <p><strong>Exit gate:</strong> no undocumented legacy authorization path; custom roles can perform precisely the granted operation and no more.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 8 — Admin UX, observability, reports, and documentation</h3><span class="phase-meta">1.5–2.5 weeks · ₹0.75–1.30 lakh</span></div>
+          <p>Polish setup wizard and navigation; expose impact previews, audit history, loading/error states, empty states, access review, data export, setup readiness, monitoring, metrics, and operator documentation. Meet accessibility and responsive requirements.</p>
+          <p><strong>Deliverables:</strong> coherent admin and employee experiences, operational dashboards, support/admin guide, and configuration glossary.</p>
+          <p><strong>Exit gate:</strong> non-technical admin can complete the documented setup and troubleshoot blocked setup without SQL intervention.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Optional add-on — Governed AI pilot (not in base estimate)</h3><span class="phase-meta">2–4 weeks · ₹2.00–4.00 lakh</span></div>
+          <p>Only proceed after Phase 0 approval. Implement one or two narrowly defined, user-invoked assistance flows (recommended first: editorial draft assistance or Q&amp;A over approved non-sensitive procedures), a server-side provider gateway, permission-filtered context, output labeling/provenance, rate/cost limits, evaluation, monitoring, and a per-use-case kill switch. Keep sensitive HR/personnel decisions and confidential records out of scope.</p>
+          <p><strong>Deliverables:</strong> signed use-case/data/provider record, provider terms/configuration evidence, AI gateway and feature flag, human review UX, prompt-injection/access tests, quality/cost dashboard, incident/disable runbook, and pilot evaluation report.</p>
+          <p><strong>Exit gate:</strong> human reviewers accept the quality for the defined task; no authorization boundary is bypassed; failure is safe and manual workflows remain available. No wider rollout without separate owner approval.</p>
+        </article>
+
+        <article class="phase">
+          <div class="phase-header"><h3>Phase 9 — Security, QA, UAT, migration rehearsal, and release</h3><span class="phase-meta">2–3 weeks · ₹0.90–1.50 lakh</span></div>
+          <p>Run unit/integration/RLS tests, authenticated browser flows, security review, data migration rehearsal, backup restore, performance checks, accessibility checks, user acceptance, staff training, production deployment, and post-launch monitoring. If AI is enabled, include provider/data terms, evaluation, misuse, disclosure, kill-switch, and fallback checks in release evidence.</p>
+          <p><strong>Deliverables:</strong> sign-off record, release plan, rollback/forward-recovery procedure, training, monitoring/alerts, known limitations, and 2–4 weeks of stabilization support.</p>
+          <p><strong>Exit gate:</strong> all release-critical checks pass; business owners accept module boundaries and migration results.</p>
+        </article>
+
+        <div class="callout">
+          <strong>Optional later module implementation:</strong> recruitment,
+          attendance/leave, payroll, finance, assets/expenses, training, and
+          performance are not included in the base estimate below. Each needs
+          discovery, policy/legal requirements, data model, permissions,
+          integration, reporting, and its own test/release budget.
+        </div>
+      </section>
+
+      <section id="cost">
+        <h2>12. Duration, team, and indicative cost estimate</h2>
+        <h3>12.1 Calendar estimate</h3>
+        <div class="stats">
+          <div class="stat"><b>14–20 weeks</b><span>Base platform delivery; optional AI pilot adds 2–4 weeks if scheduled sequentially.</span></div>
+          <div class="stat"><b>₹8.45–₹14.35 lakh</b><span>Base phase subtotal before contingency and taxes; AI is excluded.</span></div>
+          <div class="stat"><b>₹10.0–₹16.9 lakh</b><span>Base budget envelope including about 18% contingency; GST/hosting and AI excluded.</span></div>
+        </div>
+        <p>
+          This is a planning estimate in Indian rupees, not a vendor quote or
+          commitment. It assumes the existing portal and Supabase project are
+          usable, no large-scale legacy data cleanup, no major visual redesign,
+          no new mobile app, and no complete implementation of future optional
+          modules. Unknown schema differences or complex data migration can
+          extend both time and cost. A limited AI pilot is an optional add-on
+          estimated separately below; provider usage/subscription, legal review,
+          and ongoing evaluation/operations are not included.
+        </p>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Phase</th><th>Duration</th><th>Estimate</th></tr></thead>
+            <tbody>
+              <tr><td>0. Discovery and acceptance</td><td>1–2 weeks</td><td>₹0.45–0.70 lakh</td></tr>
+              <tr><td>1. Database baseline and migration safety</td><td>1–2 weeks</td><td>₹0.80–1.30 lakh</td></tr>
+              <tr><td>2. Organization root and structure</td><td>1.5–2.5 weeks</td><td>₹0.90–1.50 lakh</td></tr>
+              <tr><td>3. Access and account lifecycle</td><td>2–3 weeks</td><td>₹0.85–1.45 lakh</td></tr>
+              <tr><td>4. Employee lifecycle and HR</td><td>2–3 weeks</td><td>₹0.90–1.50 lakh</td></tr>
+              <tr><td>5. Configurable models</td><td>2–3 weeks</td><td>₹0.95–1.65 lakh</td></tr>
+              <tr><td>6. Workflows and approvals</td><td>2–3 weeks</td><td>₹0.95–1.65 lakh</td></tr>
+              <tr><td>7. Newsroom/reporter integration</td><td>2–4 weeks</td><td>₹1.00–1.80 lakh</td></tr>
+              <tr><td>8. UX, observability, documentation</td><td>1.5–2.5 weeks</td><td>₹0.75–1.30 lakh</td></tr>
+              <tr><td>9. Security, QA, UAT, release</td><td>2–3 weeks</td><td>₹0.90–1.50 lakh</td></tr>
+              <tr><td><strong>Subtotal</strong></td><td>Overlapping schedule</td><td><strong>₹8.45–₹14.35 lakh</strong></td></tr>
+              <tr><td><strong>Contingency (~18%)</strong></td><td>For schema/data uncertainty</td><td><strong>₹1.52–₹2.58 lakh</strong></td></tr>
+              <tr><td><strong>Planning envelope</strong></td><td><strong>14–20 calendar weeks</strong></td><td><strong>₹9.97–₹16.93 lakh</strong></td></tr>
+              <tr><td><strong>Optional AI pilot (separate add-on)</strong></td><td>2–4 weeks</td><td><strong>₹2.00–4.00 lakh before contingency</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small">
+          Rounded budget envelope: approximately ₹10.0–₹16.9 lakh. The
+          phase-by-phase estimate is indicative; final quotation should use an
+          approved scope and contingency basis, not treat this range as a fixed bid.
+        </p>
+        <div class="callout">
+          <strong>Optional AI budget scenario:</strong> the limited pilot above
+          adds an indicative ₹2.00–₹4.00 lakh before contingency (about
+          ₹2.36–₹4.72 lakh including 18%). If delivered sequentially, plan
+          approximately 16–24 weeks and a combined planning envelope of
+          ₹12.33–₹21.65 lakh including contingency. It may overlap only when
+          the pilot's policy/data gate is complete and the team has capacity.
+          These are rough planning assumptions to validate with the selected
+          provider and implementation team, not a quote. Model/API usage,
+          subscription, storage, and independent legal/security review are
+          recurring or separately scoped costs.
+        </div>
+        <h3>12.2 Indicative parallel schedule</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Calendar window</th><th>Primary work streams</th><th>Dependency / exit</th></tr></thead>
+            <tbody>
+              <tr><td>Weeks 1–2</td><td>Discovery, stakeholder decisions, schema inventory, scope agreement.</td><td>V1 boundary and acceptance scenarios approved.</td></tr>
+              <tr><td>Weeks 2–4</td><td>Migration reconciliation and staging baseline; organization data design starts.</td><td>Schema and data mapping reviewed; no production writes.</td></tr>
+              <tr><td>Weeks 4–8</td><td>Organization identity/structure and access foundation; admin UX begins.</td><td>RLS/API authorization test matrix passes for foundation.</td></tr>
+              <tr><td>Weeks 7–12</td><td>Employee lifecycle and custom-model CRUD; role-based screens and audit.</td><td>HR and model end-to-end flows pass in staging.</td></tr>
+              <tr><td>Weeks 10–15</td><td>Workflow approvals/notifications and native newsroom/reporter integration.</td><td>Domain invariants and permission paths validated.</td></tr>
+              <tr><td>Weeks 14–18</td><td>Security review, migration rehearsal, performance/accessibility, UAT, training.</td><td>Business sign-off and restore/recovery rehearsal complete.</td></tr>
+              <tr><td>Weeks 18–20</td><td>Production release and stabilization, only if exit gates pass.</td><td>Monitoring healthy; rollback/forward recovery available.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>12.3 Team assumption</h3>
+        <ul>
+          <li>Product/technical lead: 0.5–1 FTE for architecture, stakeholder decisions, review, and delivery.</li>
+          <li>Backend/database engineer: 1 FTE; migrations, PostgreSQL functions/RLS, APIs, data reconciliation.</li>
+          <li>Frontend engineer: 1 FTE; admin, employee, and workflow UX, responsive/accessibility work.</li>
+          <li>QA engineer: 0.5–1 FTE; test design, authorization matrix, browser and migration tests.</li>
+          <li>DevOps/security specialist: part-time; environments, backups, secrets, deployment, independent security review.</li>
+          <li>Organization owners: HR, editorial/reporter operations, and super-admin provide timely policy decisions and UAT.</li>
+        </ul>
+        <h3>12.4 Exclusions and optional operating costs</h3>
+        <ul>
+          <li>GST, cloud/Supabase plans, email/SMS/WhatsApp fees, domain, monitoring, backups/storage overages, and third-party subscriptions.</li>
+          <li>Independent penetration test, legal/privacy review, HR/accounting advice, and formal compliance certification.</li>
+          <li>Full recruitment, attendance/leave, payroll, accounting, asset/expense, learning/performance modules, mobile applications, or integrations to external payroll/ERP systems.</li>
+          <li>Extensive legacy data cleansing, duplicate identity resolution, historical document reprocessing, or custom import beyond an agreed sample and mapping.</li>
+        </ul>
+        <p><strong>Optional-module rough order-of-magnitude (after discovery):</strong> recruitment ₹1.5–3.5 lakh; leave/attendance ₹2–5 lakh; payroll ₹4–10+ lakh plus statutory and accounting integrations; assets/expenses ₹1.5–4 lakh; performance/learning ₹2–5 lakh per module. These ranges are separate estimates, have high uncertainty, and are not additive commitments.</p>
+      </section>
+
+      <section id="acceptance">
+        <h2>13. Definition of “complete” and release acceptance</h2>
+        <p>The platform is ready for production only when the following conditions are demonstrated in staging with representative identities and documented owner sign-off:</p>
+        <ul>
+          <li>A super-admin can bootstrap and configure organization identity, structure, access roles, module state, policy versions, models, and workflow rules without direct SQL.</li>
+          <li>Database and server enforce the same authorization; API/RPC/PostgREST/storage paths are tested for both allowed and denied access.</li>
+          <li>A custom role grants exactly the selected action and scope; removing a grant/module blocks the next request, not just the next page render.</li>
+          <li>Employee onboarding, policy acknowledgment, transfer, suspension, and termination work end-to-end; termination removes access and preserves the audit trail.</li>
+          <li>Reporter and newsroom collaborator lifecycles remain separate from employment; coverage and editorial invariants are preserved.</li>
+          <li>Configuration and record changes have immutable history, revision conflict handling, validated deletion/archive behavior, and meaningful error reporting.</li>
+          <li>Workflow approval cannot be self-approved where prohibited; stale/duplicate requests are safe; state and audit write atomically.</li>
+          <li>Disabled modules deny relevant server/database operations and are clearly disclosed in the UI.</li>
+          <li>Backups can be restored; migration rehearsal, alerting, rate/error monitoring, secret handling, and support ownership are documented.</li>
+          <li>Optional modules not implemented are visibly marked “not available” and cannot be enabled as though functional.</li>
+          <li>If AI is enabled, authorized-source checks, data minimization, user-visible draft labeling, provenance, human confirmation, provider failure handling, usage limits, and the per-use-case kill switch pass tests; no AI path can bypass ordinary permissions or commit a consequential action.</li>
+        </ul>
+        <div class="callout success">
+          <strong>Test matrix:</strong> super-admin, ordinary admin, HR manager,
+          department manager, employee, reporter, moderator/editor, subscriber,
+          disabled user, and anonymous visitor × read/create/update/archive/
+          transition/approve/export × own/assigned/department/organization
+          scope × module enabled/disabled.
+        </div>
+      </section>
+
+      <section id="risks">
+        <h2>14. Risks, dependencies, and approval gates</h2>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Risk</th><th>Impact if untreated</th><th>Mitigation and release gate</th><th>Accountable owner</th></tr></thead>
+            <tbody>
+              <tr><td>Unknown database state</td><td>Existing installations may differ from local migrations; renames/backfills can fail or damage relationships.</td><td>Schema inventory, restore to staging, migration dry-run, row reconciliation, explicit go/no-go before production.</td><td>Technical lead + database owner</td></tr>
+              <tr><td>Legacy fixed-role paths</td><td>Custom roles may be denied unexpectedly or bypassed through RPC/RLS/storage paths.</td><td>Authorization inventory and role-by-role negative tests; no release with undocumented bypasses.</td><td>Security lead + module owners</td></tr>
+              <tr><td>Module catalog mistaken for delivered module</td><td>Users may rely on nonexistent controls or assume data is being processed.</td><td>Separate readiness state from enabled state; production enable only after module acceptance evidence.</td><td>Product owner</td></tr>
+              <tr><td>Generic workflow detached from domain state</td><td>Workflow labels may drift from employee/article/request records.</td><td>Use typed domain adapters and transactional transitions for critical records; do not make a generic workflow the source of truth.</td><td>Technical lead + domain owner</td></tr>
+              <tr><td>Privileged-account compromise</td><td>One account could grant access, expose sensitive data, or disable modules.</td><td>MFA, separate break-glass account, step-up, two-person approval for high-impact actions, alerting, recovery test.</td><td>Security lead + super-admin owner</td></tr>
+              <tr><td>AI disclosure, bias, or unsafe reliance</td><td>External processing may expose confidential sources or personnel data; fluent but incorrect output may mislead staff or create unfair employment outcomes.</td><td>AI off by default; approve each use case/provider/data class; prohibit automated employment/editorial decisions; minimize/redact inputs; cite sources; require human verification; evaluate and monitor; provide a kill switch and manual fallback.</td><td>AI/service owner + privacy/security + HR/editorial owners</td></tr>
+              <tr><td>Privacy or employment-rule uncertainty</td><td>Retention, identity documents, employee records, and payroll vary by jurisdiction.</td><td>Document approved purpose/retention/access rules; legal/HR/accounting sign-off before sensitive module release.</td><td>HR owner + legal/privacy adviser</td></tr>
+              <tr><td>Unbounded custom models</td><td>Unbounded fields and queries create performance, privacy, integrity, and export risks.</td><td>Apply schema limits, typed references, indexes, versioning, export/retention controls, and abuse tests.</td><td>Product owner + technical lead</td></tr>
+              <tr><td>Single-organization assumptions</td><td>Adding a second organization later may expose data or require major restructuring.</td><td>Approve the v1 boundary below; require a separate funded multi-tenant architecture before onboarding another legal organization.</td><td>Executive/product owner</td></tr>
+              <tr><td>Estimate uncertainty</td><td>Data quality, provider plan, and final scope can exceed cost or schedule.</td><td>Use Phase 0 to baseline; approve a milestone quote with exclusions, contingency, and change-control process.</td><td>Executive sponsor + delivery lead</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>These are not reasons to stop. They are conditions to control before the relevant phase proceeds. The decision baseline, owner and required approval are specified below.</p>
+      </section>
+
+      <section id="operations">
+        <h2>15. Operations after launch</h2>
+        <h3>Daily/weekly</h3>
+        <ul>
+          <li>Review failed jobs, notification delivery, workflow approval backlog, suspicious privileged actions, account lockouts, and (if enabled) AI provider errors, usage, spend, and user-reported unsafe outputs.</li>
+          <li>Review pending invitations, role changes, inactive employees, expired reporter credentials, and policies awaiting acknowledgment.</li>
+          <li>Verify backup success, storage capacity, database health, and error/latency alerts.</li>
+        </ul>
+        <h3>Monthly/quarterly</h3>
+        <ul>
+          <li>Perform access recertification by department/module; remove unneeded grants and document exceptions.</li>
+          <li>Review super-admin membership, service accounts, API secrets, privileged audit, data exports, and public storage exposure.</li>
+          <li>Review module readiness, model versions, inactive workflows, retention, legal holds, and data subject requests.</li>
+          <li>Rehearse backup recovery and incident response; review schema migration and dependency updates in staging.</li>
+        </ul>
+        <h3>Change lifecycle</h3>
+        <p>Every platform or organization configuration change should have an owner, reason, impact preview, version, approval if required, staged test, audit entry, monitoring window, and a clear rollback or forward-recovery action. Organization admins can configure business behavior inside approved boundaries; platform engineers retain responsibility for schema, security invariants, deployment, and infrastructure.</p>
+        <div class="callout">
+          <strong>Final recommendation:</strong> use the explicit D-01–D-19
+          baseline and V1 scope in Sections 16–17 to start Phase 0. Obtain the
+          named business/security approvals, inspect the actual Supabase schema,
+          and convert these requirements into a signed backlog and milestone
+          quote. Do not promise “everything configurable” without defining
+          which configuration points remain protected by platform rules.
+        </div>
+      </section>
+
+      <section id="baseline-decisions">
+        <h2>16. V1 decision baseline (explicit defaults for implementation)</h2>
+        <p class="lead">
+          The following choices remove ambiguity so engineering can build a
+          consistent v1. They are recommended defaults, not claims that the
+          organization's executives have already approved them. The accountable
+          owner must accept or amend them at the Phase 0 gate; record the final
+          decision and date in the project decision log.
+        </p>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>ID</th><th>Decision</th><th>V1 default</th><th>Approver</th><th>Change impact</th></tr></thead>
+            <tbody>
+              <tr><td>D-01</td><td>Organization boundary</td><td>One organization/legal entity per deployment. Departments, teams, desks, geographic branches, and locations are structures within it. One organization root row is mandatory; no organization switching or cross-tenant user accounts in v1.</td><td>Executive/product owner</td><td>Changing to multi-tenant is a separate architecture and budget, not a settings toggle.</td></tr>
+              <tr><td>D-02</td><td>Canonical department/position tables</td><td>Use the existing code-aligned `hr_departments` and `hr_positions` as canonical for v1. Do not create duplicate `organization_departments` tables. A future rename requires a reviewed forward migration and compatibility plan.</td><td>Technical lead + HR owner</td><td>Prevents duplicate sources of truth and reduces migration churn.</td></tr>
+              <tr><td>D-03</td><td>Identity and relationships</td><td>One auth/profile identity per human. Add explicit, independently dated relationships for employee, reporter, newsroom collaborator, and any approved future type. Relationships may coexist; their records and policies do not merge.</td><td>HR owner + newsroom owner</td><td>Duplicate-account linking requires verified ownership; never merge by matching names alone.</td></tr>
+              <tr><td>D-04</td><td>Multiple employee assignments</td><td>Allow multiple effective assignments only when they do not conflict on the same position/department period. Exactly one primary assignment at a time; access is computed from all active approved assignments. No access from ended assignments.</td><td>HR owner</td><td>Impacts transfer, manager, and access calculation rules.</td></tr>
+              <tr><td>D-05</td><td>Role aggregation</td><td>Permissions from all active assignments/relationships are additive (union); there is no user-configurable explicit deny and no implicit role inheritance. A global account suspension, disabled relationship, disabled module, or platform hard guard always denies. Effective access must be previewable.</td><td>Security lead + product owner</td><td>Changing to deny-overrides or inheritance requires redesign and migration.</td></tr>
+              <tr><td>D-06</td><td>Department scope</td><td>Department scope means exact department by default. Descendant inclusion is a separate explicit permission-scope option and defaults off. Records without a department do not match department scope.</td><td>HR owner + security lead</td><td>Avoids accidental access expansion when departments are reorganized.</td></tr>
+              <tr><td>D-07</td><td>Permission vocabulary</td><td>Only platform-defined, versioned permission keys are valid in v1. Admins may assign keys to custom roles but may not invent arbitrary executable permissions. Unknown/inactive keys deny.</td><td>Technical lead + security lead</td><td>Future custom permissions require a formal permission-provider contract and tests.</td></tr>
+              <tr><td>D-08</td><td>Super-admin power</td><td>Super admins may configure every supported organization setting and assign any supported role, but cannot override database integrity, audit, legal retention, authentication, or hard safety controls. High-impact actions require a second active super-admin approval.</td><td>Executive owner + security lead</td><td>Preserves strong control without making safeguards administrator-editable.</td></tr>
+              <tr><td>D-09</td><td>High-impact approval list</td><td>Second-person approval required for granting/revoking super-admin, granting privileged admin/security roles, changing permission catalog/mappings that expand access, disabling a required/core module, bulk sensitive-data export, and deleting/erasing retained identity data. Requester cannot approve their own request.</td><td>Security lead + executive owner</td><td>Approver absence requires a documented break-glass path with immediate alert and post-incident review.</td></tr>
+              <tr><td>D-10</td><td>Optional module lifecycle</td><td>Catalog state is `planned`, `available`, `enabled`, `disabled`, or `retired`; only `available` modules may be enabled. A catalog entry alone never enables functionality. A dependency graph blocks enabling a module if required dependencies are not ready.</td><td>Product owner</td><td>Prevents placeholder domains from appearing operational.</td></tr>
+              <tr><td>D-11</td><td>Module disable semantics</td><td>Disable blocks new writes and ordinary user access immediately; public-facing surfaces fail closed. Existing records stay retained and are hidden from ordinary users; super-admin export/read remains audited. Pending approvals and scheduled jobs pause without changing state; notifications are suppressed except security/administrative alerts. Re-enable resumes only after an explicit preview/reconciliation and does not auto-run overdue actions.</td><td>Product owner + module owner</td><td>Module-specific safety exceptions must be documented before enablement.</td></tr>
+              <tr><td>D-12</td><td>Configuration publication</td><td>Configuration edits create drafts. Publishing increments immutable revision after validation and impact preview. Existing records retain their model/policy version; migration to a new version is an explicit, reversible batch with counts and errors.</td><td>Product owner + domain owner</td><td>Prevents silent reinterpretation of historical records.</td></tr>
+              <tr><td>D-13</td><td>Generic workflow ownership</td><td>Generic workflow runtime orchestrates but does not become the sole source of truth for native HR/newsroom state. Critical domain state changes occur through domain-specific transactional adapters. Generic subjects must use a registered domain type and validated record ID; arbitrary labels are not acceptable for production-critical flows.</td><td>Technical lead + domain owner</td><td>Requires domain adapters before production workflow use.</td></tr>
+              <tr><td>D-14</td><td>Deletion and retention</td><td>Default CRUD delete is archive/deactivate/end-date. Hard deletion is limited to unused drafts and approved privacy erasure. Audit, policy acceptance, approval, and legal-hold records are immutable or retained according to an approved schedule.</td><td>Privacy/legal owner + domain owner</td><td>Retention duration is a blocking policy input before production data migration.</td></tr>
+              <tr><td>D-15</td><td>Locale and time</td><td>Persist timestamps as UTC `timestamptz`; store organization timezone and render local time in UI. Store currency as ISO 4217 and country as ISO 3166-1 alpha-2. English is the initial admin language; localization-ready message keys are required. Hindi translation is an explicit content sign-off, not machine-translated policy.</td><td>Product owner</td><td>Locale expansion affects UX, formatting, and testing rather than stored instants.</td></tr>
+              <tr><td>D-16</td><td>In-scope launch modules</td><td>Base scope: organization setup, access, HR employee lifecycle/policies, custom models, generic workflow foundation, and integration of currently implemented newsroom/reporter/media/location/moderation functions. Payroll, recruitment, leave, attendance, finance, and performance remain disabled/future until separately approved.</td><td>Executive/product owner + module owners</td><td>Any extra native or new module requires a change request and revised estimate.</td></tr>
+              <tr><td>D-17</td><td>Data residency and legal basis</td><td>No residency or statutory compliance claim is assumed in this document. Before production, the privacy/legal owner identifies applicable jurisdictions, lawful purposes, retention periods, processor terms, and permitted data location; deployment region is chosen from that decision.</td><td>Privacy/legal owner</td><td>May alter hosting, storage, vendor, retention, and cost.</td></tr>
+              <tr><td>D-18</td><td>AI role and decision authority</td><td>AI is an optional assistant, disabled until a named owner approves a specific use case. It may draft, summarize, transcribe, translate, or retrieve approved information; it never makes or commits employment, access, approval, editorial publication, deletion, or other consequential decisions. A human verifies output and uses the ordinary authorized workflow.</td><td>Executive/product owner + AI/service owner + affected domain/security owners</td><td>Automation of any consequential decision requires a separate legal, ethical, security, and product approval; it is not an administrator toggle.</td></tr>
+              <tr><td>D-19</td><td>AI data/provider boundary</td><td>No sensitive HR/personnel, applicant, identity-document, credential, incident, legal, or confidential-source data is sent to an AI provider by default. Each enabled use case specifies allowed data, provider/model, location, retention, subprocessor, training/no-training terms, redaction, and evaluation. If acceptable terms cannot be verified, the use case remains off or uses only approved non-sensitive data.</td><td>Privacy/security owner + AI/service owner + domain owner</td><td>Provider or data-scope changes require re-review and may affect hosting, cost, retention, and consent/disclosure.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warning">
+          <strong>Approval rule:</strong> “Draft baseline” means engineering
+          can estimate and prepare a prototype. It does not authorize production
+          migration or sensitive-data processing. D-01 through D-19 need a
+          named approver and a recorded acceptance/change before the relevant
+          implementation gate.
+        </div>
+      </section>
+
+      <section id="implementation-contract">
+        <h2>17. Product scope and implementation contract</h2>
+        <h3>17.1 V1 must-have requirements</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance evidence</th></tr></thead>
+            <tbody>
+              <tr><td>ORG-01</td><td>Exactly one active primary organization is provisioned for v1; all organization-owned records resolve to it.</td><td>Constraint/test prevents zero or multiple active primary organizations; API cannot accept an arbitrary organization ID to escape scope.</td></tr>
+              <tr><td>ORG-02</td><td>Super-admin can configure verified organization identity, settings, departments, positions, module readiness, and configuration revisions through UI.</td><td>Browser test completes create/edit/publish/archive without SQL; audit identifies actor and revision.</td></tr>
+              <tr><td>ID-01</td><td>One profile can have distinct, independently lifecycle-managed organization relationships.</td><td>Same test identity can be both employee and reporter without duplicate auth identities or cross-domain data leakage.</td></tr>
+              <tr><td>IAM-01</td><td>Roles aggregate only active grants; permission, module, relationship, scope, and record state are checked at the protected operation.</td><td>Direct REST/RPC/storage deny tests match UI expectations, including immediately after role/module revocation.</td></tr>
+              <tr><td>IAM-02</td><td>Super-admin changes and high-impact grants use reason, audit, and the defined second-person approval policy.</td><td>Self-approval denied; stale/duplicate approval rejected; approval decision and change commit atomically.</td></tr>
+              <tr><td>HR-01</td><td>Employee invite, preboarding, activate, transfer, suspend, terminate, and rehire are explicit audited lifecycle operations.</td><td>End-to-end tests prove status/date/assignment invariants and session/access cleanup.</td></tr>
+              <tr><td>HR-02</td><td>Employee policies are versioned, applicability is deterministic, and acceptance references the exact published version.</td><td>New version does not overwrite prior acceptance; required unaccepted policy blocks only the configured lifecycle action.</td></tr>
+              <tr><td>MOD-01</td><td>Super-admin can define/publish/archive safe custom models with typed fields, permissions, scopes, validation, and history.</td><td>Invalid types, oversized payload, inactive model, or cross-organization reference is rejected server/database-side.</td></tr>
+              <tr><td>WF-01</td><td>Workflow transition validates current revision, state edge, actor, scope, reason, and approval rule transactionally.</td><td>Concurrent stale write, duplicate request, invalid edge, or requester self-approval cannot change the record.</td></tr>
+              <tr><td>MOD-02</td><td>Module availability is distinct from module enablement and every protected API/RPC/storage/public path follows the disabled behavior.</td><td>Automated module-off suite proves no writes/public access and proves retained data is not deleted.</td></tr>
+              <tr><td>AUD-01</td><td>Security-sensitive configuration and lifecycle changes have append-only event history and correlation IDs.</td><td>Application role cannot update/delete event rows; audit export is permission-controlled and tested.</td></tr>
+              <tr><td>MIG-01</td><td>Legacy profiles and newsroom roles are mapped without accidental employment classification.</td><td>Dry-run reconciliation gives source/target counts, exceptions, and signed owner approval before commit.</td></tr>
+              <tr><td>OPS-01</td><td>Operators can inspect service health, failed background work, migration version, and backup/recovery status without seeing secrets.</td><td>Operations dashboard/runbook and restore rehearsal signed by service owner.</td></tr>
+              <tr><td>AI-01 (conditional)</td><td>If AI is enabled, each use case has approved data/provider terms, permission-filtered context, clear draft labeling/provenance, human review, bounded usage, safe failure/manual fallback, and a tested disable switch. AI cannot commit consequential actions.</td><td>Prompt-injection, unauthorized-source, sensitive-data, provider-outage, rate/cost, audit, and no-mutation tests pass; domain owner signs the pilot evaluation. If not approved, AI remains disabled without blocking core workflows.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>17.2 Explicitly out of V1</h3>
+        <ul>
+          <li>General-purpose user-authored code, arbitrary SQL, arbitrary permission keys, browser-defined executable workflow conditions, and unrestricted schema alteration.</li>
+          <li>Multi-tenant SaaS, cross-organization login, organization billing, tenant provisioning, tenant-specific encryption keys, and tenant data residency controls.</li>
+          <li>Full payroll, tax filing, accounting ledger, benefits administration, recruitment ATS, attendance clocking, leave accrual, and statutory reporting.</li>
+          <li>Native mobile apps, offline synchronization, real-time collaboration, analytics data warehouse, and bespoke ERP integrations.</li>
+        </ul>
+        <p>These are not permanently forbidden. They require a separate product decision, domain specification, risk review, and estimate.</p>
+      </section>
+
+      <section id="domain-specifications">
+        <h2>18. Domain data and lifecycle specifications</h2>
+        <h3>18.1 Canonical data dictionary</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Canonical entity / table</th><th>Owner</th><th>Required data and rules</th><th>Deletion/lifecycle</th></tr></thead>
+            <tbody>
+              <tr><td><code>organizations</code></td><td>Platform / super-admin</td><td>UUID, stable organization key, display/legal name, verified contacts, country, locale, timezone, currency, active/primary flags, timestamps/actors.</td><td>One active primary in v1; never cascade-delete organization history.</td></tr>
+              <tr><td><code>profiles</code> + Supabase Auth user</td><td>Identity service</td><td>Auth UUID, canonical email, display name, phone, account status, verification metadata. Secrets/passwords remain with Auth.</td><td>Disable/revoke; delete only under approved privacy process after references/retention review.</td></tr>
+              <tr><td><code>organization_people</code></td><td>Organization directory</td><td>UUID, organization_id, person/profile ID, relationship_type, status, starts/ends, source type/ID, optional department/access role for eligible external relationships, created/updated actors.</td><td>End relationship, retain history. Never use as a second identity record.</td></tr>
+              <tr><td><code>hr_departments</code></td><td>HR structure (canonical v1)</td><td>UUID, organization_id, unique department_key per organization, name, description, parent_id, active flag, timestamps/actors; parent must share organization and cannot create cycles.</td><td>Deactivate if referenced; reparent only with impact preview/history.</td></tr>
+              <tr><td><code>hr_positions</code></td><td>HR structure (canonical v1)</td><td>UUID, organization_id, unique position_key, title, description, optional department_id, active flag, timestamps/actors.</td><td>Deactivate if assignments reference it; keep assignment title snapshots.</td></tr>
+              <tr><td><code>hr_employees</code></td><td>HR</td><td>Profile UUID, unique employee_number, employment_type, employment_status, hired_on, terminated_on, created_by/at, updated_at; one-to-one profile link.</td><td>Lifecycle update; do not hard-delete active/history-bearing employees.</td></tr>
+              <tr><td><code>hr_employee_assignments</code></td><td>HR</td><td>UUID, employee_id, department_id, position_id, access_role_id, manager_employee_id, status, is_primary, starts_at/ends_at, reason, assigned_by, immutable snapshots when names change.</td><td>End-date, do not overwrite prior assignment. Enforce at most one current primary assignment.</td></tr>
+              <tr><td><code>organization_permission_catalog</code></td><td>Platform/security</td><td>Stable permission_key, area, description, module_key, risk class, active flag and version. Only shipped keys are valid.</td><td>Deactivate only after dependent grants are reviewed; never silently repurpose a key.</td></tr>
+              <tr><td><code>organization_access_roles</code></td><td>Super-admin/security</td><td>UUID, organization_id, stable role_key, name, description, system flag, active flag, owner, timestamps.</td><td>Deactivate only after reassigning members; retain historical grants.</td></tr>
+              <tr><td><code>organization_access_role_permissions</code></td><td>Super-admin/security</td><td>Role, permission, scope, optional department, include-descendants flag, validity window, grant actor/reason; unique active grant.</td><td>End/revoke grant and append event; do not delete audited privilege grants.</td></tr>
+              <tr><td><code>hr_policy_documents</code> / versions</td><td>HR/legal</td><td>Policy key, owner, applicability expression from supported selectors, required flag, immutable content/version/hash, publish/retire actor/time.</td><td>Retire versions; never alter content after publish.</td></tr>
+              <tr><td><code>hr_policy_acceptances</code></td><td>HR / employee</td><td>Employee ID, policy version ID/hash, accepted_at, authenticated actor, evidence metadata and optional source/request ID.</td><td>Append-only; privacy erasure follows approved legal process.</td></tr>
+              <tr><td><code>organization_modules</code> / configuration versions</td><td>Product owner</td><td>Organization/module key, implementation readiness, enabled flag, dependency state, JSON config schema version, revision, actor/time, change reason.</td><td>Disable/retire, preserve version history and associated records.</td></tr>
+              <tr><td><code>organization_models</code> / fields / permissions</td><td>Model owner</td><td>Model key, module/owner, published version, field type and constraints, visibility, reference allowlist, role/action/scope, lifecycle and retention settings.</td><td>Retire only after impact review; keep definitions for historical records.</td></tr>
+              <tr><td><code>organization_records</code> / events</td><td>Owning model domain</td><td>Organization ID, model/version, stable record ID, owner/department, typed payload, revision, lifecycle state, created/updated actors and event history.</td><td>Archive; hard delete only unused drafts or approved erasure.</td></tr>
+              <tr><td><code>organization_workflows</code> / states / transitions</td><td>Domain owner + product owner</td><td>Workflow key, bound module/domain adapter, version, states, allowed edges, permission, reason, approver policy, pause behavior, owner.</td><td>Retire definitions; in-flight instances remain tied to starting version.</td></tr>
+              <tr><td><code>workflow_instances</code> / approvals / events</td><td>Workflow runtime + domain</td><td>Typed subject reference, organization, workflow version, current state/revision, requester, expected revision, decision, reason, actor/time.</td><td>Immutable events; stale requests resolve to stale/cancelled, not silently deleted.</td></tr>
+              <tr><td><code>audit_events</code> (canonical event store)</td><td>Platform/security</td><td>Event ID, organization, actor, action, resource type/ID, timestamp UTC, request/correlation ID, reason, redacted before/after diff, outcome, source/IP where approved.</td><td>Append-only, restricted reads, retention-managed; no secrets or document contents.</td></tr>
+              <tr><td><code>notification_outbox</code> / deliveries</td><td>Platform operations</td><td>Idempotency key, event type, recipient reference, template/version, payload reference, attempts, next retry, final status.</td><td>Retry with backoff; redact payload after retention; deduplicate delivery.</td></tr>
+              <tr><td><code>organization_ai_use_cases</code> (proposed, optional)</td><td>AI/service owner + domain/security owners</td><td>Use-case key, purpose, owner, enabled state, allowed data classes, provider/model, provider terms/location reference, configuration/evaluation version, limits, reviewer and approval timestamps.</td><td>Version/disable; keep prior approval metadata. Never store provider secrets in this row.</td></tr>
+              <tr><td><code>ai_interaction_events</code> (proposed, optional)</td><td>AI/service owner + privacy/security</td><td>Actor, use-case/config version, provider/model version, correlation ID, authorized source IDs/revisions, status, latency/cost, human disposition; no full prompt/output by default.</td><td>Restricted and retention-managed metadata; no sensitive prompt/output content unless a separately approved retention purpose exists.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small">
+          This is the v1 naming contract. AI entities are optional proposals,
+          not required until the AI pilot is approved. Existing migrations may not yet
+          implement every listed column or entity exactly. Phase 1 must compare
+          this contract with the live/local schema and produce reviewed,
+          additive migrations; do not claim a table is implemented from this
+          specification alone.
+        </p>
+
+        <h3>18.2 Employee status transition contract</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>From</th><th>Action / next status</th><th>Required guard</th><th>Side effects</th></tr></thead>
+            <tbody>
+              <tr><td>Invitation absent</td><td>Invite → preboarding</td><td>HR manage permission, verified unique email, approved department/position, invite expiry.</td><td>Create/associate profile, invitation audit, minimum access only.</td></tr>
+              <tr><td>Preboarding</td><td>Activate → active</td><td>Identity verified, required fields and assignment valid, mandatory onboarding checks complete, authorized approver.</td><td>Effective assignment, compute access, issue welcome/task notifications.</td></tr>
+              <tr><td>Active</td><td>Transfer / promotion → active</td><td>Future/current effective date, valid manager and position, no conflicting primary period, impact preview.</td><td>Close previous assignment, create new assignment, recompute grants, audit snapshots.</td></tr>
+              <tr><td>Active</td><td>Suspend → suspended</td><td>HR/authorized security permission, reason, effective time.</td><td>Deny new sessions/operations, revoke tokens where supported, pause delegated approvals, notify owner.</td></tr>
+              <tr><td>Suspended</td><td>Reinstate → active</td><td>Authorized actor, reason, valid current assignment and policy check.</td><td>Restore only approved access; do not blindly restore expired grants.</td></tr>
+              <tr><td>Active / suspended / preboarding</td><td>Terminate → terminated</td><td>Authorized HR approval, termination date/reason, legal retention and handover checks.</td><td>End assignments and relationship, revoke access/sessions/invites, transfer ownership/approvals, preserve history.</td></tr>
+              <tr><td>Terminated</td><td>Rehire → new active employment episode (recommended)</td><td>Verified existing profile or approved duplicate merge, new hire approval and effective dates.</td><td>Create new employment episode/assignment history; never reopen old assignment by erasing termination evidence.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>18.3 Configuration, module, and custom-record lifecycle</h3>
+        <ul>
+          <li><strong>Configuration:</strong> draft → validated → pending approval if high-impact → published revision → retired. Published revisions are immutable. Rollback means publish a new revision restoring prior values, never mutate history.</li>
+          <li><strong>Module:</strong> planned → available after readiness gates → enabled → disabled/paused → enabled after resume checks, or retired. `planned` and `retired` cannot be enabled. Required core module cannot be disabled through ordinary settings.</li>
+          <li><strong>Model definition:</strong> draft → validation errors resolved → preview tested → published version → retired. A published version is immutable; records remain attached to the version that defined them.</li>
+          <li><strong>Record:</strong> model-specific controlled states. Every transition is a configured edge and must also pass the domain's non-configurable constraints. Archive is the default removal action.</li>
+          <li><strong>Approval:</strong> pending → approved/rejected/stale/cancelled. Exactly one terminal decision; compare expected revision; requester cannot approve own high-impact request; decision and resulting state change are atomic.</li>
+        </ul>
+      </section>
+
+      <section id="technical-contract">
+        <h2>19. Application, API, database, and error contracts</h2>
+        <div class="callout">
+          <strong>How to read this specification:</strong> “must” and “required”
+          are release requirements. “Proposed target/default” is a value to
+          validate at Phase 0. “Existing foundation” describes current local
+          code/schema work and is not implementation evidence. Every requirement
+          needs a test or named sign-off before production.
+        </div>
+        <h3>19.1 Logical runtime and trust boundaries</h3>
+        <div class="code">Employee / Admin / Public browser
+        │  Supabase Auth session; no privileged database secret
+        ▼
+Node.js application (same-origin web + API)
+        ├── UI/static pages
+        ├── Authentication, CSRF/origin, rate-limit and request validation
+        ├── Permission + module pre-check (UX/early deny, not final authority)
+        └── Typed database RPC / PostgREST with user session
+                    │
+                    ▼
+Supabase PostgreSQL
+        ├── Constraints + transaction functions + immutable domain events
+        ├── RLS: final row-level boundary for client/user-token access
+        └── Auth context: actor identity derived from verified JWT
+
+Private Supabase Storage ── RLS/short-lived signed access ── authorized user
+Transactional outbox ── least-privilege worker ── email/notification provider
+Logs/metrics/traces ── redaction + restricted operator access</div>
+        <p>This is the target architecture. The outbox worker, alerting, tracing, and every listed RLS condition must be verified/implemented; their appearance here does not assert they already exist. Normal user operations must not use a service-role key. A Node pre-check improves usability, while database authorization remains decisive.</p>
+        <h3>19.2 Layer responsibilities</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Layer</th><th>Must do</th><th>Must not be trusted for</th></tr></thead>
+            <tbody>
+              <tr><td>Browser/UI</td><td>Render permitted actions, validate for usability, show revision/impact/errors, require confirmation and reason.</td><td>Authorization, valid transitions, ownership, or data integrity.</td></tr>
+              <tr><td>Node server/API</td><td>Authenticate session; check origin/CSRF; enforce rate limits and permission/module gate; validate request shape; call typed RPC/database query; map errors safely.</td><td>Replacing database checks or accepting client-supplied actor/org identity.</td></tr>
+              <tr><td>PostgreSQL RPC/domain functions</td><td>Use authenticated subject from trusted auth context; authorize; check scope/invariants/revision; write domain row and audit event transactionally.</td><td>Arbitrary dynamic SQL derived from user config; broad service-role bypass for normal actions.</td></tr>
+              <tr><td>RLS/storage</td><td>Protect direct client database/storage access even if Node routes are bypassed.</td><td>UI-based filtering as a substitute for policy.</td></tr>
+              <tr><td>AI gateway (optional)</td><td>Authenticate and authorize each use case/source; minimize and redact input; call only approved provider/model; return a labeled draft and source provenance; enforce quotas, timeouts, audit metadata, and disable switch.</td><td>Direct browser-to-provider calls, unfiltered retrieval, model-supplied identity/permissions, arbitrary tools, secrets, or authoritative writes.</td></tr>
+              <tr><td>Background workers</td><td>Use dedicated least-privilege identity, idempotency, bounded retries, metrics, and audit attribution to triggering event.</td><td>Assuming a prior user authorization remains valid indefinitely.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>19.3 API behavior contract</h3>
+        <ul>
+          <li>Keep the current same-origin Node API convention for browser-facing organization APIs. Use consistent resource routes under `/api/admin/organization`, `/api/admin/hr`, `/api/employee`, and `/api/organization`; version breaking public contracts deliberately.</li>
+          <li>Mutations require authenticated session, same-origin/CSRF validation, idempotency key for invitation/export/workflow start where duplicate execution is harmful, and a reason for privileged changes.</li>
+          <li>The acting user and organization scope come from the verified session and database context—not from an untrusted JSON field. If a target ID is supplied, the database must prove it belongs to that organization.</li>
+          <li>Use JSON response envelopes consistently: success returns `{ success: true, data, revision? }`; failure returns `{ success: false, error: { code, message, request_id, details? } }`. Never return SQL, stack traces, secrets, or sensitive before/after values to the browser.</li>
+          <li>Use HTTP 400 for malformed input, 401 unauthenticated, 403 unauthorized, 404 absent/inaccessible resource where disclosure is unsafe, 409 stale revision/conflict, 422 valid shape but invalid business transition, 429 rate limit, and 5xx for unexpected service failures.</li>
+          <li>Validate request body size, UUIDs, enums, dates, numeric bounds, JSON schema, uploaded content signature, and pagination limits at the server; repeat essential checks in database constraints/functions.</li>
+          <li>Paginate list APIs with stable ordering and bounded page size. Exports are separate audited jobs, not unlimited table responses.</li>
+        </ul>
+        <h3>19.4 Database invariants and transaction boundary</h3>
+        <ul>
+          <li>Every organization-owned row has a non-null `organization_id` and composite relationships/FKs where needed to prevent cross-organization joins.</li>
+          <li>Use unique constraints scoped to organization for keys, exactly one active primary organization for this deployment, checks for lifecycle/date consistency, and partial unique indexes for one current primary employee assignment.</li>
+          <li>Each mutation function derives `actor_id` from the authenticated database context; service workers use explicitly named service identities and record the triggering job/event.</li>
+          <li>Authorization, validation, current revision comparison, primary-row update, audit event, and approval state change happen in one database transaction where they form one business action.</li>
+          <li>All `SECURITY DEFINER` functions must set a safe fixed `search_path`, use schema-qualified objects, have minimum grants, and be reviewed for unintended public/anon execution. Revoke default execution explicitly.</li>
+          <li>Use transaction locks or optimistic revisions for competing transitions. A conflict returns 409 and forces a reload; never silently overwrite.</li>
+        </ul>
+        <h3>19.5 Audit and observability fields</h3>
+        <p>Every security-relevant event records: event UUID, organization, authenticated actor (or controlled worker identity), action key, target type/ID, UTC timestamp, request/correlation ID, outcome, reason, revision, source channel, and a minimal redacted before/after diff. Do not store passwords, tokens, full bank/identity documents, raw secret values, or unnecessary IP/user-agent data in the audit stream.</p>
+        <h3>19.6 Optional AI service contract</h3>
+        <ul>
+          <li>All model access goes through a server-side provider adapter/gateway. Keep API keys in the deployment secret manager; the browser never receives provider credentials. Pin and record provider/model/config versions and support controlled updates.</li>
+          <li>Before every call, enforce the active user session, use-case permission, module state, source-record permission, and purpose. Retrieve only authorized records and only the fields needed for that task; re-check access when a draft is saved. AI cannot widen user access.</li>
+          <li>Approve provider/subprocessor, deployment region, retention, training/no-training setting, security terms, and transfer/legal basis before sending organization content. Treat provider input/output as external processing. Use public/synthetic data for development and evaluation unless separately approved.</li>
+          <li>Retrieved text and user-uploaded content are untrusted: defend against prompt injection, poisoned instructions, cross-user retrieval, unsafe links, and output-as-code. Do not execute model instructions or expose hidden prompts/secrets. Outputs are escaped and schema-validated before display or use.</li>
+          <li>Models produce suggestions only. No function/tool calling with write, approval, role, export, delete, send, or arbitrary query capability. Any AI-generated artifact is an ordinary editable draft and must pass existing human approval and domain validation.</li>
+          <li>Log minimal provenance and operational metadata, not raw prompt/output by default. Keep approved retention, access, deletion, and subject-request behavior aligned with source data. Provider-side retention and training controls must be verified, not assumed.</li>
+          <li>Per-use-case controls include feature flag/kill switch, allowlisted users/data sources, input/output token and request limits, concurrency/rate limits, budget alert/cap, timeout, provider-health alert, and a manual fallback. Provider failure must not block core business operations.</li>
+          <li>Evaluate representative and adversarial examples before launch and after material model/prompt/retrieval changes. Track factual/source attribution errors, unsafe or biased outputs, reviewer edits/rejections, latency, failures, and spend; pause expansion when a release threshold fails.</li>
+        </ul>
+      </section>
+
+      <section id="nonfunctional">
+        <h2>20. Non-functional requirements and measurable targets</h2>
+        <p>These are proposed v1 service objectives for planning; Phase 0 must validate traffic, hosting-plan capability, data sensitivity, and budget. If the selected Supabase plan cannot meet the recovery targets, explicitly change the objective or hosting plan before production.</p>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Quality</th><th>V1 target</th><th>Measurement / test</th></tr></thead>
+            <tbody>
+              <tr><td>Availability</td><td>99.5% monthly for authenticated organization operations, excluding announced maintenance and upstream provider incidents.</td><td>Monthly synthetic login, read, and authorized mutation checks; report errors separately by dependency.</td></tr>
+              <tr><td>Interactive latency</td><td>Organization API read/write P95 ≤ 1.0 s under baseline load (excluding large uploads/exports); primary page usable P75 ≤ 2.5 s on agreed test network.</td><td>Staging load test and browser performance trace with dataset at expected v1 size.</td></tr>
+              <tr><td>Workflow response</td><td>Transition/approval P95 ≤ 2 s excluding external notification delivery; notification queued within 1 s of committed action.</td><td>Load/concurrency test, measure DB commit and outbox delay separately.</td></tr>
+              <tr><td>Baseline capacity</td><td>Plan for 100 simultaneous active users, 25,000 profiles/relationship records, 100,000 operational records, and 1 million audit events in the first year.</td><td>Phase 0 confirms user volume; staging dataset and load test at 2× expected peak.</td></tr>
+              <tr><td>Recovery point (RPO)</td><td>Target ≤ 4 hours for organization data, with point-in-time recovery if provider plan supports it; otherwise document and approve the achievable value before launch.</td><td>Verify backup/PITR configuration and demonstrate restore to a separate project.</td></tr>
+              <tr><td>Recovery time (RTO)</td><td>Target ≤ 8 hours to restore core login, organization admin, and operational data after declared disaster.</td><td>Timed restore rehearsal with named incident commander and post-restore checks.</td></tr>
+              <tr><td>Accessibility</td><td>WCAG 2.2 AA target for primary admin, employee, and workflow journeys; keyboard operation and visible focus are mandatory.</td><td>Automated scan plus manual keyboard/screen-reader review of critical flows.</td></tr>
+              <tr><td>Browser/device</td><td>Current and previous major Chrome, Edge, Firefox, and Safari desktop versions; responsive tablet/mobile web for core self-service.</td><td>Automated smoke matrix and manual representative-device review.</td></tr>
+              <tr><td>Localization/time</td><td>UTC persistence; organization-local rendering; English initial admin copy; translation keys and locale-aware formatting from day one.</td><td>Timezone/DST/date/currency tests; no locale-formatted values used as database keys.</td></tr>
+              <tr><td>Security defects</td><td>No unresolved critical/high security findings at production release; medium findings require owner, mitigation and dated approval.</td><td>Independent review/test report and retest evidence.</td></tr>
+              <tr><td>AI, if enabled</td><td>Provider errors, latency, usage/spend, human acceptance/rejection, and safety incidents are observable per approved use case; 100% of generated drafts are visibly labeled and linked to provenance available to the reviewer. No AI-provider failure may block non-AI workflows.</td><td>Dashboard and budget alerts; human review sampling and adversarial evaluation; provider-outage and kill-switch exercise; no raw sensitive prompts in general logs.</td></tr>
+              <tr><td>Custom model limits</td><td>Initial limit: 50 fields/model, 100 KB JSON record payload, 100 records/page; attachment limit follows secure storage policy. Limits are configurable only by platform release, not arbitrary super-admin settings.</td><td>Boundary/abuse tests; revise only with indexed-query and storage review.</td></tr>
+              <tr><td>Data retention</td><td>Every domain must have an approved retention class before production data is loaded; no invented global retention period.</td><td>Retention matrix signed by privacy/legal and domain owners; scheduled deletion/anonymization dry-run.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="governance">
+        <h2>21. Owners, approvals, and decision governance</h2>
+        <h3>21.1 Accountable roles</h3>
+        <div class="scroll-table">
+          <table>
+            <thead><tr><th>Role</th><th>Accountability</th><th>Cannot delegate away</th></tr></thead>
+            <tbody>
+              <tr><td>Executive sponsor / product owner</td><td>Approves v1 scope, budget, prioritization, organization boundary, release acceptance.</td><td>Business scope and acceptance sign-off.</td></tr>
+              <tr><td>Super-admin owner</td><td>Initial organization setup, privileged admin roster, configuration approvals, emergency contact.</td><td>Privileged identity stewardship and setup completion.</td></tr>
+              <tr><td>HR domain owner</td><td>Employment lifecycle, employee data, policy applicability, assignment/rehire/offboarding rules.</td><td>HR requirements and employee data import approval.</td></tr>
+              <tr><td>Newsroom/reporter domain owner</td><td>Article editorial stages, reporter onboarding/agreement/coverage, collaborator access.</td><td>Editorial and reporter business invariants.</td></tr>
+              <tr><td>Technical lead</td><td>Architecture, implementation integrity, data model, migration correctness, technical estimates.</td><td>Technical quality and deployability sign-off.</td></tr>
+              <tr><td>Security/privacy owner</td><td>Threat model, privilege policy, personal-data handling, audit, incident and access-review controls.</td><td>Security/privacy risk acceptance or rejection.</td></tr>
+              <tr><td>AI/service owner (if enabled)</td><td>Use-case register, provider/model terms and changes, data minimization, evaluation, monitoring, budget limits, and disable/incident response.</td><td>AI use-case approval, operational monitoring, and evidence that the enabled configuration matches the reviewed one.</td></tr>
+              <tr><td>Database/platform operator</td><td>Environments, backups, migration execution, secrets, monitoring, restore and recovery.</td><td>Production change execution and recoverability.</td></tr>
+              <tr><td>QA/UAT owner</td><td>Independent test evidence, regression, acceptance matrix, defect triage.</td><td>Test result integrity and release evidence.</td></tr>
+              <tr><td>Legal/accounting adviser</td><td>Applicable employment/privacy/retention/payroll/accounting requirements.</td><td>Professional legal/accounting determinations.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>21.2 Decision record and approval timing</h3>
+        <ol>
+          <li>Phase 0 records each decision as an ADR with ID, question, chosen option, rejected alternatives, rationale, owner, approver, date, and impacted requirements.</li>
+          <li>Block Phase 1 production-migration design on D-01 through D-03 and D-17; block authorization implementation on D-05 through D-09; block module release on D-10 through D-13 and D-16; block sensitive data load on D-14/D-17. Any AI pilot is separately blocked on approval of D-18/D-19 and its use-case-specific data/provider review.</li>
+          <li>Any scope change records affected phases, schedule, cost, data/migration impact, test impact, and approving owner before work begins.</li>
+          <li>When a decision is unresolved, use the safest reversible default in a non-production prototype only. Do not silently convert an assumption into production policy.</li>
+        </ol>
+        <div class="callout warning">
+          <strong>Minimum sign-off to authorize implementation:</strong> executive
+          product owner, super-admin owner, HR owner, newsroom/reporter owner,
+          technical lead, security/privacy owner, and database/platform operator
+          acknowledge their assigned scope. Legal/accounting sign-off is
+          additionally required before related sensitive/legal domains go live.
+        </div>
+      </section>
+
+      <section id="delivery-controls">
+        <h2>22. Delivery controls, migration procedure, and release checklist</h2>
+        <h3>22.1 Migration and data reconciliation procedure</h3>
+        <ol>
+          <li><strong>Inventory:</strong> capture database migration ledger, table/column/FK/index/trigger/function/policy definitions, storage buckets/policies, row counts, and sampled anonymized records from the actual target.</li>
+          <li><strong>Classify sources:</strong> identify profile accounts, employees, staff-role assignments, reporters, applications, agreements, coverage, articles, and existing audit history. Name an owner for each source and target mapping.</li>
+          <li><strong>Define deterministic mapping:</strong> map source IDs to target IDs; resolve duplicates only with verified identity evidence. Never infer employee status from a newsroom role. Keep a source-to-target mapping table and preserve original identifiers in a restricted migration record.</li>
+          <li><strong>Dry run:</strong> run migration on a restored copy; produce counts by source/target/status, invalid rows, duplicate candidates, nulls, and predicted access changes. No destructive update in this pass.</li>
+          <li><strong>Review exceptions:</strong> business owner resolves each unmatched/ambiguous record. Document accepted exclusions and privacy-safe handling of source files.</li>
+          <li><strong>Rehearse upgrade:</strong> apply exact migrations and data backfill in order, verify constraints, triggers, grants, RLS, storage access, and application compatibility; test recovery from a snapshot.</li>
+          <li><strong>Approve cutover:</strong> freeze writes or use an explicitly tested dual-write/catch-up plan; take final backup; record version/checksum/count baseline; obtain owner sign-off.</li>
+          <li><strong>Execute and reconcile:</strong> run idempotent migration, compare counts/checksums and sample references, test critical user journeys, monitor errors; stop/restore if integrity thresholds fail.</li>
+          <li><strong>Close:</strong> archive migration report and approvals; delete temporary exports according to retention; monitor heightened alerts for at least 48 hours.</li>
+        </ol>
+        <h3>22.2 Environments and deployment</h3>
+        <ul>
+          <li>Maintain local/test, shared staging, and production as separate Supabase projects/environments. Never use production personal data in developer machines; use synthetic or approved masked data.</li>
+          <li>Use separate credentials per environment; service-role key only in server runtime/controlled migration pipeline; no credential in browser bundles or logs.</li>
+          <li>CI must run JavaScript lint/syntax/type checks applicable to the project, SQL parsing/lint where available, unit/integration tests, migration clean-install and upgrade tests, permission/RLS tests, dependency/security scan, and `git diff --check`.</li>
+          <li>Deploy additive schema changes first when backward compatible, then server code, then UI/feature flags. Destructive cleanup is a later release after old code is retired and data verified.</li>
+          <li>Use an expand/migrate/contract sequence: add nullable/new structures, dual-read or backfill if needed, validate, switch reads/writes, then remove old structures in a separate reviewed migration.</li>
+          <li>Production database migrations require named operator, approved change record, backup, maintenance/impact notice, pre/post checks, stop condition, and recovery owner.</li>
+        </ul>
+        <h3>22.3 Release go/no-go checklist</h3>
+        <ul>
+          <li>All baseline decisions affecting this release are accepted and recorded; unresolved issues have an explicit safe deferral.</li>
+          <li>Migration clean-install and upgrade rehearsal passed on representative schema; counts/data reconciliation approved; backup restore succeeded.</li>
+          <li>Critical user journeys and authorization matrix pass for every role/scope/module combination in the release.</li>
+          <li>No critical/high security defect remains; medium findings have written risk acceptance, mitigation, owner, and expiry.</li>
+          <li>Module readiness checks prevent enabling incomplete modules; pause/resume behavior is tested.</li>
+          <li>Monitoring, alert routing, incident contacts, support hours, rollback/forward fix, and release notes are ready.</li>
+          <li>HR/newsroom domain owners accept UAT; super-admin owner verifies setup; technical and security leads approve production deployment.</li>
+          <li>Post-release owner is on call; smoke tests, error/latency thresholds, and a 48-hour enhanced monitoring window are scheduled.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+  <footer class="footer">
+    Implementation specification baseline v1.2 review draft · Prepared for CHOWK NEWS · Cost and schedule are indicative, scope-dependent estimates.
+  </footer>
+</body>
+</html>

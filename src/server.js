@@ -647,12 +647,12 @@ async function deleteSupabaseAuthUser(userId) {
   }
 }
 
-async function inviteSupabaseStaffUser(email, requestedRole, redirectTo) {
+async function inviteSupabaseUser(email, requestedRole, redirectTo, accountKind = "staff") {
     const { url } = supabaseConfig();
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
     if (!serviceRoleKey) {
       throw Object.assign(
-        new Error("Staff invitations require SUPABASE_SERVICE_ROLE_KEY in the server environment."),
+        new Error("Account invitations require SUPABASE_SERVICE_ROLE_KEY in the server environment."),
         { statusCode: 503 }
       );
     }
@@ -668,10 +668,9 @@ async function inviteSupabaseStaffUser(email, requestedRole, redirectTo) {
       },
       body: JSON.stringify({
         email,
-        data: {
-          account_type: "staff_invitation",
-          requested_staff_role: requestedRole
-        }
+        data: accountKind === "employee"
+          ? { account_type: "employee_invitation", requested_employee_role: requestedRole }
+          : { account_type: "staff_invitation", requested_staff_role: requestedRole }
       }),
       signal: AbortSignal.timeout(apiTimeoutMs),
       cache: "no-store"
@@ -917,12 +916,86 @@ async function getSession(request, response, cookieName) {
   return { identity, token: refreshed.payload.access_token };
 }
 
+async function hasHrConsoleAccess(token) {
+  const result = await supabaseRequest("/rest/v1/rpc/chowk_user_has_permission", {
+    method: "POST",
+    token,
+    body: { target_permission: "hr.console.access" }
+  });
+  return result.response.ok && result.payload === true;
+}
+
+async function hasOrganizationAdminAccess(token) {
+  const permissions = [
+    "hr.console.access",
+    "newsroom.articles.read",
+    "newsroom.articles.create",
+    "newsroom.articles.edit",
+    "newsroom.articles.review",
+    "newsroom.articles.publish",
+    "newsroom.categories.manage",
+    "newsroom.comments.moderate",
+    "newsroom.reports.manage",
+    "newsroom.media.manage",
+    "newsroom.locations.manage",
+    "newsroom.people.manage",
+    "reporters.manage",
+    "people.directory.read",
+    "organization.workflows.approve"
+  ];
+  const result = await supabaseRequest("/rest/v1/rpc/chowk_org_my_permissions", {
+    method: "POST", token, body: {}
+  });
+  return result.response.ok
+    && Array.isArray(result.payload)
+    && result.payload.some((permission) => permissions.includes(permission));
+}
+
+async function userHasOrganizationPermission(token, permission) {
+  const result = await supabaseRequest("/rest/v1/rpc/chowk_org_user_has_permission", {
+    method: "POST",
+    token,
+    body: { target_permission: permission }
+  });
+  return result.response.ok && result.payload === true;
+}
+
+async function organizationModuleEnabled(token, moduleKey) {
+  const result = await supabaseRequest("/rest/v1/rpc/chowk_org_module_is_enabled", {
+    method: "POST",
+    token,
+    body: { target_module: moduleKey }
+  });
+  if (!result.response.ok) {
+    throw new Error(apiErrorMessage(result.payload, "Organization module configuration could not be verified."));
+  }
+  return result.payload === true;
+}
+
+async function userHasOrganizationCapability(token, permission) {
+  const result = await supabaseRequest("/rest/v1/rpc/chowk_org_user_has_capability", {
+    method: "POST",
+    token,
+    body: { target_permission: permission }
+  });
+  if (!result.response.ok) {
+    throw new Error(apiErrorMessage(result.payload, "Organization permissions could not be verified."));
+  }
+  return result.payload === true;
+}
+
 async function requireAdmin(request, response) {
   try {
     const session = await getSession(request, response, adminCookie);
-    if (!session || !["admin", "super_admin"].includes(session.identity.role)) {
+    if (!session) {
       clearSessionCookies(response, adminCookie);
       sendJson(response, 401, { error: "Admin access required." });
+      return null;
+    }
+    if (!["admin", "super_admin"].includes(session.identity.role)
+        && !await hasOrganizationAdminAccess(session.token)) {
+      clearSessionCookies(response, adminCookie);
+      sendJson(response, 401, { error: "An organization permission is required for admin access." });
       return null;
     }
     return session;
@@ -1481,9 +1554,10 @@ async function handleAuth(request, response, registration) {
       sendJson(response, 502, { error: "Supabase did not return a valid account profile." });
       return;
     }
-    const allowedForAdmin = ["admin", "super_admin"].includes(identity.role);
+    const allowedForAdmin = ["admin", "super_admin"].includes(identity.role)
+      || (request.url.startsWith("/api/admin/session") && await hasOrganizationAdminAccess(token));
     if (request.url.startsWith("/api/admin/session") && !allowedForAdmin) {
-      sendJson(response, 403, { error: "This account does not have admin access." });
+      sendJson(response, 403, { error: "This account does not have an organization permission for admin access." });
       return;
     }
     const cookieName = registration ? userCookie : (
@@ -1511,6 +1585,10 @@ async function handleAuth(request, response, registration) {
 
 async function publicArticles(response, requestUrl) {
   try {
+    if (!await organizationModuleEnabled(null, "newsroom")) {
+      sendJson(response, 404, { error: "The newsroom module is currently disabled." });
+      return;
+    }
     const query = new URLSearchParams({
       select: "id,title,slug,excerpt,content,category_id,category:categories(name,slug),image_url,video_url,audio_url,published_at,created_at",
       status: "eq.published",
@@ -1556,6 +1634,16 @@ async function publicArticles(response, requestUrl) {
 }
 
 async function publicMedia(response, requestUrl) {
+  try {
+    if (!await organizationModuleEnabled(null, "media")) {
+      sendJson(response, 404, { error: "The media module is currently disabled." });
+      return;
+    }
+  } catch (error) {
+    console.error("Could not verify public media module availability:", error.message);
+    sendJson(response, 503, { error: "Media configuration is temporarily unavailable." });
+    return;
+  }
   const mediaType = requestUrl.searchParams.get("type");
   if (!["podcast", "charcha", "patrika"].includes(mediaType)) {
     sendJson(response, 400, { error: "Choose a valid media type." });
@@ -1583,12 +1671,803 @@ async function publicMedia(response, requestUrl) {
   }
 }
 
+async function organizationWorkflowsRoute(request, response, requestUrl, session) {
+  const { token } = session;
+  const pathname = requestUrl.pathname;
+  try {
+    if (request.method !== "GET" && !isSameOrigin(request)) {
+      sendJson(response, 403, { error: "Cross-origin request rejected." });
+      return;
+    }
+    if (pathname === "/api/organization/workflows" && request.method === "GET") {
+      const [workflows, permissions] = await Promise.all([
+        supabaseRequest("/rest/v1/rpc/chowk_org_available_workflows", {
+          method: "POST", token, body: {}
+        }),
+        supabaseRequest("/rest/v1/rpc/chowk_org_my_permissions", {
+          method: "POST", token, body: {}
+        })
+      ]);
+      const failed = [workflows, permissions].find((result) => !result.response.ok);
+      if (failed) {
+        sendJson(response, failed.response.status, {
+          error: apiErrorMessage(failed.payload, "Organization workflows could not be loaded.")
+        });
+        return;
+      }
+      const approvals = (permissions.payload || []).includes("organization.workflows.approve")
+        ? await supabaseRequest("/rest/v1/rpc/chowk_org_workflow_approval_inbox", {
+            method: "POST", token, body: {}
+          })
+        : null;
+      if (approvals && !approvals.response.ok) {
+        sendJson(response, approvals.response.status, {
+          error: apiErrorMessage(approvals.payload, "Workflow approvals could not be loaded.")
+        });
+        return;
+      }
+      sendJson(response, 200, { success: true, data: {
+        workflows: workflows.payload || [],
+        approvals: approvals?.payload || []
+      } });
+      return;
+    }
+
+    const instancesRoute = pathname.match(
+      /^\/api\/organization\/workflows\/([0-9a-f-]{36})\/instances$/i
+    );
+    if (instancesRoute && request.method === "GET") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_workflow_instances", {
+        method: "POST", token, body: { target_workflow: instancesRoute[1] }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload || [] }
+        : { error: apiErrorMessage(result.payload, "Workflow instances could not be loaded.") });
+      return;
+    }
+
+    const startRoute = pathname.match(
+      /^\/api\/organization\/workflows\/([0-9a-f-]{36})\/start$/i
+    );
+    if (startRoute && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_start_workflow", {
+        method: "POST", token,
+        body: {
+          target_workflow: startRoute[1],
+          target_subject_type: body.subject_type,
+          target_subject_id: body.subject_id
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Workflow could not be started.") });
+      return;
+    }
+
+    const transitionRoute = pathname.match(
+      /^\/api\/organization\/workflow-instances\/([0-9a-f-]{36})\/transitions$/i
+    );
+    if (transitionRoute && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_transition_workflow", {
+        method: "POST", token,
+        body: {
+          target_instance: transitionRoute[1],
+          target_transition: body.transition_id,
+          expected_revision: body.expected_revision,
+          transition_reason: body.reason || ""
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Workflow transition could not be completed.") });
+      return;
+    }
+
+    const approvalRoute = pathname.match(
+      /^\/api\/organization\/workflow-approvals\/([0-9a-f-]{36})\/decision$/i
+    );
+    if (approvalRoute && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_decide_workflow_approval", {
+        method: "POST", token,
+        body: {
+          target_approval: approvalRoute[1],
+          expected_revision: body.expected_revision,
+          approve: body.approve === true,
+          decision_reason: body.reason || ""
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Workflow decision could not be saved.") });
+      return;
+    }
+
+    sendJson(response, 404, { error: "Organization workflow route not found." });
+  } catch (error) {
+    console.error("Organization workflow request failed:", error.message);
+    sendJson(response, 503, { error: "Organization workflow service is temporarily unavailable." });
+  }
+}
+
+function organizationModuleForAdminPath(pathname) {
+  if (pathname.startsWith("/api/admin/hr/")) return "human-resources";
+  if (pathname.startsWith("/api/admin/role-agreements")
+      || pathname.startsWith("/api/admin/agreement-records")
+      || pathname.startsWith("/api/admin/reporter-agreement")) return "agreements";
+  if (pathname.startsWith("/api/admin/articles")
+      || pathname.startsWith("/api/admin/categories")
+      || pathname.startsWith("/api/admin/daily-submission-report")) return "newsroom";
+  if (pathname.startsWith("/api/admin/media")
+      || pathname.startsWith("/api/admin/live-streams")) return "media";
+  if (pathname.startsWith("/api/admin/comments")
+      || pathname.startsWith("/api/admin/reports")) return "moderation";
+  if (pathname.startsWith("/api/admin/reporter")
+      || pathname.startsWith("/api/admin/staff")
+      || pathname.startsWith("/api/admin/credential")
+      || pathname.startsWith("/api/admin/coverage")
+      || pathname.startsWith("/api/admin/states")
+      || pathname.startsWith("/api/admin/rto-offices")) return "reporters";
+  if (pathname.startsWith("/api/admin/locations")
+      || pathname.startsWith("/api/admin/district-range")
+      || pathname.startsWith("/api/admin/district-zone")) return "locations";
+  return null;
+}
+
+function organizationPermissionForAdminPath(pathname, method) {
+  if (pathname.startsWith("/api/admin/organization/")) return null;
+  if (pathname.startsWith("/api/admin/users")) return "organization.accounts.manage";
+  if (pathname.startsWith("/api/admin/dashboard")
+      || pathname.startsWith("/api/admin/audit")) return "organization.audit.read";
+  if (pathname.startsWith("/api/admin/daily-submission-report")) return "newsroom.articles.read";
+  if (pathname.startsWith("/api/admin/hr/")) return "hr.console.access";
+  if (pathname.startsWith("/api/admin/articles")) {
+    if (pathname.endsWith("/publish")) return "newsroom.articles.publish";
+    if (pathname.endsWith("/transition")) return "newsroom.articles.review";
+    if (method === "GET") return "newsroom.articles.read";
+    if (method === "POST") return "newsroom.articles.create";
+    if (method === "DELETE") return "newsroom.articles.delete";
+    return "newsroom.articles.edit";
+  }
+  if (pathname.startsWith("/api/admin/categories")) return "newsroom.categories.manage";
+  if (pathname.startsWith("/api/admin/comments")) return "newsroom.comments.moderate";
+  if (pathname.startsWith("/api/admin/reports")) return "newsroom.reports.manage";
+  if (pathname.startsWith("/api/admin/media")
+      || pathname.startsWith("/api/admin/live-streams")) return "newsroom.media.manage";
+  if (pathname.startsWith("/api/admin/locations")
+      || pathname.startsWith("/api/admin/district-range")
+      || pathname.startsWith("/api/admin/district-zone")) return "newsroom.locations.manage";
+  if (pathname.startsWith("/api/admin/reporter-directory") && method === "GET") {
+    return "people.directory.read";
+  }
+  if (pathname.startsWith("/api/admin/reporter")
+      || pathname.startsWith("/api/admin/staff")
+      || pathname.startsWith("/api/admin/credential")
+      || pathname.startsWith("/api/admin/coverage")
+      || pathname.startsWith("/api/admin/states")
+      || pathname.startsWith("/api/admin/rto-offices")
+      || pathname.startsWith("/api/admin/role-agreements")
+      || pathname.startsWith("/api/admin/agreement-records")) return "reporters.manage";
+  return null;
+}
+
 async function adminRoute(request, response, requestUrl, session) {
   const { token, identity } = session;
   const pathname = requestUrl.pathname;
   try {
     if (request.method !== "GET" && !isSameOrigin(request)) {
       sendJson(response, 403, { error: "Cross-origin request rejected." });
+      return;
+    }
+    if (pathname.startsWith("/api/admin/organization/") && identity.role !== "super_admin") {
+      sendJson(response, 403, { error: "Only a super admin can configure organization-wide settings." });
+      return;
+    }
+    const moduleForAdminRoute = organizationModuleForAdminPath(pathname);
+    if (moduleForAdminRoute
+        && !await organizationModuleEnabled(token, moduleForAdminRoute)) {
+      sendJson(response, 403, { error: "This organization module is disabled." });
+      return;
+    }
+    const routePermission = organizationPermissionForAdminPath(pathname, request.method);
+    const routePermissions = pathname.endsWith("/transition")
+      ? ["newsroom.articles.create", "newsroom.articles.edit",
+        "newsroom.articles.review", "newsroom.articles.publish",
+        "newsroom.articles.reopen"]
+      : routePermission ? [routePermission] : [];
+    if (!["admin", "super_admin"].includes(identity.role)
+        && routePermissions.length === 0
+        && !pathname.startsWith("/api/admin/profile")
+        && !pathname.startsWith("/api/admin/password")) {
+      sendJson(response, 403, { error: "No organization permission is configured for this admin route." });
+      return;
+    }
+    if (routePermissions.length && !["admin", "super_admin"].includes(identity.role)
+        && !(await Promise.all(routePermissions.map((permission) =>
+          userHasOrganizationCapability(token, permission)))).some(Boolean)) {
+      sendJson(response, 403, { error: "Your organization access role does not grant this action." });
+      return;
+    }
+
+    if (pathname === "/api/admin/organization/configuration" && request.method === "GET") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_configuration_snapshot", {
+        method: "POST", token, body: {}
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Organization configuration could not be loaded.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/organization/identity" && request.method === "PUT") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_identity", {
+        method: "POST",
+        token,
+        body: {
+          target_name: body.display_name,
+          target_legal_name: body.legal_name || "",
+          target_website_url: body.website_url || "",
+          target_contact_email: body.contact_email || "",
+          target_contact_phone: body.contact_phone || "",
+          target_country_code: body.country_code,
+          target_locale: body.locale,
+          target_timezone: body.timezone,
+          target_currency_code: body.currency_code
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Organization identity could not be saved.") });
+      return;
+    }
+
+    const organizationPersonRoute = pathname.match(
+      /^\/api\/admin\/organization\/people\/([0-9a-f-]{36})\/access$/i
+    );
+    if (organizationPersonRoute && request.method === "PUT") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_set_person_access", {
+        method: "POST",
+        token,
+        body: {
+          target_relationship: organizationPersonRoute[1],
+          target_access_role: body.access_role_id || null,
+          target_department: body.department_id || null
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Organization member access could not be updated.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/organization/settings" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_setting", {
+        method: "POST",
+        token,
+        body: {
+          target_key: body.setting_key,
+          target_value: body.value,
+          target_description: body.description || "",
+          expected_revision: Number.isInteger(body.revision) ? body.revision : null
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Organization setting could not be saved.") });
+      return;
+    }
+
+    const organizationSettingRoute = pathname.match(
+      /^\/api\/admin\/organization\/settings\/([0-9a-f-]{36})$/i
+    );
+    if (organizationSettingRoute && request.method === "DELETE") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_archive_setting", {
+        method: "POST", token, body: { target_id: organizationSettingRoute[1] }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Organization setting could not be archived.") });
+      return;
+    }
+
+    const organizationModuleRoute = pathname.match(
+      /^\/api\/admin\/organization\/modules\/([a-z][a-z0-9_-]{1,79})$/i
+    );
+    if (organizationModuleRoute && request.method === "PUT") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_set_module", {
+        method: "POST",
+        token,
+        body: {
+          target_module: organizationModuleRoute[1],
+          target_enabled: body.is_enabled,
+          target_configuration: body.configuration || {},
+          expected_revision: Number.isInteger(body.revision) ? body.revision : null
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Organization module configuration could not be saved.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/organization/workflows" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_workflow", {
+        method: "POST", token,
+        body: {
+          target_id: body.id || null,
+          target_module: body.module_key,
+          target_key: body.workflow_key,
+          target_name: body.name,
+          target_description: body.description || "",
+          target_active: body.is_active !== false
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Organization workflow could not be saved.") });
+      return;
+    }
+
+    const workflowStateRoute = pathname.match(
+      /^\/api\/admin\/organization\/workflows\/([0-9a-f-]{36})\/states$/i
+    );
+    if (workflowStateRoute && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_workflow_state", {
+        method: "POST", token,
+        body: {
+          target_workflow: workflowStateRoute[1],
+          target_id: body.id || null,
+          target_key: body.state_key,
+          target_label: body.label,
+          target_initial: body.is_initial === true,
+          target_terminal: body.is_terminal === true,
+          target_sort_order: Number.isInteger(body.sort_order) ? body.sort_order : 0
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Workflow state could not be saved.") });
+      return;
+    }
+
+    const workflowStateDeleteRoute = pathname.match(
+      /^\/api\/admin\/organization\/workflows\/([0-9a-f-]{36})\/states\/([0-9a-f-]{36})$/i
+    );
+    if (workflowStateDeleteRoute && request.method === "DELETE") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_delete_workflow_state", {
+        method: "POST", token,
+        body: {
+          target_workflow: workflowStateDeleteRoute[1],
+          target_id: workflowStateDeleteRoute[2]
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Workflow state could not be deleted.") });
+      return;
+    }
+
+    const workflowTransitionRoute = pathname.match(
+      /^\/api\/admin\/organization\/workflows\/([0-9a-f-]{36})\/transitions$/i
+    );
+    if (workflowTransitionRoute && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_workflow_transition", {
+        method: "POST", token,
+        body: {
+          target_workflow: workflowTransitionRoute[1],
+          target_id: body.id || null,
+          target_from: body.from_state_id,
+          target_to: body.to_state_id,
+          target_key: body.transition_key,
+          target_label: body.label,
+          target_permission: body.required_permission,
+          target_requires_reason: body.requires_reason === true,
+          target_requires_approval: body.requires_approval === true,
+          target_sort_order: Number.isInteger(body.sort_order) ? body.sort_order : 0,
+          target_active: body.is_active !== false
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Workflow transition could not be saved.") });
+      return;
+    }
+
+    const workflowTransitionDeleteRoute = pathname.match(
+      /^\/api\/admin\/organization\/workflow-transitions\/([0-9a-f-]{36})$/i
+    );
+    if (workflowTransitionDeleteRoute && request.method === "DELETE") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_delete_workflow_transition", {
+        method: "POST", token, body: { target_id: workflowTransitionDeleteRoute[1] }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Workflow transition could not be deleted.") });
+      return;
+    }
+
+    const organizationWorkflowRoute = pathname.match(
+      /^\/api\/admin\/organization\/workflows\/([0-9a-f-]{36})$/i
+    );
+    if (organizationWorkflowRoute && request.method === "DELETE") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_org_delete_workflow", {
+        method: "POST", token, body: { target_id: organizationWorkflowRoute[1] }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Organization workflow could not be deleted.") });
+      return;
+    }
+
+    if (pathname.startsWith("/api/admin/hr/") && identity.role !== "super_admin"
+        && !await hasHrConsoleAccess(token)) {
+      sendJson(response, 403, { error: "HR workspace access is required." });
+      return;
+    }
+    if (pathname.startsWith("/api/admin/hr/")) {
+      if (pathname === "/api/admin/hr/configuration" && request.method === "GET") {
+        const [snapshot, models] = await Promise.all([
+          supabaseRequest("/rest/v1/rpc/chowk_hr_configuration_snapshot", {
+            method: "POST", token, body: {}
+          }),
+          supabaseRequest("/rest/v1/rpc/chowk_org_model_snapshot", {
+            method: "POST", token, body: {}
+          })
+        ]);
+        const failed = [snapshot, models].find((result) => !result.response.ok);
+        sendJson(response, failed?.response.status || 200, failed
+          ? { error: apiErrorMessage(failed.payload, "HR configuration could not be loaded.") }
+          : { success: true, data: { ...snapshot.payload, ...models.payload } });
+        return;
+      }
+
+      if (pathname === "/api/admin/hr/models" && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_model", {
+          method: "POST",
+          token,
+          body: {
+            target_id: body.id || null,
+            target_key: body.model_key,
+            target_name: body.name,
+            target_description: body.description || "",
+            target_initial_status: body.initial_status || "draft",
+            target_workflow_enabled: body.workflow_enabled === true,
+            target_is_active: body.is_active !== false
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The organization model could not be saved.") });
+        return;
+      }
+
+      const modelFieldRoute = pathname.match(
+        /^\/api\/admin\/hr\/models\/([0-9a-f-]{36})\/fields$/i
+      );
+      if (modelFieldRoute && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_model_field", {
+          method: "POST",
+          token,
+          body: {
+            target_model: modelFieldRoute[1],
+            target_id: body.id || null,
+            target_key: body.field_key,
+            target_label: body.label,
+            target_type: body.field_type,
+            target_required: body.is_required === true,
+            target_active: body.is_active !== false,
+            target_sort_order: Number.isInteger(body.sort_order) ? body.sort_order : 0,
+            target_options: Array.isArray(body.options) ? body.options : []
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The model field could not be saved.") });
+        return;
+      }
+
+      const modelPermissionsRoute = pathname.match(
+        /^\/api\/admin\/hr\/models\/([0-9a-f-]{36})\/roles\/([0-9a-f-]{36})$/i
+      );
+      if (modelPermissionsRoute && request.method === "PUT") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_set_model_permissions", {
+          method: "POST",
+          token,
+          body: {
+            target_model: modelPermissionsRoute[1],
+            target_role: modelPermissionsRoute[2],
+            target_permissions: Array.isArray(body.permissions) ? body.permissions : null
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "Model permissions could not be saved.") });
+        return;
+      }
+
+      const modelTransitionRoute = pathname.match(
+        /^\/api\/admin\/hr\/models\/([0-9a-f-]{36})\/transitions$/i
+      );
+      if (modelTransitionRoute && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_save_model_transition", {
+          method: "POST",
+          token,
+          body: {
+            target_model: modelTransitionRoute[1],
+            target_id: body.id || null,
+            target_from: body.from_status,
+            target_to: body.to_status,
+            target_label: body.label,
+            target_action: body.required_action,
+            target_sort_order: Number.isInteger(body.sort_order) ? body.sort_order : 0
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The workflow transition could not be saved.") });
+        return;
+      }
+
+      const modelTransitionDeleteRoute = pathname.match(
+        /^\/api\/admin\/hr\/model-transitions\/([0-9a-f-]{36})$/i
+      );
+      if (modelTransitionDeleteRoute && request.method === "DELETE") {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_delete_model_transition", {
+          method: "POST", token, body: { target_id: modelTransitionDeleteRoute[1] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The workflow transition could not be deleted.") });
+        return;
+      }
+
+      const modelDeleteRoute = pathname.match(/^\/api\/admin\/hr\/models\/([0-9a-f-]{36})$/i);
+      if (modelDeleteRoute && request.method === "DELETE") {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_delete_unused_model", {
+          method: "POST", token, body: { target_id: modelDeleteRoute[1] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The unused model could not be deleted.") });
+        return;
+      }
+
+      const saveRoutes = {
+        departments: {
+          functionName: "chowk_hr_save_department",
+          body: (value) => ({
+            target_id: value.id || null,
+            target_key: value.department_key,
+            target_name: value.name,
+            target_description: value.description || "",
+            target_parent_id: value.parent_id || null,
+            target_is_active: value.is_active !== false
+          })
+        },
+        positions: {
+          functionName: "chowk_hr_save_position",
+          body: (value) => ({
+            target_id: value.id || null,
+            target_key: value.position_key,
+            target_title: value.title,
+            target_description: value.description || "",
+            target_department_id: value.department_id || null,
+            target_is_active: value.is_active !== false
+          })
+        },
+        "access-roles": {
+          functionName: "chowk_hr_save_access_role",
+          body: (value) => ({
+            target_id: value.id || null,
+            target_key: value.role_key,
+            target_name: value.name,
+            target_description: value.description || "",
+            target_is_active: value.is_active !== false
+          })
+        },
+        policies: {
+          functionName: "chowk_hr_save_policy",
+          body: (value) => ({
+            target_id: value.id || null,
+            target_key: value.policy_key,
+            target_title: value.title,
+            target_description: value.description || "",
+            target_department_id: value.department_id || null,
+            target_access_role_id: value.access_role_id || null,
+            target_requires_acceptance: value.requires_acceptance !== false,
+            target_is_active: value.is_active !== false
+          })
+        }
+      };
+      const collection = pathname.match(/^\/api\/admin\/hr\/(departments|positions|access-roles|policies)$/);
+      if (collection && request.method === "POST") {
+        const config = saveRoutes[collection[1]];
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest(`/rest/v1/rpc/${config.functionName}`, {
+          method: "POST",
+          token,
+          body: config.body(body)
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, `The HR ${collection[1]} record could not be saved.`) });
+        return;
+      }
+
+      const permissionsRoute = pathname.match(/^\/api\/admin\/hr\/access-roles\/([0-9a-f-]{36})\/permissions$/i);
+      if (permissionsRoute && request.method === "PUT") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_set_role_permissions", {
+          method: "POST",
+          token,
+          body: {
+            target_role_id: permissionsRoute[1],
+            target_permissions: Array.isArray(body.permissions) ? body.permissions : null
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "Role permissions could not be saved.") });
+        return;
+      }
+
+      if (pathname === "/api/admin/hr/assignments" && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_save_employee_assignment", {
+          method: "POST",
+          token,
+          body: {
+            target_id: body.id || null,
+            target_employee_id: body.employee_id,
+            target_department_id: body.department_id || null,
+            target_position_id: body.position_id || null,
+            target_access_role_id: body.access_role_id,
+            target_manager_employee_id: body.manager_employee_id || null,
+            target_status: body.status,
+            target_is_primary: body.is_primary !== false,
+            target_starts_at: body.starts_at || null,
+            target_end_reason: body.end_reason || "",
+            target_employment_type: body.employment_type || null
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The employee assignment could not be saved.") });
+        return;
+      }
+
+      if (pathname === "/api/admin/hr/invitations" && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+        const accessRoleId = typeof body.access_role_id === "string" && /^[0-9a-f-]{36}$/i.test(body.access_role_id)
+          ? body.access_role_id
+          : "";
+        const employmentType = ["full_time", "part_time", "fixed_term", "temporary", "intern", "other"]
+          .includes(body.employment_type) ? body.employment_type : "";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !accessRoleId || !employmentType) {
+          sendJson(response, 400, { error: "Enter a valid email address, employment type, and access role." });
+          return;
+        }
+        let invitedUser;
+        try {
+          invitedUser = await inviteSupabaseUser(
+            email,
+            "hr_employee",
+            new URL("/employee-policies", requestOrigin(request)).toString(),
+            "employee"
+          );
+        } catch (error) {
+          sendJson(response, error.statusCode || 502, { error: error.message });
+          return;
+        }
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_save_employee_assignment", {
+          method: "POST",
+          token,
+          body: {
+            target_id: null,
+            target_employee_id: invitedUser.id,
+            target_department_id: body.department_id || null,
+            target_position_id: body.position_id || null,
+            target_access_role_id: accessRoleId,
+            target_manager_employee_id: body.manager_employee_id || null,
+            target_status: "pending",
+            target_is_primary: true,
+            target_starts_at: null,
+            target_end_reason: "",
+            target_employment_type: employmentType
+          }
+        });
+        if (!result.response.ok) {
+          try {
+            await deleteSupabaseAuthUser(invitedUser.id);
+          } catch (cleanupError) {
+            console.error("Could not clean up an incomplete HR invitation:", cleanupError.message);
+            sendJson(response, 502, {
+              error: `The invitation was sent but its HR assignment failed and the new account could not be removed. Contact support with account ${email}.`
+            });
+            return;
+          }
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "The HR invitation could not be initialized. The incomplete account was removed.")
+          });
+          return;
+        }
+        sendJson(response, 201, { success: true, data: { employee_id: invitedUser.id, email } });
+        return;
+      }
+
+      const draftRoute = pathname.match(/^\/api\/admin\/hr\/policies\/([0-9a-f-]{36})\/versions$/i);
+      if (draftRoute && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const content = typeof body.content === "string" ? body.content : "";
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_save_policy_draft", {
+          method: "POST",
+          token,
+          body: {
+            target_policy_id: draftRoute[1],
+            target_id: body.id || null,
+            target_version: body.version,
+            target_content: content,
+            target_sha256: createHash("sha256").update(content, "utf8").digest("hex")
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The policy draft could not be saved.") });
+        return;
+      }
+
+      const publishPolicyRoute = pathname.match(/^\/api\/admin\/hr\/policy-versions\/([0-9a-f-]{36})\/publish$/i);
+      if (publishPolicyRoute && request.method === "POST") {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_publish_policy_version", {
+          method: "POST",
+          token,
+          body: { target_id: publishPolicyRoute[1] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The policy version could not be published.") });
+        return;
+      }
+
+      const deleteRoute = pathname.match(/^\/api\/admin\/hr\/(departments|positions|access-roles|policies|policy-versions)\/([0-9a-f-]{36})$/i);
+      if (deleteRoute && request.method === "DELETE") {
+        const tableName = {
+          departments: "department",
+          positions: "position",
+          "access-roles": "access_role",
+          policies: "policy",
+          "policy-versions": "policy_version"
+        }[deleteRoute[1]];
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_delete_unused_draft", {
+          method: "POST",
+          token,
+          body: { target_table: tableName, target_id: deleteRoute[2] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "This HR record could not be deleted.") });
+        return;
+      }
+
+      sendJson(response, 404, { error: "HR management route not found." });
+      return;
+    }
+    if (!["admin", "super_admin"].includes(identity.role)) {
+      sendJson(response, 403, { error: "Delegated HR access is limited to HR management endpoints." });
       return;
     }
     if (pathname === "/api/admin/role-agreements" && request.method === "GET") {
@@ -2239,7 +3118,7 @@ async function adminRoute(request, response, requestUrl, session) {
       const requestedRole = staffRole.access_profile;
       let invitedUser;
       try {
-        invitedUser = await inviteSupabaseStaffUser(
+        invitedUser = await inviteSupabaseUser(
           email,
           requestedRole,
           new URL("/staff-onboarding", requestOrigin(request)).toString()
@@ -3882,7 +4761,33 @@ async function workspaceRoute(request, response, requestUrl, session) {
       return;
     }
     const role = identity.role;
-    if (!["reporter", "moderator", "editor", "publisher", "admin", "super_admin"].includes(role)) {
+    const pathname = requestUrl.pathname;
+    const requiredModule = pathname.startsWith("/api/workspace/media") ? "media"
+      : pathname.startsWith("/api/workspace/articles") ? "newsroom" : null;
+    if (requiredModule && !await organizationModuleEnabled(token, requiredModule)) {
+      sendJson(response, 403, { error: "This organization module is disabled." });
+      return;
+    }
+    const requiredPermissions = pathname.startsWith("/api/workspace/articles")
+      ? pathname.endsWith("/transition")
+        ? ["newsroom.articles.create", "newsroom.articles.edit",
+          "newsroom.articles.review", "newsroom.articles.publish",
+          "newsroom.articles.reopen"]
+        : request.method === "GET" ? ["newsroom.articles.read"]
+        : request.method === "POST" && !pathname.endsWith("/transition")
+          ? ["newsroom.articles.create"]
+          : ["newsroom.articles.edit"]
+      : pathname.startsWith("/api/workspace/media") ? ["newsroom.media.manage"] : [];
+    const hasOrganizationAdminRole = ["admin", "super_admin"].includes(role);
+    if (requiredPermissions.length && !hasOrganizationAdminRole
+        && !(await Promise.all(requiredPermissions.map((permission) =>
+          userHasOrganizationCapability(token, permission)))).some(Boolean)) {
+      sendJson(response, 403, { error: "Your organization access role does not grant this action." });
+      return;
+    }
+    const hasNativeNewsroomRole = ["reporter", "moderator", "editor", "publisher", "admin", "super_admin"].includes(role);
+    if (!hasNativeNewsroomRole && !requiredModule
+        && !await hasOrganizationAdminAccess(token)) {
       sendJson(response, 403, { error: "A newsroom role is required to access this workspace." });
       return;
     }
@@ -4210,6 +5115,10 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname === "/api/categories" && request.method === "GET") {
     void (async () => {
       try {
+        if (!await organizationModuleEnabled(null, "newsroom")) {
+          sendJson(response, 404, { error: "The newsroom module is currently disabled." });
+          return;
+        }
         const result = await supabaseRequest("/rest/v1/categories?select=id,name,slug,icon_key&is_active=eq.true&order=name.asc");
         sendJson(response, result.response.status, result.response.ok
           ? { success: true, data: result.payload }
@@ -4222,8 +5131,11 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if (requestUrl.pathname === "/api/auth/staff-invite/accept" && request.method === "POST") {
+  if ((requestUrl.pathname === "/api/auth/employee-invite/accept"
+      || requestUrl.pathname === "/api/auth/staff-invite/accept") && request.method === "POST") {
     void (async () => {
+      const invitationType = requestUrl.pathname === "/api/auth/employee-invite/accept"
+        ? "employee" : "staff";
       if (!isSameOrigin(request)) {
         sendJson(response, 403, { error: "Cross-origin request rejected." });
         return;
@@ -4232,7 +5144,7 @@ const server = http.createServer((request, response) => {
         const body = await readJsonBody(request, 16 * 1024);
         if (typeof body.access_token !== "string" || body.access_token.length > 8192
             || typeof body.refresh_token !== "string" || body.refresh_token.length > 8192) {
-          sendJson(response, 400, { error: "The staff invitation link is invalid or incomplete." });
+          sendJson(response, 400, { error: `The ${invitationType} invitation link is invalid or incomplete.` });
           return;
         }
         const identity = await getIdentity(body.access_token);
@@ -4244,9 +5156,14 @@ const server = http.createServer((request, response) => {
           `/rest/v1/staff_onboarding?select=user_id,status&user_id=eq.${encodeURIComponent(identity.id)}&limit=1`,
           { token: body.access_token }
         );
-        if (!onboarding.response.ok || !onboarding.payload?.[0]
-            || !["invited", "changes_requested"].includes(onboarding.payload[0].status)) {
-          sendJson(response, 403, { error: "This account does not have an active staff invitation." });
+        const isExistingInvitation = onboarding.response.ok && onboarding.payload?.[0]
+          && ["invited", "changes_requested"].includes(onboarding.payload[0].status);
+        const hrAssignment = isExistingInvitation ? null : await supabaseRequest(
+          `/rest/v1/hr_employee_assignments?select=id,status&employee_id=eq.${encodeURIComponent(identity.id)}&status=eq.pending&limit=1`,
+          { token: body.access_token }
+        );
+        if (!isExistingInvitation && (!hrAssignment?.response.ok || !hrAssignment.payload?.[0])) {
+          sendJson(response, 403, { error: `This account does not have an active ${invitationType} invitation.` });
           return;
         }
         setSessionCookies(response, userCookie, body.access_token, body.refresh_token);
@@ -4256,8 +5173,8 @@ const server = http.createServer((request, response) => {
           sendJson(response, error.statusCode, { error: error.message });
           return;
         }
-        console.error("Could not accept staff invitation:", error.message);
-        sendJson(response, 503, { error: "The staff invitation could not be verified right now." });
+        console.error(`Could not accept ${invitationType} invitation:`, error.message);
+        sendJson(response, 503, { error: `The ${invitationType} invitation could not be verified right now.` });
       }
     })();
     return;
@@ -4294,7 +5211,17 @@ const server = http.createServer((request, response) => {
 
   if (requestUrl.pathname.startsWith("/api/staff/onboarding")) {
     void requireUser(request, response).then((session) => {
-      if (session) void staffOnboardingRoute(request, response, requestUrl, session);
+      if (!session) return;
+      void organizationModuleEnabled(session.token, "reporters").then((enabled) => {
+        if (!enabled) {
+          sendJson(response, 403, { error: "The reporter operations module is disabled." });
+          return;
+        }
+        void staffOnboardingRoute(request, response, requestUrl, session);
+      }).catch((error) => {
+        console.error("Could not verify staff onboarding module availability:", error.message);
+        sendJson(response, 503, { error: "Staff onboarding is temporarily unavailable." });
+      });
     });
     return;
   }
@@ -4306,7 +5233,21 @@ const server = http.createServer((request, response) => {
 
   if (requestUrl.pathname === "/api/admin/session" && request.method === "GET") {
     void requireAdmin(request, response).then((session) => {
-      if (session) sendJson(response, 200, { identity: session.identity });
+      if (!session) return;
+      void supabaseRequest("/rest/v1/rpc/chowk_org_my_permissions", {
+        method: "POST", token: session.token, body: {}
+      }).then((permissions) => {
+        if (!permissions.response.ok) {
+          sendJson(response, permissions.response.status, {
+            error: apiErrorMessage(permissions.payload, "Organization permissions could not be loaded.")
+          });
+          return;
+        }
+        sendJson(response, 200, {
+          identity: session.identity,
+          permissions: Array.isArray(permissions.payload) ? permissions.payload : []
+        });
+      });
     });
     return;
   }
@@ -4424,6 +5365,12 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname.startsWith("/api/reporter/")) {
     void requireUser(request, response).then((session) => {
       if (!session) return;
+      const requiredModule = requestUrl.pathname.includes("staff-agreement") ? "agreements" : "reporters";
+      void organizationModuleEnabled(session.token, requiredModule).then((enabled) => {
+        if (!enabled) {
+          sendJson(response, 403, { error: "This organization module is disabled." });
+          return;
+        }
       if (request.method !== "GET" && !isSameOrigin(request)) {
         sendJson(response, 403, { error: "Cross-origin request rejected." });
         return;
@@ -4734,6 +5681,10 @@ const server = http.createServer((request, response) => {
           sendJson(response, 503, { error: "Reporter service is temporarily unavailable." });
         }
       })();
+      }).catch((error) => {
+        console.error("Could not verify reporter module availability:", error.message);
+        sendJson(response, 503, { error: "Reporter services are temporarily unavailable." });
+      });
     });
     return;
   }
@@ -4741,6 +5692,260 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname.startsWith("/api/workspace/")) {
     void requireUser(request, response, userCookie).then((session) => {
       if (session) void workspaceRoute(request, response, requestUrl, session);
+    });
+    return;
+  }
+
+  if (requestUrl.pathname.startsWith("/api/organization/workflows")) {
+    void requireUser(request, response).then((session) => {
+      if (session) void organizationWorkflowsRoute(request, response, requestUrl, session);
+    });
+    return;
+  }
+
+  const employeeModelPath = requestUrl.pathname.replace(/^\/api\/staff\//, "/api/employee/");
+  if (employeeModelPath.startsWith("/api/employee/org-models")
+      || employeeModelPath.startsWith("/api/employee/org-model-records/")) {
+    void requireUser(request, response).then((session) => {
+      if (!session) return;
+      void (async () => {
+        if (request.method !== "GET" && !isSameOrigin(request)) {
+          sendJson(response, 403, { error: "Cross-origin request rejected." });
+          return;
+        }
+        if (!await organizationModuleEnabled(session.token, "organization-models")) {
+          sendJson(response, 403, { error: "Organization data models are disabled." });
+          return;
+        }
+        if (employeeModelPath === "/api/employee/org-models" && request.method === "GET") {
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_snapshot", {
+            method: "POST", token: session.token, body: {}
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true, data: result.payload }
+            : { error: apiErrorMessage(result.payload, "Organization models could not be loaded.") });
+          return;
+        }
+        const recordsRoute = employeeModelPath.match(
+          /^\/api\/employee\/org-models\/([0-9a-f-]{36})\/records$/i
+        );
+        if (recordsRoute && request.method === "GET") {
+          const limit = Number(requestUrl.searchParams.get("limit") || 50);
+          const offset = Number(requestUrl.searchParams.get("offset") || 0);
+          if (!Number.isInteger(limit) || !Number.isInteger(offset)) {
+            sendJson(response, 400, { error: "Use whole-number record page values." });
+            return;
+          }
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_list_records", {
+            method: "POST",
+            token: session.token,
+            body: {
+              target_model: recordsRoute[1],
+              target_limit: limit,
+              target_offset: offset
+            }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true, data: result.payload || [] }
+            : { error: apiErrorMessage(result.payload, "Model records could not be loaded.") });
+          return;
+        }
+        if (recordsRoute && request.method === "POST") {
+          const body = await readJsonBody(request);
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_save_record", {
+            method: "POST",
+            token: session.token,
+            body: {
+              target_model: recordsRoute[1],
+              target_id: null,
+              target_data: body.data,
+              target_revision: null
+            }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true, data: result.payload }
+            : { error: apiErrorMessage(result.payload, "The model record could not be created.") });
+          return;
+        }
+        const historyRoute = employeeModelPath.match(
+          /^\/api\/employee\/org-model-records\/([0-9a-f-]{36})\/history$/i
+        );
+        if (historyRoute && request.method === "GET") {
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_record_history", {
+            method: "POST",
+            token: session.token,
+            body: { target_record: historyRoute[1] }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true, data: result.payload || [] }
+            : { error: apiErrorMessage(result.payload, "Record history could not be loaded.") });
+          return;
+        }
+        const transitionRoute = employeeModelPath.match(
+          /^\/api\/employee\/org-model-records\/([0-9a-f-]{36})\/transitions$/i
+        );
+        if (transitionRoute && request.method === "POST") {
+          const body = await readJsonBody(request);
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_transition_record", {
+            method: "POST",
+            token: session.token,
+            body: {
+              target_record: transitionRoute[1],
+              target_transition: body.transition_id,
+              target_revision: body.revision
+            }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true }
+            : { error: apiErrorMessage(result.payload, "The workflow action could not be completed.") });
+          return;
+        }
+        const recordRoute = employeeModelPath.match(
+          /^\/api\/employee\/org-model-records\/([0-9a-f-]{36})$/i
+        );
+        if (recordRoute && request.method === "PATCH") {
+          const body = await readJsonBody(request);
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_save_record", {
+            method: "POST",
+            token: session.token,
+            body: {
+              target_model: body.model_id,
+              target_id: recordRoute[1],
+              target_data: body.data,
+              target_revision: body.revision
+            }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true, data: result.payload }
+            : { error: apiErrorMessage(result.payload, "The model record could not be saved.") });
+          return;
+        }
+        if (recordRoute && request.method === "DELETE") {
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_org_model_delete_record", {
+            method: "POST",
+            token: session.token,
+            body: { target_record: recordRoute[1] }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true }
+            : { error: apiErrorMessage(result.payload, "The model record could not be deleted.") });
+          return;
+        }
+        sendJson(response, 404, { error: "Organization model route not found." });
+      })().catch((error) => {
+        console.error("Organization model request failed:", error.message);
+        sendJson(response, 503, { error: "Organization model service is temporarily unavailable." });
+      });
+    });
+    return;
+  }
+
+  const employeePolicyPath = requestUrl.pathname.replace(
+    "/api/staff/hr-policies", "/api/employee/hr-policies"
+  );
+  if (employeePolicyPath.startsWith("/api/employee/hr-policies")) {
+    void requireUser(request, response).then((session) => {
+      if (!session) return;
+      void (async () => {
+        if (request.method !== "GET" && !isSameOrigin(request)) {
+          sendJson(response, 403, { error: "Cross-origin request rejected." });
+          return;
+        }
+        if (!await organizationModuleEnabled(session.token, "human-resources")) {
+          sendJson(response, 403, { error: "The human resources module is disabled." });
+          return;
+        }
+        if (employeePolicyPath === "/api/employee/hr-policies" && request.method === "GET") {
+          const policies = await supabaseRequest("/rest/v1/rpc/chowk_hr_current_policies", {
+            method: "POST",
+            token: session.token,
+            body: {}
+          });
+          sendJson(response, policies.response.status, policies.response.ok
+            ? { success: true, data: policies.payload || [] }
+            : { error: apiErrorMessage(policies.payload, "Required HR policies could not be loaded.") });
+          return;
+        }
+        if (employeePolicyPath === "/api/employee/hr-policies/accept" && request.method === "POST") {
+          const body = await readJsonBody(request);
+          if (typeof body.policy_version_id !== "string"
+              || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.policy_version_id)) {
+            sendJson(response, 400, { error: "Choose a valid published policy version." });
+            return;
+          }
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_accept_current_policy", {
+            method: "POST",
+            token: session.token,
+            body: { target_version_id: body.policy_version_id }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true }
+            : { error: apiErrorMessage(result.payload, "Policy acceptance could not be recorded.") });
+          return;
+        }
+        sendJson(response, 404, { error: "HR policy route not found." });
+      })().catch((error) => {
+        console.error("Employee HR policy request failed:", error.message);
+        sendJson(response, 503, { error: "HR policies are temporarily unavailable." });
+      });
+    });
+    return;
+  }
+
+  const employeeProfilePath = requestUrl.pathname.replace(
+    "/api/staff/hr-profile", "/api/employee/hr-profile"
+  );
+  if (employeeProfilePath.startsWith("/api/employee/hr-profile")) {
+    void requireUser(request, response).then((session) => {
+      if (!session) return;
+      void (async () => {
+        if (request.method !== "GET" && !isSameOrigin(request)) {
+          sendJson(response, 403, { error: "Cross-origin request rejected." });
+          return;
+        }
+        if (!await organizationModuleEnabled(session.token, "human-resources")) {
+          sendJson(response, 403, { error: "The human resources module is disabled." });
+          return;
+        }
+        if (employeeProfilePath === "/api/employee/hr-profile" && request.method === "GET") {
+          sendJson(response, 200, {
+            success: true,
+            data: {
+              full_name: session.identity.full_name || "",
+              email: session.identity.email || "",
+              phone: session.identity.phone || ""
+            }
+          });
+          return;
+        }
+        if (employeeProfilePath === "/api/employee/hr-profile" && request.method === "PATCH") {
+          const body = await readJsonBody(request);
+          const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
+          const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+          if (fullName.length < 2 || fullName.length > 120
+              || (phone && !/^\+?[1-9][0-9]{6,14}$/.test(phone))) {
+            sendJson(response, 400, { error: "Enter a full name and a valid phone number." });
+            return;
+          }
+          const updated = await supabaseRequest(
+            `/rest/v1/profiles?id=eq.${encodeURIComponent(session.identity.id)}`,
+            {
+              method: "PATCH",
+              token: session.token,
+              body: { full_name: fullName, phone: phone || null },
+              prefer: "return=representation"
+            }
+          );
+          sendJson(response, updated.response.status, updated.response.ok
+            ? { success: true, data: updated.payload?.[0] || null }
+            : { error: apiErrorMessage(updated.payload, "Your HR profile could not be saved.") });
+          return;
+        }
+        sendJson(response, 404, { error: "HR profile route not found." });
+      })().catch((error) => {
+        console.error("Employee HR profile request failed:", error.message);
+        sendJson(response, 503, { error: "HR profile service is temporarily unavailable." });
+      });
     });
     return;
   }
@@ -4803,8 +6008,9 @@ const server = http.createServer((request, response) => {
     return;
   }
   if (pathname === "/admin/dashboard") {
-    void getSession(request, response, adminCookie).then((session) => {
-      if (!session || !["admin", "super_admin"].includes(session.identity.role)) {
+    void getSession(request, response, adminCookie).then(async (session) => {
+      if (!session || (!["admin", "super_admin"].includes(session.identity.role)
+          && !await hasOrganizationAdminAccess(session.token))) {
         clearSessionCookies(response, adminCookie);
         response.writeHead(302, { Location: "/admin", "Cache-Control": "no-store" });
         response.end();
@@ -4819,8 +6025,9 @@ const server = http.createServer((request, response) => {
     return;
   }
   if (pathname === "/admin") {
-    getSession(request, response, adminCookie).then((session) => {
-      if (session && ["admin", "super_admin"].includes(session.identity.role)) {
+    getSession(request, response, adminCookie).then(async (session) => {
+      if (session && (["admin", "super_admin"].includes(session.identity.role)
+          || await hasOrganizationAdminAccess(session.token))) {
         response.writeHead(302, { Location: "/admin/dashboard", "Cache-Control": "no-store" });
         response.end();
       } else {
@@ -4833,6 +6040,60 @@ const server = http.createServer((request, response) => {
     }).catch((error) => {
       console.error("Could not verify admin page access:", error.message);
       serveStatic(response, "/admin.html");
+    });
+    return;
+  }
+  if (pathname === "/organization") {
+    void getSession(request, response, userCookie).then((session) => {
+      if (!session) {
+        response.writeHead(302, {
+          Location: "/auth?mode=login&next=%2Forganization",
+          "Cache-Control": "no-store"
+        });
+        response.end();
+        return;
+      }
+      response.setHeader("Cache-Control", "no-store");
+      serveStatic(response, "/organization-workspace.html");
+    }).catch((error) => {
+      console.error("Could not verify organization workspace access:", error.message);
+      sendJson(response, 503, { error: "Organization workspace is temporarily unavailable." });
+    });
+    return;
+  }
+  if (pathname === "/organization-workflows") {
+    void getSession(request, response, userCookie).then((session) => {
+      if (!session) {
+        response.writeHead(302, {
+          Location: "/auth?mode=login&next=%2Forganization-workflows",
+          "Cache-Control": "no-store"
+        });
+        response.end();
+        return;
+      }
+      response.setHeader("Cache-Control", "no-store");
+      serveStatic(response, "/organization-workflows.html");
+    }).catch((error) => {
+      console.error("Could not verify organization workflow access:", error.message);
+      sendJson(response, 503, { error: "Organization workflow service is temporarily unavailable." });
+    });
+    return;
+  }
+  if (pathname === "/employee-policies" || pathname === "/hr-policies") {
+    void getSession(request, response, userCookie).then((session) => {
+      if (!session) {
+        response.writeHead(302, {
+          Location: "/auth?mode=login&next=%2Femployee-policies",
+          "Cache-Control": "no-store"
+        });
+        response.end();
+        return;
+      }
+      response.setHeader("Cache-Control", "no-store");
+      serveStatic(response, "/hr-policies.html");
+    }).catch((error) => {
+      console.error("Could not verify employee policy access:", error.message);
+      sendJson(response, 503, { error: "Organization policy service is temporarily unavailable." });
     });
     return;
   }

@@ -252,6 +252,11 @@ let sessionIdentity = null;
 let overviewData = null;
 let locationRecords = [];
 let reporterSetupView = "overview";
+let hrManagementData = null;
+let activeHrTab = "departments";
+let organizationConfigurationData = null;
+let activeOrganizationTab = "identity";
+let sessionPermissions = [];
 const auditFilters = { q: "", table: "", action: "", from: "", to: "", page: 1, page_size: 25 };
 
 function makeElement(tag, className, text) {
@@ -541,6 +546,16 @@ async function loadSection(section) {
 
   if (section === "settings") {
     renderSettings();
+    return;
+  }
+
+  if (section === "hr-management") {
+    void loadHrManagement();
+    return;
+  }
+
+  if (section === "organization-configuration") {
+    void loadOrganizationConfiguration();
     return;
   }
 
@@ -2376,6 +2391,1366 @@ function renderStaffRoleCatalog(root, roles) {
   ));
 }
 
+async function loadHrManagement() {
+  content.replaceChildren(makeElement("div", "admin-loading", "Loading HR configuration…"));
+  try {
+    const result = await apiRequest("admin/hr/configuration");
+    hrManagementData = unwrapData(result) || {};
+    renderHrManagement();
+  } catch (error) {
+    showPageError(error instanceof Error ? error.message : "HR configuration could not be loaded.", loadHrManagement);
+  }
+}
+
+async function loadOrganizationConfiguration() {
+  content.replaceChildren(makeElement("div", "admin-loading", "Loading organization configuration…"));
+  try {
+    const result = await apiRequest("admin/organization/configuration");
+    organizationConfigurationData = unwrapData(result) || {};
+    renderOrganizationConfiguration();
+  } catch (error) {
+    showPageError(error instanceof Error ? error.message : "Organization configuration could not be loaded.",
+      loadOrganizationConfiguration);
+  }
+}
+
+function renderOrganizationConfiguration() {
+  const root = makeElement("div", "admin-section");
+  addHeading(
+    root,
+    "SYSTEM CONFIGURATION",
+    "Organization setup",
+    "Configure organization identity, settings, module availability, and reusable workflow definitions."
+  );
+  const tabs = makeElement("div", "admin-workflow-tabs");
+  [
+    ["identity", "Identity"],
+    ["people", "People"],
+    ["settings", "Settings"],
+    ["modules", "Modules"],
+    ["workflows", "Workflows"]
+  ].forEach(([key, label]) => {
+    const button = makeElement("button",
+      `admin-workflow-tab${activeOrganizationTab === key ? " is-active" : ""}`, label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(activeOrganizationTab === key));
+    button.addEventListener("click", () => {
+      activeOrganizationTab = key;
+      renderOrganizationConfiguration();
+    });
+    tabs.append(button);
+  });
+  root.append(tabs);
+  if (activeOrganizationTab === "identity") renderOrganizationIdentity(root);
+  else if (activeOrganizationTab === "people") renderOrganizationPeople(root);
+  else if (activeOrganizationTab === "settings") renderOrganizationSettings(root);
+  else if (activeOrganizationTab === "modules") renderOrganizationModules(root);
+  else renderOrganizationWorkflows(root);
+  content.replaceChildren(root);
+}
+
+function renderOrganizationIdentity(root) {
+  const organization = organizationConfigurationData.organization || {};
+  const panel = makeElement("section", "admin-panel");
+  panel.append(makeElement("h2", "", "Organization identity"));
+  panel.append(makeElement("p", "admin-dialog-help",
+    "Identity and locale are organization-wide values. Updating them does not rewrite issued legal agreements."));
+  const edit = makeElement("button", "admin-primary-button", "Edit organization identity");
+  edit.type = "button";
+  edit.addEventListener("click", () => openFormDialog(
+    "Organization identity",
+    "Use the legal organization name used in new organization records. Historical documents remain unchanged.",
+    (form) => {
+      addField(form, "Display name", "display_name", "text", organization.display_name, { minLength: 2, maxLength: 160 });
+      addField(form, "Legal name", "legal_name", "text", organization.legal_name, { required: false, maxLength: 200 });
+      addField(form, "Website URL", "website_url", "url", organization.website_url, { required: false, maxLength: 500 });
+      addField(form, "Contact email", "contact_email", "email", organization.contact_email, { required: false, maxLength: 254 });
+      addField(form, "Contact phone", "contact_phone", "tel", organization.contact_phone, { required: false, maxLength: 30 });
+      addField(form, "Country code (ISO 3166-1 alpha-2)", "country_code", "text", organization.country_code, { minLength: 2, maxLength: 2 });
+      addField(form, "Locale", "locale", "text", organization.locale, { minLength: 2, maxLength: 20 });
+      addField(form, "Timezone", "timezone", "text", organization.timezone, { minLength: 1, maxLength: 80 });
+      addField(form, "Currency code (ISO 4217)", "currency_code", "text", organization.currency_code, { minLength: 3, maxLength: 3 });
+    },
+    async (values) => {
+      await apiRequest("admin/organization/identity", "PUT", Object.fromEntries(values));
+      await loadOrganizationConfiguration();
+    }
+  ));
+  const fields = makeElement("dl", "admin-organization-summary");
+  [
+    ["Organization key", organization.organization_key],
+    ["Display name", organization.display_name],
+    ["Legal name", organization.legal_name],
+    ["Website", organization.website_url],
+    ["Contact email", organization.contact_email],
+    ["Contact phone", organization.contact_phone],
+    ["Country", organization.country_code],
+    ["Locale", organization.locale],
+    ["Timezone", organization.timezone],
+    ["Currency", organization.currency_code]
+  ].forEach(([label, value]) => {
+    fields.append(makeElement("dt", "", label), makeElement("dd", "", value || "Not set"));
+  });
+  panel.append(edit, fields);
+  root.append(panel);
+}
+
+function renderOrganizationPeople(root) {
+  const people = organizationConfigurationData.people || [];
+  const panel = makeElement("section", "admin-panel");
+  panel.append(makeElement("h2", "", "Organization people and access"),
+    makeElement("p", "admin-dialog-help",
+      "Employees keep their access role on the HR assignment. Reporter and newsroom relationships can be assigned an organization access role here; the relationship type remains separate from employment."));
+  if (!people.length) panel.append(makeElement("p", "admin-empty", "No organization people relationships are recorded."));
+  people.forEach((person) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    card.append(makeElement("h3", "", person.full_name || person.email || "Organization person"));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${person.email || "No email"} · ${person.relationship_type.replaceAll("_", " ")} · ${person.status}`));
+    card.append(makeElement("p", "admin-dialog-help",
+      `Access role: ${person.access_role_name || "None"} · Department: ${person.department_name || "None"} · Source: ${person.source_type}`));
+    if (person.ends_at) {
+      card.append(makeElement("p", "admin-dialog-help", `Relationship ended ${formatDate(person.ends_at)}; history is read-only.`));
+    } else if (person.relationship_type === "employee") {
+      card.append(makeElement("p", "admin-dialog-help",
+        "Employee roles are changed in HR Management → Employees and assignments."));
+    } else {
+      const edit = makeElement("button", "admin-secondary-button", "Assign access role");
+      edit.type = "button";
+      edit.addEventListener("click", () => openOrganizationPersonAccessDialog(person));
+      card.append(edit);
+    }
+    panel.append(card);
+  });
+  root.append(panel);
+}
+
+function openOrganizationPersonAccessDialog(person) {
+  const roles = organizationConfigurationData.access_roles || [];
+  const departments = organizationConfigurationData.departments || [];
+  openFormDialog(
+    "Assign organization access",
+    "The selected access role grants only its configured permissions. Role changes are recorded in the organization access history.",
+    (form) => {
+      addHrSelect(form, "Access role", "access_role_id",
+        roles.map((role) => ({ value: role.id, label: `${role.name} · ${role.role_key}` })),
+        person.access_role_id, "No access role", false);
+      addHrSelect(form, "Department", "department_id",
+        departments.map((department) => ({ value: department.id, label: department.name })),
+        person.department_id, "No department", false);
+    },
+    async (values) => {
+      await apiRequest(`admin/organization/people/${person.id}/access`, "PUT", {
+        access_role_id: values.get("access_role_id") || null,
+        department_id: values.get("department_id") || null
+      });
+      await loadOrganizationConfiguration();
+    }
+  );
+}
+
+function renderOrganizationSettings(root) {
+  const settings = organizationConfigurationData.settings || [];
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  header.append(makeElement("h2", "", "Organization settings"),
+    makeElement("span", "", `${settings.length} active settings`));
+  const add = makeElement("button", "admin-primary-button", "Add setting");
+  add.type = "button";
+  add.addEventListener("click", () => openOrganizationSettingDialog(null));
+  panel.append(header, add);
+  if (!settings.length) panel.append(makeElement("p", "admin-empty", "No organization settings are configured."));
+  settings.forEach((setting) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    card.append(makeElement("h3", "", setting.setting_key));
+    if (setting.description) card.append(makeElement("p", "admin-dialog-help", setting.description));
+    const value = makeElement("pre", "admin-organization-json");
+    value.textContent = JSON.stringify(setting.value, null, 2);
+    card.append(value);
+    const actions = makeElement("div", "admin-page-actions");
+    const edit = makeElement("button", "admin-secondary-button", "Edit");
+    edit.type = "button";
+    edit.addEventListener("click", () => openOrganizationSettingDialog(setting));
+    const archive = makeElement("button", "admin-secondary-button", "Archive");
+    archive.type = "button";
+    archive.addEventListener("click", () => void confirmAdminAction(
+      "Archive organization setting?",
+      `Archive "${setting.setting_key}"? Its previous values remain in audit history.`
+    ).then((confirmed) => confirmed && runAction(
+      () => apiRequest(`admin/organization/settings/${setting.id}`, "DELETE"),
+      loadOrganizationConfiguration
+    )));
+    actions.append(edit, archive);
+    card.append(actions);
+    panel.append(card);
+  });
+  root.append(panel);
+}
+
+function openOrganizationSettingDialog(setting) {
+  openFormDialog(
+    setting ? "Edit organization setting" : "Add organization setting",
+    "Settings are versioned JSON values. Keep secrets in server environment variables, never in organization settings.",
+    (form) => {
+      addField(form, "Setting key", "setting_key", "text", setting?.setting_key, {
+        minLength: 2, maxLength: 100
+      }).pattern = "[a-z][a-z0-9_.-]{1,99}";
+      addField(form, "Description", "description", "text", setting?.description, {
+        required: false, maxLength: 1000
+      });
+      addHrTextArea(form, "JSON value", "value_json",
+        JSON.stringify(setting?.value ?? {}, null, 2), 20000, true);
+    },
+    async (values) => {
+      let value;
+      try {
+        value = JSON.parse(String(values.get("value_json") || ""));
+      } catch {
+        throw new Error("Enter a valid JSON value.");
+      }
+      await apiRequest("admin/organization/settings", "POST", {
+        setting_key: values.get("setting_key"),
+        description: values.get("description"),
+        value,
+        revision: setting?.revision ?? null
+      });
+      await loadOrganizationConfiguration();
+    }
+  );
+}
+
+function renderOrganizationModules(root) {
+  const modules = organizationConfigurationData.modules || [];
+  const panel = makeElement("section", "admin-panel");
+  panel.append(makeElement("h2", "", "Organization modules"),
+    makeElement("p", "admin-dialog-help",
+      "Disabling a module blocks its configured API routes. Required core modules cannot be disabled. Module catalog entries do not implement absent application features."));
+  modules.forEach((module) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const title = makeElement("div", "admin-panel-heading");
+    title.append(makeElement("h3", "", module.name),
+      makeElement("span", "", module.is_required ? "Required" : module.module_type));
+    card.append(title, makeElement("p", "admin-dialog-help", module.description));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${module.module_key} · ${module.is_enabled ? "Enabled" : "Disabled"} · configuration revision ${module.revision || 0}`));
+    const edit = makeElement("button", "admin-secondary-button", "Configure module");
+    edit.type = "button";
+    edit.addEventListener("click", () => openOrganizationModuleDialog(module));
+    card.append(edit);
+    panel.append(card);
+  });
+  root.append(panel);
+}
+
+function openOrganizationModuleDialog(module) {
+  openFormDialog(
+    `Configure ${module.name}`,
+    "Module configuration is versioned. Disabling a module blocks its API routes without deleting its records.",
+    (form) => {
+      const active = makeElement("label", "admin-form-checkbox");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = "is_enabled";
+      checkbox.checked = module.is_enabled === true;
+      checkbox.disabled = module.is_required === true;
+      active.append(checkbox, makeElement("span", "", module.is_required
+        ? "Required module (cannot be disabled)" : "Enabled"));
+      form.append(active);
+      addHrTextArea(form, "Module configuration (JSON object)", "configuration",
+        JSON.stringify(module.configuration || {}, null, 2), 20000, true);
+    },
+    async (values) => {
+      let configuration;
+      try {
+        configuration = JSON.parse(String(values.get("configuration") || ""));
+      } catch {
+        throw new Error("Enter a valid JSON configuration object.");
+      }
+      if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) {
+        throw new Error("Module configuration must be a JSON object.");
+      }
+      await apiRequest(`admin/organization/modules/${module.module_key}`, "PUT", {
+        is_enabled: module.is_required || values.get("is_enabled") === "on",
+        configuration,
+        revision: module.revision || null
+      });
+      await loadOrganizationConfiguration();
+    }
+  );
+}
+
+function renderOrganizationWorkflows(root) {
+  const workflows = organizationConfigurationData.workflows || [];
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  header.append(makeElement("h2", "", "Reusable workflows"),
+    makeElement("span", "", `${workflows.length} workflows`));
+  const add = makeElement("button", "admin-primary-button", "Create workflow");
+  add.type = "button";
+  add.addEventListener("click", () => openOrganizationWorkflowDialog(null));
+  panel.append(header, add);
+  panel.append(makeElement("p", "admin-dialog-help",
+    "Definitions and execution history are enforced by the workflow API. Native newsroom features continue to use their existing workflows unless specifically integrated."));
+  if (!workflows.length) panel.append(makeElement("p", "admin-empty", "No reusable workflows have been configured."));
+  workflows.forEach((workflow) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const title = makeElement("div", "admin-panel-heading");
+    title.append(makeElement("h3", "", workflow.name),
+      makeElement("span", "", workflow.is_active ? "Active" : "Inactive"));
+    card.append(title, makeElement("p", "admin-dialog-help",
+      `${workflow.module_key} · ${workflow.workflow_key} · v${workflow.version}${workflow.description ? ` · ${workflow.description}` : ""}`));
+    const actions = makeElement("div", "admin-page-actions");
+    const edit = makeElement("button", "admin-secondary-button", "Edit workflow");
+    edit.type = "button";
+    edit.addEventListener("click", () => openOrganizationWorkflowDialog(workflow));
+    const addState = makeElement("button", "admin-secondary-button", "Add state");
+    addState.type = "button";
+    addState.addEventListener("click", () => openOrganizationWorkflowStateDialog(workflow, null));
+    const addTransition = makeElement("button", "admin-secondary-button", "Add transition");
+    addTransition.type = "button";
+    addTransition.disabled = (workflow.states || []).length < 2;
+    addTransition.addEventListener("click", () => openOrganizationWorkflowTransitionDialog(workflow, null));
+    const deleteWorkflow = makeElement("button", "admin-secondary-button", "Delete if unused");
+    deleteWorkflow.type = "button";
+    deleteWorkflow.addEventListener("click", () => void confirmAdminAction(
+      "Delete workflow?",
+      `Delete "${workflow.name}"? Workflows with execution history cannot be deleted.`
+    ).then((confirmed) => confirmed && runAction(
+      () => apiRequest(`admin/organization/workflows/${workflow.id}`, "DELETE"),
+      loadOrganizationConfiguration
+    )));
+    actions.append(edit, addState, addTransition, deleteWorkflow);
+    card.append(actions);
+    (workflow.states || []).forEach((state) => {
+      const row = makeElement("div", "admin-organization-workflow-row");
+      row.append(makeElement("span", "", `${state.label} · ${state.state_key}${state.is_initial ? " · initial" : ""}${state.is_terminal ? " · terminal" : ""}`));
+      const editState = makeElement("button", "admin-secondary-button", "Edit state");
+      editState.type = "button";
+      editState.addEventListener("click", () => openOrganizationWorkflowStateDialog(workflow, state));
+      const deleteState = makeElement("button", "admin-secondary-button", "Delete state");
+      deleteState.type = "button";
+      deleteState.addEventListener("click", () => void confirmAdminAction(
+        "Delete workflow state?",
+        "A state can be deleted only when it is not the initial state and has no transitions or execution history."
+      ).then((confirmed) => confirmed && runAction(
+        () => apiRequest(`admin/organization/workflows/${workflow.id}/states/${state.id}`, "DELETE"),
+        loadOrganizationConfiguration
+      )));
+      row.append(editState, deleteState);
+      card.append(row);
+    });
+    (workflow.transitions || []).forEach((transition) => {
+      const source = workflow.states.find((state) => state.id === transition.from_state_id);
+      const destination = workflow.states.find((state) => state.id === transition.to_state_id);
+      const row = makeElement("div", "admin-organization-workflow-row");
+      row.append(makeElement("span", "", `${source?.label || "?"} → ${destination?.label || "?"} · ${transition.label} · ${transition.required_permission}${transition.requires_approval ? " · approval required" : ""}`));
+      const editTransition = makeElement("button", "admin-secondary-button", "Edit transition");
+      editTransition.type = "button";
+      editTransition.addEventListener("click", () => openOrganizationWorkflowTransitionDialog(workflow, transition));
+      const deleteTransition = makeElement("button", "admin-secondary-button", "Delete transition");
+      deleteTransition.type = "button";
+      deleteTransition.addEventListener("click", () => void confirmAdminAction(
+        "Delete workflow transition?",
+        "Transitions referenced by approval history cannot be deleted."
+      ).then((confirmed) => confirmed && runAction(
+        () => apiRequest(`admin/organization/workflow-transitions/${transition.id}`, "DELETE"),
+        loadOrganizationConfiguration
+      )));
+      row.append(editTransition, deleteTransition);
+      card.append(row);
+    });
+    panel.append(card);
+  });
+  root.append(panel);
+}
+
+function openOrganizationWorkflowDialog(workflow) {
+  const catalog = organizationConfigurationData.modules_catalog || [];
+  openFormDialog(
+    workflow ? "Edit workflow" : "Create workflow",
+    "Workflows belong to an enabled module. Define states and permission-gated transitions after saving.",
+    (form) => {
+      addHrSelect(form, "Module", "module_key",
+        catalog.map((module) => ({ value: module.module_key, label: module.name })),
+        workflow?.module_key, null, true);
+      const name = addField(form, "Workflow name", "name", "text", workflow?.name, {
+        minLength: 2, maxLength: 120
+      });
+      addHrKeyField(form, "Workflow key", "workflow_key", workflow?.workflow_key, name);
+      addField(form, "Description", "description", "text", workflow?.description, {
+        required: false, maxLength: 2000
+      });
+      addHrActiveField(form, workflow?.is_active);
+    },
+    async (values) => {
+      await apiRequest("admin/organization/workflows", "POST", {
+        id: workflow?.id || null,
+        module_key: values.get("module_key"),
+        workflow_key: values.get("workflow_key"),
+        name: values.get("name"),
+        description: values.get("description"),
+        is_active: values.get("is_active") === "on"
+      });
+      await loadOrganizationConfiguration();
+    }
+  );
+}
+
+function openOrganizationWorkflowStateDialog(workflow, state) {
+  openFormDialog(
+    state ? "Edit workflow state" : "Add workflow state",
+    "Every active workflow needs one initial state before it can be started.",
+    (form) => {
+      const label = addField(form, "State label", "label", "text", state?.label, {
+        minLength: 1, maxLength: 80
+      });
+      addHrKeyField(form, "State key", "state_key", state?.state_key, label);
+      const initial = makeElement("label", "admin-form-checkbox");
+      const isInitial = document.createElement("input");
+      isInitial.type = "checkbox";
+      isInitial.name = "is_initial";
+      isInitial.checked = state?.is_initial === true;
+      initial.append(isInitial, makeElement("span", "", "Initial state"));
+      form.append(initial);
+      const terminal = makeElement("label", "admin-form-checkbox");
+      const isTerminal = document.createElement("input");
+      isTerminal.type = "checkbox";
+      isTerminal.name = "is_terminal";
+      isTerminal.checked = state?.is_terminal === true;
+      terminal.append(isTerminal, makeElement("span", "", "Terminal state"));
+      form.append(terminal);
+      addField(form, "Sort order", "sort_order", "number", state?.sort_order ?? 0, {
+        required: true, minLength: 0
+      }).min = "0";
+    },
+    async (values) => {
+      await apiRequest(`admin/organization/workflows/${workflow.id}/states`, "POST", {
+        id: state?.id || null,
+        state_key: values.get("state_key"),
+        label: values.get("label"),
+        is_initial: values.get("is_initial") === "on",
+        is_terminal: values.get("is_terminal") === "on",
+        sort_order: Number(values.get("sort_order") || 0)
+      });
+      await loadOrganizationConfiguration();
+    }
+  );
+}
+
+function openOrganizationWorkflowTransitionDialog(workflow, transition) {
+  const states = workflow.states || [];
+  const permissions = organizationConfigurationData.permissions || [];
+  openFormDialog(
+    transition ? "Edit workflow transition" : "Add workflow transition",
+    "Transitions are checked against the actor's current organization permissions. Approval-required transitions do not change state until another authorized user approves.",
+    (form) => {
+      addHrSelect(form, "From state", "from_state_id",
+        states.map((state) => ({ value: state.id, label: state.label })),
+        transition?.from_state_id, null, true);
+      addHrSelect(form, "To state", "to_state_id",
+        states.map((state) => ({ value: state.id, label: state.label })),
+        transition?.to_state_id, null, true);
+      const label = addField(form, "Transition label", "label", "text", transition?.label, {
+        minLength: 2, maxLength: 80
+      });
+      addHrKeyField(form, "Transition key", "transition_key", transition?.transition_key, label);
+      addHrSelect(form, "Required permission", "required_permission",
+        permissions.map((permission) => ({
+          value: permission.permission_key,
+          label: `${permission.permission_key} · ${permission.area}`
+        })), transition?.required_permission || "hr.employee.manage", null, true);
+      [
+        ["requires_reason", "Require a reason", transition?.requires_reason],
+        ["requires_approval", "Require a second-person approval", transition?.requires_approval],
+        ["is_active", "Active", transition?.is_active !== false]
+      ].forEach(([name, labelText, checked]) => {
+        const labelNode = makeElement("label", "admin-form-checkbox");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = name;
+        checkbox.checked = checked === true;
+        labelNode.append(checkbox, makeElement("span", "", labelText));
+        form.append(labelNode);
+      });
+      addField(form, "Sort order", "sort_order", "number", transition?.sort_order ?? 0)
+        .min = "0";
+    },
+    async (values) => {
+      await apiRequest(`admin/organization/workflows/${workflow.id}/transitions`, "POST", {
+        id: transition?.id || null,
+        from_state_id: values.get("from_state_id"),
+        to_state_id: values.get("to_state_id"),
+        transition_key: values.get("transition_key"),
+        label: values.get("label"),
+        required_permission: values.get("required_permission"),
+        requires_reason: values.get("requires_reason") === "on",
+        requires_approval: values.get("requires_approval") === "on",
+        is_active: values.get("is_active") === "on",
+        sort_order: Number(values.get("sort_order") || 0)
+      });
+      await loadOrganizationConfiguration();
+    }
+  );
+}
+
+function renderHrManagement() {
+  const root = makeElement("div", "admin-section");
+  addHeading(
+    root,
+    "PEOPLE",
+    "HR management",
+    "Configure organization structure, access roles, employee assignments, and versioned policies."
+  );
+  const tabBar = makeElement("div", "admin-workflow-tabs");
+  [
+    ["departments", "Departments"],
+    ["positions", "Positions"],
+    ["access_roles", "Access roles"],
+    ["models", "Data models"],
+    ["assignments", "Employees and assignments"],
+    ["policies", "Policies"]
+  ].forEach(([key, label]) => {
+    const tab = makeElement("button", `admin-workflow-tab${activeHrTab === key ? " is-active" : ""}`, label);
+    tab.type = "button";
+    tab.setAttribute("aria-pressed", String(activeHrTab === key));
+    tab.addEventListener("click", () => {
+      activeHrTab = key;
+      renderHrManagement();
+    });
+    tabBar.append(tab);
+  });
+  root.append(tabBar);
+  const canConfigure = hrManagementData?.capabilities?.configuration === true;
+  const canManageEmployees = hrManagementData?.capabilities?.employees === true;
+  const canAssignEmployees = hrManagementData?.capabilities?.manage_employees === true;
+  const canManagePolicies = hrManagementData?.capabilities?.policies === true;
+
+  if (["departments", "positions", "access_roles"].includes(activeHrTab) && canConfigure) {
+    renderHrConfigurationTab(root);
+  } else if (activeHrTab === "models" && canConfigure) {
+    renderHrModelsTab(root);
+  } else if (activeHrTab === "assignments" && canManageEmployees) {
+    renderHrAssignmentsTab(root, canAssignEmployees);
+  } else if (activeHrTab === "policies" && canManagePolicies) {
+    renderHrPoliciesTab(root);
+  } else {
+    root.append(makeElement("section", "admin-panel admin-empty", "Your HR account does not have permission to manage this area."));
+  }
+  content.replaceChildren(root);
+}
+
+function renderHrConfigurationTab(root) {
+  const isDepartments = activeHrTab === "departments";
+  const isPositions = activeHrTab === "positions";
+  const records = isDepartments ? hrManagementData.departments || []
+    : isPositions ? hrManagementData.positions || []
+      : hrManagementData.access_roles || [];
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  const heading = isDepartments ? "Organization departments"
+    : isPositions ? "Job positions" : "Configurable access roles";
+  header.append(makeElement("h2", "", heading), makeElement("span", "", `${records.length} records`));
+  const add = makeElement("button", "admin-primary-button", isDepartments ? "Add department"
+    : isPositions ? "Add position" : "Add access role");
+  add.type = "button";
+  add.addEventListener("click", () => {
+    if (isDepartments) openHrDepartmentDialog(null);
+    else if (isPositions) openHrPositionDialog(null);
+    else openHrAccessRoleDialog(null);
+  });
+  panel.append(header, add);
+  records.forEach((record) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const title = isDepartments ? record.name : isPositions ? record.title : record.name;
+    const key = isDepartments ? record.department_key : isPositions ? record.position_key : record.role_key;
+    card.append(makeElement("h3", "", title));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${key} · ${record.is_active ? "Active" : "Inactive"}${record.description ? ` · ${record.description}` : ""}`));
+    if (isPositions) {
+      const department = (hrManagementData.departments || []).find((item) => item.id === record.department_id);
+      card.append(makeElement("p", "admin-dialog-help", `Department: ${department?.name || "Organization-wide"}`));
+    }
+    if (activeHrTab === "access_roles") {
+      card.append(makeElement("p", "admin-dialog-help",
+        `${(record.permissions || []).length} permission(s) · ${record.is_system ? "Protected system role" : "Custom role"}`));
+    }
+    const actions = makeElement("div", "admin-page-actions");
+    const edit = makeElement("button", "admin-secondary-button", "Edit");
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      if (isDepartments) openHrDepartmentDialog(record);
+      else if (isPositions) openHrPositionDialog(record);
+      else openHrAccessRoleDialog(record);
+    });
+    actions.append(edit);
+    if (activeHrTab === "access_roles") {
+      const permissions = makeElement("button", "admin-secondary-button", "Configure permissions");
+      permissions.type = "button";
+      permissions.addEventListener("click", () => openHrRolePermissionsDialog(record));
+      actions.append(permissions);
+    }
+    if (!record.is_system) {
+      const remove = makeElement("button", "admin-secondary-button", "Delete if unused");
+      remove.type = "button";
+      remove.addEventListener("click", () => void deleteHrRecord(
+        isDepartments ? "departments" : isPositions ? "positions" : "access-roles",
+        record.id,
+        `Delete ${title}?`,
+        "Records with assignment or organizational history cannot be hard-deleted; deactivate them instead."
+      ));
+      actions.append(remove);
+    }
+    card.append(actions);
+    panel.append(card);
+  });
+  root.append(panel);
+  if (activeHrTab === "access_roles") {
+    root.append(makeElement("p", "admin-dialog-help",
+      "Permissions are application capabilities, not job titles. Scope each permission to the organization, a department, managed employees, or the user's own record. A permission only takes effect on routes that enforce it."));
+  }
+}
+
+function renderHrModelsTab(root) {
+  const models = hrManagementData.models || [];
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  header.append(makeElement("h2", "", "Configurable data models"),
+    makeElement("span", "", `${models.length} models`));
+  const add = makeElement("button", "admin-primary-button", "Create model");
+  add.type = "button";
+  add.addEventListener("click", () => openHrModelDialog(null));
+  const workspaceLink = makeElement("a", "admin-secondary-button", "Open organization workspace");
+  workspaceLink.href = "/organization";
+  panel.append(header, add, workspaceLink);
+  panel.append(makeElement("p", "admin-dialog-help",
+    "Build safe, validated business forms without custom code. Configure each model's fields, workflow states, and scoped access. Record history is retained; models with records can only be deactivated."));
+  if (!models.length) panel.append(makeElement("p", "admin-empty", "No configurable models yet."));
+  models.forEach((model) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    card.append(makeElement("h3", "", model.name));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${model.model_key} · ${model.is_active ? "Active" : "Inactive"} · ${model.workflow_enabled ? `Workflow starts at ${model.initial_status}` : "No approval workflow"}`));
+    if (model.description) card.append(makeElement("p", "admin-dialog-help", model.description));
+    const actions = makeElement("div", "admin-page-actions");
+    const edit = makeElement("button", "admin-secondary-button", "Edit model");
+    edit.type = "button";
+    edit.addEventListener("click", () => openHrModelDialog(model));
+    const addField = makeElement("button", "admin-secondary-button", "Add field");
+    addField.type = "button";
+    addField.disabled = !model.is_active;
+    addField.addEventListener("click", () => openHrModelFieldDialog(model, null));
+    const permissions = makeElement("button", "admin-secondary-button", "Configure role access");
+    permissions.type = "button";
+    permissions.addEventListener("click", () => openHrModelPermissionsDialog(model));
+    actions.append(edit, addField, permissions);
+    if (model.workflow_enabled) {
+      const transition = makeElement("button", "admin-secondary-button", "Add workflow transition");
+      transition.type = "button";
+      transition.disabled = !model.is_active;
+      transition.addEventListener("click", () => openHrModelTransitionDialog(model, null));
+      actions.append(transition);
+    }
+    const remove = makeElement("button", "admin-secondary-button", "Delete if unused");
+    remove.type = "button";
+    remove.addEventListener("click", () => void deleteHrModel(model));
+    actions.append(remove);
+    card.append(actions);
+    const fieldList = makeElement("div", "admin-hr-model-list");
+    (model.fields || []).forEach((field) => {
+      const row = makeElement("div", "admin-hr-model-item");
+      row.append(makeElement("span", "", `${field.label} · ${field.field_type}${field.is_required ? " · Required" : ""}${field.is_active ? "" : " · Inactive"}`));
+      const editField = makeElement("button", "admin-secondary-button", "Edit");
+      editField.type = "button";
+      editField.disabled = !model.is_active;
+      editField.addEventListener("click", () => openHrModelFieldDialog(model, field));
+      row.append(editField);
+      fieldList.append(row);
+    });
+    (model.transitions || []).forEach((transition) => {
+      const row = makeElement("div", "admin-hr-model-item");
+      row.append(makeElement("span", "",
+        `${transition.label} · ${transition.from_status} → ${transition.to_status} · ${transition.required_action}`));
+      const editTransition = makeElement("button", "admin-secondary-button", "Edit");
+      editTransition.type = "button";
+      editTransition.addEventListener("click", () => openHrModelTransitionDialog(model, transition));
+      const removeTransition = makeElement("button", "admin-secondary-button", "Delete");
+      removeTransition.type = "button";
+      removeTransition.addEventListener("click", () => void deleteHrModelTransition(transition));
+      row.append(editTransition, removeTransition);
+      fieldList.append(row);
+    });
+    card.append(fieldList);
+    panel.append(card);
+  });
+  root.append(panel);
+}
+
+function openHrModelDialog(model) {
+  openFormDialog(model ? "Edit configurable model" : "Create configurable model",
+    "Models define validated organization records. The initial workflow state cannot be changed after records are created.",
+    (form) => {
+      const name = addField(form, "Model name", "name", "text", model?.name, { minLength: 2, maxLength: 100 });
+      addHrKeyField(form, "Model key", "model_key", model?.model_key, name);
+      addHrTextArea(form, "Description", "description", model?.description, 2000);
+      const initialState = addField(form, "Initial workflow state", "initial_status", "text",
+        model?.initial_status || "draft", { maxLength: 40 });
+      initialState.pattern = "[a-z][a-z0-9_]{1,39}";
+      const workflow = makeElement("label", "admin-form-checkbox");
+      const workflowBox = document.createElement("input");
+      workflowBox.type = "checkbox";
+      workflowBox.name = "workflow_enabled";
+      workflowBox.checked = model?.workflow_enabled === true;
+      workflow.append(workflowBox, makeElement("span", "", "Require configured workflow transitions"));
+      form.append(workflow);
+      addHrActiveField(form, model?.is_active);
+    },
+    async (values) => {
+      await apiRequest("admin/hr/models", "POST", {
+        id: model?.id || null,
+        model_key: values.get("model_key"),
+        name: values.get("name"),
+        description: values.get("description"),
+        initial_status: values.get("initial_status"),
+        workflow_enabled: values.get("workflow_enabled") === "on",
+        is_active: values.get("is_active") === "on"
+      });
+      await loadHrManagement();
+    });
+}
+
+function openHrModelFieldDialog(model, field) {
+  openFormDialog(field ? "Edit model field" : `Add field to ${model.name}`,
+    "Field keys are stable identifiers. Once values exist, a field's data type cannot be changed.",
+    (form) => {
+      const label = addField(form, "Field label", "label", "text", field?.label, { minLength: 1, maxLength: 100 });
+      addHrKeyField(form, "Field key", "field_key", field?.field_key, label);
+      addHrSelect(form, "Field type", "field_type", [
+        { value: "text", label: "Short text" },
+        { value: "long_text", label: "Long text" },
+        { value: "number", label: "Number" },
+        { value: "date", label: "Date" },
+        { value: "boolean", label: "Yes / no" },
+        { value: "select", label: "Single choice" },
+        { value: "email", label: "Email" },
+        { value: "url", label: "Web address" }
+      ], field?.field_type || "text");
+      addHrTextArea(form, "Choice options (one per line; select fields only)", "options",
+        (field?.options || []).join("\n"), 5000);
+      const required = makeElement("label", "admin-form-checkbox");
+      const requiredBox = document.createElement("input");
+      requiredBox.type = "checkbox";
+      requiredBox.name = "is_required";
+      requiredBox.checked = field?.is_required === true;
+      required.append(requiredBox, makeElement("span", "", "Required field"));
+      form.append(required);
+      addHrActiveField(form, field?.is_active);
+    },
+    async (values) => {
+      const options = String(values.get("options") || "").split(/\r?\n/)
+        .map((option) => option.trim()).filter(Boolean);
+      await apiRequest(`admin/hr/models/${model.id}/fields`, "POST", {
+        id: field?.id || null,
+        field_key: values.get("field_key"),
+        label: values.get("label"),
+        field_type: values.get("field_type"),
+        options,
+        is_required: values.get("is_required") === "on",
+        is_active: values.get("is_active") === "on",
+        sort_order: field?.sort_order ?? (model.fields || []).length
+      });
+      await loadHrManagement();
+    });
+}
+
+function openHrModelPermissionsDialog(model) {
+  const roles = (hrManagementData.access_roles || []).filter((role) => role.is_active);
+  if (!roles.length) {
+    void showAdminMessage("No active access roles", "Create an access role before configuring model access.");
+    return;
+  }
+  openFormDialog(`Configure ${model.name} access`,
+    "Each role receives only the model actions and record scope selected here. Scope changes are enforced by the database.",
+    (form) => {
+      addHrSelect(form, "Access role", "role_id",
+        roles.map((role) => ({ value: role.id, label: role.name })), roles[0].id);
+      const permissions = model.permissions || [];
+      const actionLabels = [
+        ["read", "Read records"], ["create", "Create records"], ["update", "Edit records"],
+        ["delete", "Delete records"], ["submit", "Submit workflow"], ["approve", "Approve workflow"]
+      ];
+      actionLabels.forEach(([action, labelText]) => {
+        const row = makeElement("div", "admin-hr-permission-row");
+        const label = makeElement("label", "admin-form-checkbox");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = `model-action:${action}`;
+        checkbox.checked = permissions.some((permission) =>
+          permission.role_id === roles[0].id && permission.action === action);
+        label.append(checkbox, makeElement("span", "", labelText));
+        row.append(label);
+        const scope = document.createElement("select");
+        scope.name = `model-scope:${action}`;
+        const scopes = action === "create" || action === "delete"
+          ? ["all", "department", "own"] : ["all", "department", "assigned", "own"];
+        scopes.forEach((value) => {
+          const option = new Option(value, value);
+          const current = permissions.find((permission) =>
+            permission.role_id === roles[0].id && permission.action === action);
+          option.selected = value === (current?.scope || "own");
+          scope.append(option);
+        });
+        row.append(scope);
+        form.append(row);
+      });
+      form.elements.role_id.addEventListener("change", (event) => {
+        const selected = event.target.value;
+        actionLabels.forEach(([action]) => {
+          const grant = permissions.find((permission) =>
+            permission.role_id === selected && permission.action === action);
+          form.elements[`model-action:${action}`].checked = Boolean(grant);
+          form.elements[`model-scope:${action}`].value = grant?.scope || "own";
+        });
+      });
+    },
+    async (values) => {
+      const roleId = values.get("role_id");
+      const permissions = ["read", "create", "update", "delete", "submit", "approve"]
+        .filter((action) => values.get(`model-action:${action}`) === "on")
+        .map((action) => ({
+          action, scope: values.get(`model-scope:${action}`)
+        }));
+      await apiRequest(`admin/hr/models/${model.id}/roles/${roleId}`, "PUT", { permissions });
+      await loadHrManagement();
+    },
+    "Save access");
+}
+
+function openHrModelTransitionDialog(model, transition) {
+  openFormDialog(transition ? "Edit workflow transition" : `Add ${model.name} transition`,
+    "Transitions are only available from the exact source state. Staff need the selected permission at the configured scope.",
+    (form) => {
+      const from = addField(form, "From state", "from_status", "text",
+        transition?.from_status || model.initial_status, { maxLength: 40 });
+      from.pattern = "[a-z][a-z0-9_]{1,39}";
+      const to = addField(form, "To state", "to_status", "text",
+        transition?.to_status, { maxLength: 40 });
+      to.pattern = "[a-z][a-z0-9_]{1,39}";
+      addField(form, "Button label", "label", "text", transition?.label, { minLength: 2, maxLength: 80 });
+      addHrSelect(form, "Required action permission", "required_action", [
+        { value: "update", label: "Update" },
+        { value: "submit", label: "Submit" },
+        { value: "approve", label: "Approve" }
+      ], transition?.required_action || "submit");
+    },
+    async (values) => {
+      await apiRequest(`admin/hr/models/${model.id}/transitions`, "POST", {
+        id: transition?.id || null,
+        from_status: values.get("from_status"),
+        to_status: values.get("to_status"),
+        label: values.get("label"),
+        required_action: values.get("required_action"),
+        sort_order: transition?.sort_order ?? (model.transitions || []).length
+      });
+      await loadHrManagement();
+    });
+}
+
+async function deleteHrModelTransition(transition) {
+  if (!await confirmAdminAction("Delete workflow transition?",
+    "Transitions used by records in the source state cannot be deleted.", "Delete")) return;
+  try {
+    await apiRequest(`admin/hr/model-transitions/${transition.id}`, "DELETE");
+    await loadHrManagement();
+  } catch (error) {
+    void showAdminMessage("Transition could not be deleted", error.message);
+  }
+}
+
+async function deleteHrModel(model) {
+  if (!await confirmAdminAction(`Delete ${model.name}?`,
+    "A model with any record history cannot be deleted. Deactivate it instead.", "Delete")) return;
+  try {
+    await apiRequest(`admin/hr/models/${model.id}`, "DELETE");
+    await loadHrManagement();
+  } catch (error) {
+    void showAdminMessage("Model was not deleted", error.message);
+  }
+}
+
+function renderHrAssignmentsTab(root, canAssignEmployees) {
+  const assignments = hrManagementData.assignments || [];
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  header.append(makeElement("h2", "", "Employee lifecycle and assignments"),
+    makeElement("span", "", `${assignments.length} records`));
+  if (canAssignEmployees) {
+    const add = makeElement("button", "admin-primary-button", "Assign employee");
+    add.type = "button";
+    add.addEventListener("click", () => openHrAssignmentDialog(null));
+    const invite = makeElement("button", "admin-secondary-button", "Invite by email");
+    invite.type = "button";
+    invite.addEventListener("click", () => openHrInvitationDialog());
+    const actions = makeElement("div", "admin-page-actions");
+    actions.append(add, invite);
+    panel.append(header, actions);
+    const note = makeElement("p", "admin-dialog-help",
+      "Create an employment record for an existing account or invite an employee by email. Employees complete their profile and accept current required policy versions before activation.");
+    panel.append(note);
+  } else {
+    panel.append(header);
+  }
+  assignments.forEach((assignment) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    card.append(makeElement("h3", "", `${assignment.employee_name || assignment.employee_email || assignment.employee_id} · ${assignment.employee_number || "No employee number"}`));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${assignment.position_title || "Position not set"} · ${assignment.department_name || "Department not set"} · ${assignment.access_role_name || "Access role missing"}`));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${assignment.employment_type?.replace(/_/g, " ") || "Employment type not set"} · ${assignment.employment_status || "Status not set"} · Assignment: ${assignment.status}${assignment.is_primary ? " · Primary" : ""} · Manager: ${assignment.manager_name || "Not assigned"}`));
+    if (assignment.end_reason) card.append(makeElement("p", "admin-dialog-help", `End reason: ${assignment.end_reason}`));
+    const actions = makeElement("div", "admin-page-actions");
+    if (canAssignEmployees && assignment.status !== "ended") {
+      const edit = makeElement("button", "admin-secondary-button", "Change assignment");
+      edit.type = "button";
+      edit.addEventListener("click", () => openHrAssignmentDialog(assignment));
+      actions.append(edit);
+    }
+    if (canAssignEmployees && assignment.status !== "ended") {
+      const end = makeElement("button", "admin-secondary-button", "End assignment");
+      end.type = "button";
+      end.addEventListener("click", () => openHrAssignmentDialog(assignment, true));
+      actions.append(end);
+    }
+    card.append(actions);
+    panel.append(card);
+  });
+  root.append(panel);
+}
+
+function renderHrPoliciesTab(root) {
+  const policies = hrManagementData.policies || [];
+  const panel = makeElement("section", "admin-panel");
+  const header = makeElement("div", "admin-panel-heading");
+  header.append(makeElement("h2", "", "Policies and terms"), makeElement("span", "", `${policies.length} policies`));
+  const add = makeElement("button", "admin-primary-button", "Add policy");
+  add.type = "button";
+  add.addEventListener("click", () => openHrPolicyDialog(null));
+  panel.append(header, add);
+  policies.forEach((policy) => {
+    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    card.append(makeElement("h3", "", policy.title));
+    card.append(makeElement("p", "admin-dialog-help",
+      `${policy.policy_key} · ${policy.is_active ? "Active" : "Inactive"} · ${policy.requires_acceptance ? "Acceptance required" : "Informational"}`));
+    const departmentName = (hrManagementData.departments || [])
+      .find((item) => item.id === policy.department_id)?.name;
+    const roleName = (hrManagementData.access_roles || [])
+      .find((item) => item.id === policy.access_role_id)?.name;
+    card.append(makeElement("p", "admin-dialog-help",
+      `Audience: ${departmentName || "All departments"} · ${roleName || "All access roles"}`));
+    const edit = makeElement("button", "admin-secondary-button", "Edit policy");
+    edit.type = "button";
+    edit.addEventListener("click", () => openHrPolicyDialog(policy));
+    card.append(edit);
+    const newVersion = makeElement("button", "admin-secondary-button", "Create draft version");
+    newVersion.type = "button";
+    newVersion.addEventListener("click", () => openHrPolicyVersionDialog(policy, null));
+    card.append(newVersion);
+    (policy.versions || []).forEach((version) => {
+      const versionRow = makeElement("div", "admin-hr-policy-version");
+      versionRow.append(makeElement("strong", "",
+        `Version ${version.version} · ${version.status} · ${(version.accepted_employees || []).length} accepted`));
+      if (version.accepted_employees?.length) {
+        versionRow.append(makeElement("span", "admin-dialog-help",
+          version.accepted_employees.map((person) => person.full_name || person.email || person.employee_id).join(", ")));
+      }
+      if (version.status === "draft") {
+        const editDraft = makeElement("button", "admin-secondary-button", "Edit draft");
+        editDraft.type = "button";
+        editDraft.addEventListener("click", () => openHrPolicyVersionDialog(policy, version));
+        const publish = makeElement("button", "admin-primary-button", "Publish");
+        publish.type = "button";
+        publish.addEventListener("click", () => void publishHrPolicyVersion(version.id));
+        const remove = makeElement("button", "admin-secondary-button", "Delete draft");
+        remove.type = "button";
+        remove.addEventListener("click", () => void deleteHrRecord(
+          "policy-versions", version.id, `Delete draft ${version.version}?`,
+          "Only unused drafts can be deleted. Published or accepted policy history is retained."
+        ));
+        versionRow.append(editDraft, publish, remove);
+      } else {
+        versionRow.append(makeElement("span", "admin-dialog-help",
+          `Published ${formatDate(version.published_at)} · SHA-256 ${version.sha256}`));
+      }
+      card.append(versionRow);
+    });
+    const remove = makeElement("button", "admin-secondary-button", "Delete if unused");
+    remove.type = "button";
+    remove.addEventListener("click", () => void deleteHrRecord(
+      "policies", policy.id, `Delete ${policy.title}?`,
+      "Policies with version or acceptance history cannot be deleted; deactivate them instead."
+    ));
+    card.append(remove);
+    panel.append(card);
+  });
+  root.append(panel);
+  root.append(makeElement("p", "admin-dialog-help",
+    "Publishing a new required version retires the prior version. Staff must accept the exact current version before activation; accepted copies remain immutable."));
+}
+
+function addHrSelect(form, labelText, name, options, selected, emptyLabel = null, required = true) {
+  const label = makeElement("label", "admin-form-field");
+  label.append(makeElement("span", "", labelText));
+  const select = document.createElement("select");
+  select.name = name;
+  select.required = required;
+  if (emptyLabel !== null) select.append(new Option(emptyLabel, ""));
+  options.forEach((item) => {
+    const option = new Option(item.label, item.value);
+    option.selected = String(item.value) === String(selected || "");
+    select.append(option);
+  });
+  label.append(select);
+  form.append(label);
+  return select;
+}
+
+function addHrKeyField(form, label, name, current, titleInput) {
+  const field = addField(form, label, name, "text", current || "", { maxLength: 50 });
+  field.pattern = "[a-z][a-z0-9_]{1,49}";
+  if (!current && titleInput) {
+    titleInput.addEventListener("input", () => {
+      field.value = titleInput.value.trim().toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_").replace(/^[^a-z]+/, "").replace(/_+$/g, "").slice(0, 50);
+    });
+  }
+  return field;
+}
+
+function addHrTextArea(form, labelText, name, value, maxLength, required = false) {
+  const label = makeElement("label", "admin-form-field");
+  label.append(makeElement("span", "", labelText));
+  const textarea = document.createElement("textarea");
+  textarea.name = name;
+  textarea.rows = 5;
+  textarea.maxLength = maxLength;
+  textarea.required = required;
+  textarea.value = value || "";
+  label.append(textarea);
+  form.append(label);
+  return textarea;
+}
+
+function addHrActiveField(form, isActive) {
+  const label = makeElement("label", "admin-form-checkbox");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.name = "is_active";
+  checkbox.checked = isActive !== false;
+  label.append(checkbox, makeElement("span", "", "Active and available"));
+  form.append(label);
+}
+
+function openHrDepartmentDialog(record) {
+  openFormDialog(record ? "Edit department" : "Add department",
+    "Departments organize employees. In-use departments can be deactivated but not hard-deleted.",
+    (form) => {
+      const name = addField(form, "Department name", "name", "text", record?.name, { minLength: 2, maxLength: 100 });
+      addHrKeyField(form, "Department key", "department_key", record?.department_key, name);
+      addField(form, "Description", "description", "text", record?.description, { required: false, maxLength: 2000 });
+      const parents = (hrManagementData.departments || []).filter((item) => item.id !== record?.id);
+      addHrSelect(form, "Parent department", "parent_id",
+        parents.map((item) => ({ value: item.id, label: item.name })), record?.parent_id,
+        "No parent", false);
+      addHrActiveField(form, record?.is_active);
+    },
+    async (values) => {
+      await apiRequest("admin/hr/departments", "POST", {
+        id: record?.id || null, department_key: values.get("department_key"),
+        name: values.get("name"), description: values.get("description"),
+        parent_id: values.get("parent_id") || null, is_active: values.get("is_active") === "on"
+      });
+      await loadHrManagement();
+    });
+}
+
+function openHrPositionDialog(record) {
+  openFormDialog(record ? "Edit position" : "Add position",
+    "Positions describe organizational work; access is granted separately through an access role.",
+    (form) => {
+      const title = addField(form, "Position title", "title", "text", record?.title, { minLength: 2, maxLength: 100 });
+      addHrKeyField(form, "Position key", "position_key", record?.position_key, title);
+      addHrTextArea(form, "Description", "description", record?.description, 5000);
+      addHrSelect(form, "Department", "department_id",
+        (hrManagementData.departments || []).filter((item) => item.is_active)
+          .map((item) => ({ value: item.id, label: item.name })),
+        record?.department_id, "Organization-wide", false);
+      addHrActiveField(form, record?.is_active);
+    },
+    async (values) => {
+      await apiRequest("admin/hr/positions", "POST", {
+        id: record?.id || null, position_key: values.get("position_key"),
+        title: values.get("title"), description: values.get("description"),
+        department_id: values.get("department_id") || null, is_active: values.get("is_active") === "on"
+      });
+      await loadHrManagement();
+    });
+}
+
+function openHrAccessRoleDialog(record) {
+  openFormDialog(record ? "Edit access role" : "Add access role",
+    "Access roles bundle supported application permissions. Changes affect employees with this role.",
+    (form) => {
+      const name = addField(form, "Role name", "name", "text", record?.name, { minLength: 2, maxLength: 100 });
+      addHrKeyField(form, "Role key", "role_key", record?.role_key, name);
+      addHrTextArea(form, "Description", "description", record?.description, 2000);
+      addHrActiveField(form, record?.is_active);
+    },
+    async (values) => {
+      await apiRequest("admin/hr/access-roles", "POST", {
+        id: record?.id || null, role_key: values.get("role_key"),
+        name: values.get("name"), description: values.get("description"),
+        is_active: values.get("is_active") === "on"
+      });
+      await loadHrManagement();
+    });
+}
+
+function openHrRolePermissionsDialog(role) {
+  const permissions = hrManagementData.permissions || [];
+  const current = new Map((role.permissions || []).map((item) => [item.permission_key, item.scope]));
+  openFormDialog("Configure access role permissions",
+    "Only grant capabilities required for this work. Existing active assignments receive changes immediately.",
+    (form) => {
+      permissions.forEach((permission) => {
+        const row = makeElement("div", "admin-hr-permission-row");
+        const label = makeElement("label", "admin-form-checkbox");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = `permission:${permission.permission_key}`;
+        checkbox.checked = current.has(permission.permission_key);
+        label.append(checkbox, makeElement("span", "", `${permission.area} · ${permission.permission_key}`));
+        row.append(label, makeElement("small", "", permission.description));
+        const scope = document.createElement("select");
+        scope.name = `scope:${permission.permission_key}`;
+        const scopes = ["hr.console.access", "hr.configuration.manage", "hr.policy.manage"]
+          .includes(permission.permission_key)
+          ? ["all"]
+          : ["all", "department", "assigned", "own"];
+        scopes.forEach((value) => {
+          const option = new Option(value, value);
+          option.selected = value === (current.get(permission.permission_key) || "own");
+          scope.append(option);
+        });
+        row.append(scope);
+        form.append(row);
+      });
+    },
+    async (values) => {
+      const grants = permissions.flatMap((permission) => values.has(`permission:${permission.permission_key}`)
+        ? [{ permission_key: permission.permission_key, scope: values.get(`scope:${permission.permission_key}`) }]
+        : []);
+      await apiRequest(`admin/hr/access-roles/${role.id}/permissions`, "PUT", { permissions: grants });
+      await loadHrManagement();
+    },
+    "Save permissions");
+}
+
+function openHrAssignmentDialog(record, ending = false) {
+  const accounts = hrManagementData.accounts || [];
+  const employees = hrManagementData.employees || [];
+  const departments = (hrManagementData.departments || []).filter((item) => item.is_active);
+  const positions = (hrManagementData.positions || []).filter((item) => item.is_active);
+  const roles = (hrManagementData.access_roles || []).filter((item) => item.is_active);
+  openFormDialog(ending ? "End employee assignment" : record ? "Change employee assignment" : "Assign employee",
+    ending ? "Ending access preserves the assignment and all audit history."
+      : "Assign an employee account to a department, position, manager, and access role. Access activates only after required HR policy acceptance.",
+    (form) => {
+      addHrSelect(form, "Employee account", "employee_id",
+        accounts.map((item) => ({ value: item.id, label: `${item.full_name || item.email} · ${item.email || item.role}` })),
+        record?.employee_id, null, !record);
+      if (record) {
+        const value = accounts.find((item) => item.id === record.employee_id);
+        const note = makeElement("p", "admin-dialog-help", `${value?.full_name || value?.email || record.employee_id} · ${record.employee_number}`);
+        form.append(note);
+      }
+      addHrSelect(form, "Employment type", "employment_type", [
+        { value: "full_time", label: "Full-time" },
+        { value: "part_time", label: "Part-time" },
+        { value: "fixed_term", label: "Fixed-term" },
+        { value: "temporary", label: "Temporary" },
+        { value: "intern", label: "Intern" },
+        { value: "other", label: "Other" }
+      ], record?.employment_type || null, record ? null : "Choose employment type");
+      addHrSelect(form, "Department", "department_id",
+        departments.map((item) => ({ value: item.id, label: item.name })),
+        record?.department_id, "No department", false);
+      addHrSelect(form, "Position", "position_id",
+        positions.map((item) => ({ value: item.id, label: item.title })),
+        record?.position_id, "No position", false);
+      addHrSelect(form, "Access role", "access_role_id",
+        roles.map((item) => ({ value: item.id, label: item.name })),
+        record?.access_role_id, null);
+      addHrSelect(form, "Manager", "manager_employee_id",
+        employees.filter((item) => item.id !== record?.employee_id)
+          .map((item) => ({ value: item.id, label: `${item.full_name || item.email} · ${item.employee_number}` })),
+        record?.manager_employee_id, "No manager", false);
+      addHrSelect(form, "Assignment status", "status",
+        ["pending", "active", "suspended", "ended"].map((item) => ({ value: item, label: item })),
+        ending ? "ended" : record?.status || "pending", null);
+      const start = record?.starts_at ? new Date(record.starts_at).toISOString().slice(0, 10) : "";
+      addField(form, "Start date", "starts_at", "date", start, { required: false });
+      if (ending || record?.status === "ended") {
+        addField(form, "Reason for ending", "end_reason", "text", record?.end_reason || "", { minLength: 2, maxLength: 1000 });
+      }
+      const primary = makeElement("label", "admin-form-checkbox");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = "is_primary";
+      checkbox.checked = record?.is_primary !== false;
+      primary.append(checkbox, makeElement("span", "", "Primary assignment"));
+      form.append(primary);
+      if (ending) form.elements.status.disabled = true;
+      if (record) {
+        form.elements.employee_id.disabled = true;
+      }
+    },
+    async (values) => {
+      const date = values.get("starts_at");
+      await apiRequest("admin/hr/assignments", "POST", {
+        id: record?.id || null,
+        employee_id: record?.employee_id || values.get("employee_id"),
+        employment_type: values.get("employment_type"),
+        department_id: values.get("department_id") || null,
+        position_id: values.get("position_id") || null,
+        access_role_id: values.get("access_role_id"),
+        manager_employee_id: values.get("manager_employee_id") || null,
+        status: ending ? "ended" : values.get("status"),
+        is_primary: values.get("is_primary") === "on",
+        starts_at: date ? new Date(`${date}T00:00:00.000Z`).toISOString()
+          : record?.starts_at || (ending ? new Date().toISOString() : null),
+        end_reason: values.get("end_reason") || ""
+      });
+      await loadHrManagement();
+    },
+    ending ? "End assignment" : "Save assignment");
+}
+
+function openHrInvitationDialog() {
+  const departments = (hrManagementData.departments || []).filter((item) => item.is_active);
+  const positions = (hrManagementData.positions || []).filter((item) => item.is_active);
+  const roles = (hrManagementData.access_roles || []).filter((item) => item.is_active);
+  openFormDialog("Invite an employee",
+    "Send a secure email invitation and create a pending employment record. The employee completes their profile and accepts current required policies before access is activated.",
+    (form) => {
+      addField(form, "Email address", "email", "email", "", { maxLength: 254 });
+      addHrSelect(form, "Employment type", "employment_type", [
+        { value: "full_time", label: "Full-time" },
+        { value: "part_time", label: "Part-time" },
+        { value: "fixed_term", label: "Fixed-term" },
+        { value: "temporary", label: "Temporary" },
+        { value: "intern", label: "Intern" },
+        { value: "other", label: "Other" }
+      ], null, "Choose employment type");
+      addHrSelect(form, "Department", "department_id",
+        departments.map((item) => ({ value: item.id, label: item.name })), "", "No department", false);
+      addHrSelect(form, "Position", "position_id",
+        positions.map((item) => ({ value: item.id, label: item.title })), "", "No position", false);
+      addHrSelect(form, "Access role", "access_role_id",
+        roles.map((item) => ({ value: item.id, label: item.name })), "", null);
+      addHrSelect(form, "Manager", "manager_employee_id",
+        (hrManagementData.employees || []).map((item) => ({
+          value: item.id, label: `${item.full_name || item.email} · ${item.employee_number}`
+        })), "", "No manager", false);
+    },
+    async (values) => {
+      await apiRequest("admin/hr/invitations", "POST", {
+        email: values.get("email"),
+        department_id: values.get("department_id") || null,
+        position_id: values.get("position_id") || null,
+        access_role_id: values.get("access_role_id"),
+        manager_employee_id: values.get("manager_employee_id") || null,
+        employment_type: values.get("employment_type")
+      });
+      await loadHrManagement();
+    },
+    "Send employee invitation");
+}
+
+function openHrPolicyDialog(policy) {
+  openFormDialog(policy ? "Edit HR policy" : "Add HR policy",
+    "Create a versioned organization policy. Active required policies must have a published version before employee activation.",
+    (form) => {
+      const title = addField(form, "Policy title", "title", "text", policy?.title, { minLength: 2, maxLength: 160 });
+      addHrKeyField(form, "Policy key", "policy_key", policy?.policy_key, title);
+      addHrTextArea(form, "Description", "description", policy?.description, 2000);
+      addHrSelect(form, "Applies to department", "department_id",
+        (hrManagementData.departments || []).filter((item) => item.is_active)
+          .map((item) => ({ value: item.id, label: item.name })),
+        policy?.department_id, "All departments", false);
+      addHrSelect(form, "Applies to access role", "access_role_id",
+        (hrManagementData.access_roles || []).filter((item) => item.is_active)
+          .map((item) => ({ value: item.id, label: item.name })),
+        policy?.access_role_id, "All access roles", false);
+      const required = makeElement("label", "admin-form-checkbox");
+      const requiredBox = document.createElement("input");
+      requiredBox.type = "checkbox";
+      requiredBox.name = "requires_acceptance";
+      requiredBox.checked = policy?.requires_acceptance !== false;
+      required.append(requiredBox, makeElement("span", "", "Require employee acceptance"));
+      form.append(required);
+      addHrActiveField(form, policy?.is_active);
+    },
+    async (values) => {
+      await apiRequest("admin/hr/policies", "POST", {
+        id: policy?.id || null, policy_key: values.get("policy_key"),
+        title: values.get("title"), description: values.get("description"),
+        department_id: values.get("department_id") || null,
+        access_role_id: values.get("access_role_id") || null,
+        requires_acceptance: values.get("requires_acceptance") === "on",
+        is_active: values.get("is_active") === "on"
+      });
+      await loadHrManagement();
+    });
+}
+
+function openHrPolicyVersionDialog(policy, version) {
+  openFormDialog(version ? "Edit policy draft" : "Create policy draft",
+    "Published versions cannot be edited or deleted. Create a new version when wording changes.",
+    (form) => {
+      addField(form, "Version label", "version", "text", version?.version || "", { maxLength: 40 });
+      addHrTextArea(form, "Policy wording", "content", version?.content, 100000, true);
+    },
+    async (values) => {
+      await apiRequest(`admin/hr/policies/${policy.id}/versions`, "POST", {
+        id: version?.id || null, version: values.get("version"), content: values.get("content")
+      });
+      await loadHrManagement();
+    },
+    version ? "Save draft" : "Create draft");
+}
+
+async function publishHrPolicyVersion(id) {
+  if (!await confirmAdminAction("Publish policy version?",
+    "This makes the exact version effective and retires the prior published version. Staff may need to accept it again.",
+    "Publish", false)) return;
+  try {
+    await apiRequest(`admin/hr/policy-versions/${id}/publish`, "POST", {});
+    await loadHrManagement();
+    void showAdminMessage("Policy published", "The version is now current.");
+  } catch (error) {
+    void showAdminMessage("Policy publish failed", error.message);
+  }
+}
+
+async function deleteHrRecord(collection, id, title, explanation) {
+  if (!await confirmAdminAction(title, explanation, "Delete")) return;
+  try {
+    await apiRequest(`admin/hr/${collection}/${id}`, "DELETE");
+    await loadHrManagement();
+  } catch (error) {
+    void showAdminMessage("HR record was not deleted", error.message);
+  }
+}
+
 function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-roles")) {
   const isEditing = Boolean(role);
   openFormDialog(
@@ -3987,13 +5362,52 @@ async function loadSession() {
       throw new Error(responseMessage(result));
     }
     sessionIdentity = result.identity;
+    sessionPermissions = Array.isArray(result.permissions) ? result.permissions : [];
     document.querySelector("#admin-name").textContent =
       sessionIdentity.name || sessionIdentity.email;
     document.querySelector("#admin-role").textContent =
-      String(sessionIdentity.role).replace("_", " ");
+      ["admin", "super_admin"].includes(sessionIdentity.role)
+        ? String(sessionIdentity.role).replace("_", " ")
+        : "Delegated HR";
     document.querySelector("#admin-avatar").textContent =
       (sessionIdentity.name || sessionIdentity.email || "C").slice(0, 1).toUpperCase();
-    await loadSection("overview");
+    const isLegacyAdmin = ["admin", "super_admin"].includes(sessionIdentity.role);
+    const sectionPermissions = {
+      articles: ["newsroom.articles.read"],
+      categories: ["newsroom.categories.manage"],
+      media: ["newsroom.media.manage"],
+      "live-streams": ["newsroom.media.manage"],
+      comments: ["newsroom.comments.moderate"],
+      reports: ["newsroom.reports.manage"],
+      applications: ["reporters.manage", "newsroom.people.manage"],
+      directory: ["people.directory.read", "reporters.manage", "newsroom.people.manage"],
+      "staff-roles": ["newsroom.people.manage"],
+      "hr-management": ["hr.console.access"],
+      agreements: ["reporters.manage", "newsroom.people.manage"],
+      credentials: ["reporters.manage", "newsroom.people.manage"],
+      coverage: ["reporters.manage", "newsroom.people.manage"],
+      locations: ["newsroom.locations.manage"],
+      "reporter-configuration": ["reporters.manage"],
+      accounts: ["organization.accounts.manage"],
+      "audit-logs": ["organization.audit.read"]
+    };
+    navItems.forEach((item) => {
+      const section = item.dataset.section;
+      const allowed = isLegacyAdmin
+        ? section !== "organization-configuration" || sessionIdentity.role === "super_admin"
+        : sectionPermissions[section]?.some((permission) => sessionPermissions.includes(permission)) === true
+          || section === "settings";
+      item.hidden = !allowed;
+    });
+    document.querySelectorAll(".admin-nav-group").forEach((group) => {
+      group.hidden = !group.querySelector(".admin-nav-item:not([hidden])");
+    });
+    if (isLegacyAdmin) {
+      await loadSection("overview");
+    } else {
+      const firstAllowed = navItems.find((item) => !item.hidden)?.dataset.section;
+      await loadSection(firstAllowed || "settings");
+    }
   } catch (error) {
     showPageError(
       error instanceof Error ? error.message : "Admin session could not be checked.",

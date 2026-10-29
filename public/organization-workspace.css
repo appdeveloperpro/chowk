@@ -1,0 +1,219 @@
+.organization-workspace {
+  width: min(100% - 32px, 1040px);
+  margin: 0 auto;
+  padding: clamp(32px, 6vw, 72px) 0;
+}
+
+.organization-workspace-heading {
+  margin-bottom: 28px;
+}
+
+.organization-workspace-heading > span {
+  color: #a55f38;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.organization-workspace-heading h1 {
+  margin: 10px 0;
+  color: #252a33;
+  font-size: clamp(30px, 5vw, 44px);
+}
+
+.organization-workspace-heading p {
+  color: #656b76;
+}
+
+.organization-workspace-heading a {
+  color: #9c4d28;
+  font-weight: 700;
+}
+
+.organization-message,
+.organization-record-card,
+.organization-model-panel {
+  padding: 20px;
+  border: 1px solid #e8dfd3;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.organization-message[data-error="true"] {
+  border-color: #e0a4a4;
+  color: #8d2929;
+}
+
+.organization-model-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 24px 0;
+}
+
+.organization-model-tab,
+.organization-action {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid #dfd6ca;
+  border-radius: 8px;
+  background: #fff;
+  color: #343a44;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.organization-model-tab[aria-pressed="true"],
+.organization-action.is-primary {
+  border-color: #b3532b;
+  background: #a84c25;
+  color: #fff;
+}
+
+.organization-model-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.organization-model-panel h2,
+.organization-record-card h3 {
+  margin: 0;
+  color: #282d35;
+}
+
+.organization-record-list {
+  display: grid;
+  gap: 12px;
+}
+
+.organization-record-card {
+  display: grid;
+  gap: 12px;
+}
+
+.organization-record-meta,
+.organization-record-values {
+  display: grid;
+  gap: 8px;
+  color: #5d6570;
+}
+
+.organization-record-values {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.organization-record-values strong {
+  display: block;
+  color: #333a44;
+}
+
+.organization-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.organization-history {
+  border-top: 1px solid #eee5da;
+  padding-top: 10px;
+  color: #4a505b;
+}
+
+.organization-history pre {
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.organization-record-dialog {
+  width: min(100% - 24px, 600px);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid #e4d8cb;
+  border-radius: 14px;
+  color: #252a33;
+}
+
+.organization-record-dialog::backdrop {
+  background: rgb(25 24 22 / 55%);
+}
+
+.organization-record-form {
+  display: grid;
+  gap: 14px;
+}
+
+.organization-record-form h2 {
+  margin: 0;
+}
+
+.organization-record-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.organization-record-form input,
+.organization-record-form select,
+.organization-record-form textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #d6cec4;
+  border-radius: 7px;
+  background: #fffdfa;
+  color: inherit;
+  font: inherit;
+}
+
+.organization-record-form input[type="checkbox"] {
+  width: 20px;
+  min-height: 20px;
+}
+
+.organization-record-dialog-error {
+  color: #9b2828;
+}
+
+.organization-record-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.organization-workflow-page {
+  display: grid;
+  gap: 18px;
+}
+
+.organization-workflow-page > .organization-model-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.organization-workflow-instances {
+  display: grid;
+  gap: 10px;
+}
+
+.organization-workflow-page input {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #d6cec4;
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+}
+
+@media (max-width: 600px) {
+  .organization-workspace {
+    width: min(100% - 22px, 1040px);
+  }
+
+  .organization-model-panel,
+  .organization-record-card {
+    padding: 15px;
+  }
+}

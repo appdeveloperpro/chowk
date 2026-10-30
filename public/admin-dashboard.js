@@ -441,7 +441,7 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         const result = await apiRequest(modules["staff-onboarding"].path);
         const records = (unwrapData(result) || []).filter((row) => row.requested_role === tabKey);
         const actions = pageActions(root);
-        const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage staff job roles");
+        const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage newsroom roles");
         manageRoles.type = "button";
         manageRoles.addEventListener("click", () => void loadSection("staff-roles"));
         actions.append(manageRoles);
@@ -563,9 +563,9 @@ async function loadSection(section) {
     try {
       const result = await apiRequest(modules["staff-roles"].path);
       const root = makeElement("div", "admin-section");
-      addHeading(root, "PEOPLE", "Staff job roles", modules["staff-roles"].description);
+      addHeading(root, "PEOPLE", "Newsroom roles", modules["staff-roles"].description);
       const actions = pageActions(root);
-      const addRole = makeElement("button", "admin-primary-button admin-create-button", "Add job role");
+      const addRole = makeElement("button", "admin-primary-button admin-create-button", "Add newsroom role");
       addRole.type = "button";
       addRole.addEventListener("click", () => void openStaffRoleDialog(null, () => loadSection("staff-roles")));
       actions.append(addRole);
@@ -2361,7 +2361,7 @@ function renderStaffRoleCatalog(root, roles) {
   const records = Array.isArray(roles) ? roles : [];
   const catalog = makeElement("div", "admin-staff-role-catalog");
   if (!records.length) {
-    catalog.append(makeElement("section", "admin-panel admin-staff-onboarding-empty", "No staff job roles are configured."));
+    catalog.append(makeElement("section", "admin-panel admin-staff-onboarding-empty", "No newsroom roles are configured."));
   }
   records.forEach((role) => {
     const card = makeElement("article", "admin-panel admin-role-agreement-card");
@@ -2904,7 +2904,7 @@ function renderHrManagement() {
   const tabBar = makeElement("div", "admin-workflow-tabs");
   [
     ["departments", "Departments"],
-    ["positions", "Positions"],
+    ["positions", "Employee positions"],
     ["access_roles", "Access roles"],
     ["models", "Data models"],
     ["assignments", "Employees and assignments"],
@@ -2945,10 +2945,10 @@ function renderHrConfigurationTab(root) {
   const records = isDepartments ? hrManagementData.departments || []
     : isPositions ? hrManagementData.positions || []
       : hrManagementData.access_roles || [];
-  const panel = makeElement("section", "admin-panel");
+  const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   const heading = isDepartments ? "Organization departments"
-    : isPositions ? "Job positions" : "Configurable access roles";
+    : isPositions ? "Employee positions" : "Configurable access roles";
   header.append(makeElement("h2", "", heading), makeElement("span", "", `${records.length} records`));
   const add = makeElement("button", "admin-primary-button", isDepartments ? "Add department"
     : isPositions ? "Add position" : "Add access role");
@@ -2960,7 +2960,7 @@ function renderHrConfigurationTab(root) {
   });
   panel.append(header, add);
   records.forEach((record) => {
-    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const card = makeElement("article", "admin-hr-record");
     const title = isDepartments ? record.name : isPositions ? record.title : record.name;
     const key = isDepartments ? record.department_key : isPositions ? record.position_key : record.role_key;
     card.append(makeElement("h3", "", title));
@@ -3012,7 +3012,7 @@ function renderHrConfigurationTab(root) {
 
 function renderHrModelsTab(root) {
   const models = hrManagementData.models || [];
-  const panel = makeElement("section", "admin-panel");
+  const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   header.append(makeElement("h2", "", "Configurable data models"),
     makeElement("span", "", `${models.length} models`));
@@ -3026,7 +3026,7 @@ function renderHrModelsTab(root) {
     "Build safe, validated business forms without custom code. Configure each model's fields, workflow states, and scoped access. Record history is retained; models with records can only be deactivated."));
   if (!models.length) panel.append(makeElement("p", "admin-empty", "No configurable models yet."));
   models.forEach((model) => {
-    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const card = makeElement("article", "admin-hr-record");
     card.append(makeElement("h3", "", model.name));
     card.append(makeElement("p", "admin-dialog-help",
       `${model.model_key} · ${model.is_active ? "Active" : "Inactive"} · ${model.workflow_enabled ? `Workflow starts at ${model.initial_status}` : "No approval workflow"}`));
@@ -3279,7 +3279,7 @@ async function deleteHrModel(model) {
 
 function renderHrAssignmentsTab(root, canAssignEmployees) {
   const assignments = hrManagementData.assignments || [];
-  const panel = makeElement("section", "admin-panel");
+  const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   header.append(makeElement("h2", "", "Employee lifecycle and assignments"),
     makeElement("span", "", `${assignments.length} records`));
@@ -3300,7 +3300,7 @@ function renderHrAssignmentsTab(root, canAssignEmployees) {
     panel.append(header);
   }
   assignments.forEach((assignment) => {
-    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const card = makeElement("article", "admin-hr-record");
     card.append(makeElement("h3", "", `${assignment.employee_name || assignment.employee_email || assignment.employee_id} · ${assignment.employee_number || "No employee number"}`));
     card.append(makeElement("p", "admin-dialog-help",
       `${assignment.position_title || "Position not set"} · ${assignment.department_name || "Department not set"} · ${assignment.access_role_name || "Access role missing"}`));
@@ -3328,7 +3328,7 @@ function renderHrAssignmentsTab(root, canAssignEmployees) {
 
 function renderHrPoliciesTab(root) {
   const policies = hrManagementData.policies || [];
-  const panel = makeElement("section", "admin-panel");
+  const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   header.append(makeElement("h2", "", "Policies and terms"), makeElement("span", "", `${policies.length} policies`));
   const add = makeElement("button", "admin-primary-button", "Add policy");
@@ -3336,7 +3336,7 @@ function renderHrPoliciesTab(root) {
   add.addEventListener("click", () => openHrPolicyDialog(null));
   panel.append(header, add);
   policies.forEach((policy) => {
-    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const card = makeElement("article", "admin-hr-record");
     card.append(makeElement("h3", "", policy.title));
     card.append(makeElement("p", "admin-dialog-help",
       `${policy.policy_key} · ${policy.is_active ? "Active" : "Inactive"} · ${policy.requires_acceptance ? "Acceptance required" : "Informational"}`));
@@ -3474,7 +3474,7 @@ function openHrDepartmentDialog(record) {
 
 function openHrPositionDialog(record) {
   openFormDialog(record ? "Edit position" : "Add position",
-    "Positions describe organizational work; access is granted separately through an access role.",
+    "Employee positions describe organizational work; access is granted separately through an access role.",
     (form) => {
       const title = addField(form, "Position title", "title", "text", record?.title, { minLength: 2, maxLength: 100 });
       addHrKeyField(form, "Position key", "position_key", record?.position_key, title);
@@ -3754,7 +3754,7 @@ async function deleteHrRecord(collection, id, title, explanation) {
 function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-roles")) {
   const isEditing = Boolean(role);
   openFormDialog(
-    isEditing ? "Edit staff job role" : "Create staff job role",
+    isEditing ? "Edit newsroom role" : "Create newsroom role",
     "Define the newsroom title and duties. This does not create new application permissions; choose the existing Moderator or Editor access profile.",
     (form) => {
       const nameInput = addField(form, "Job title", "display_name", "text", role?.display_name || "", {
@@ -3848,7 +3848,7 @@ async function openStaffJobRoleDialog(user, refresh) {
   try {
     roles = unwrapData(await apiRequest("admin/staff-roles")) || [];
   } catch (error) {
-    void showAdminMessage("Staff job roles could not be loaded", error.message);
+    void showAdminMessage("Newsroom roles could not be loaded", error.message);
     return;
   }
   roles = roles.filter((role) =>
@@ -5079,12 +5079,12 @@ async function openStaffInvitationDialog(refresh = () => loadSection("applicatio
   try {
     roles = unwrapData(await apiRequest("admin/staff-roles")) || [];
   } catch (error) {
-    void showAdminMessage("Staff job roles could not be loaded", error.message);
+    void showAdminMessage("Newsroom roles could not be loaded", error.message);
     return;
   }
   roles = roles.filter((role) => role.is_active);
   if (!roles.length) {
-    void showAdminMessage("No active staff job roles", "Create or activate a staff job role before sending an invitation.");
+    void showAdminMessage("No active newsroom roles", "Create or activate a newsroom role before sending an invitation.");
     return;
   }
   openFormDialog(

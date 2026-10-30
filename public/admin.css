@@ -726,6 +726,98 @@
   box-shadow: 0 5px 16px rgb(24 36 59 / 3%);
 }
 
+.admin-hr-panel {
+  display: grid;
+  gap: 16px;
+  overflow: visible;
+  padding: 22px;
+}
+
+.admin-hr-panel > .admin-panel-heading {
+  padding: 0 0 15px;
+}
+
+.admin-hr-panel .admin-panel-heading h2 {
+  font-size: 18px;
+}
+
+.admin-hr-panel .admin-panel-heading > span {
+  font-size: 12px;
+}
+
+.admin-hr-panel > .admin-primary-button,
+.admin-hr-panel > .admin-page-actions .admin-primary-button,
+.admin-hr-panel > .admin-page-actions .admin-secondary-button,
+.admin-hr-panel > .admin-secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.admin-hr-panel > .admin-dialog-help {
+  color: #647086;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.admin-hr-panel > .admin-empty {
+  padding: 14px 0 0;
+  color: #647086;
+  font-size: 13px;
+}
+
+.admin-hr-record {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid #e8ebf0;
+}
+
+.admin-hr-record h3 {
+  margin: 0;
+  color: #27334a;
+  font-size: 17px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.admin-hr-record .admin-dialog-help {
+  color: #647086;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.admin-hr-record .admin-page-actions {
+  margin-top: 4px;
+}
+
+.admin-hr-record .admin-secondary-button {
+  min-height: 38px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+.admin-hr-record > .admin-primary-button,
+.admin-hr-record > .admin-secondary-button,
+.admin-hr-panel .admin-hr-policy-version > .admin-primary-button,
+.admin-hr-panel .admin-hr-policy-version > .admin-secondary-button {
+  min-height: 38px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+@media (max-width: 620px) {
+  .admin-hr-panel {
+    padding: 16px;
+  }
+
+  .admin-hr-panel > .admin-panel-heading {
+    align-items: flex-start;
+  }
+}
+
 .admin-panel-heading {
   display: flex;
   align-items: center;

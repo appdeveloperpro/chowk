@@ -45,6 +45,26 @@ const legacySectionRoutes = {
   "reporter-coverage": "coverage",
   "reporter-options": "reporter-configuration"
 };
+const configurationSections = [
+  {
+    key: "locations",
+    label: "Locations",
+    description: "Manage the State, Region, Zone, Range, District, and Coverage area hierarchy.",
+    permission: "newsroom.locations.manage"
+  },
+  {
+    key: "reporter-configuration",
+    label: "Reporter setup",
+    description: "Manage reporter organization details, reporting areas, designations, and service agreements.",
+    permission: "reporters.manage"
+  },
+  {
+    key: "organization-configuration",
+    label: "Organization setup",
+    description: "Manage organization identity, people access, settings, modules, and workflows.",
+    superAdminOnly: true
+  }
+];
 
 window.addEventListener("beforeunload", () => {
   agreementPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -256,6 +276,7 @@ let hrManagementData = null;
 let activeHrTab = "departments";
 let organizationConfigurationData = null;
 let activeOrganizationTab = "identity";
+let activeConfigurationSection = "locations";
 let sessionPermissions = [];
 const auditFilters = { q: "", table: "", action: "", from: "", to: "", page: 1, page_size: 25 };
 
@@ -518,6 +539,97 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
   }
 }
 
+function canAccessConfigurationSection(section) {
+  const config = configurationSections.find((item) => item.key === section);
+  if (!config) return false;
+  if (config.superAdminOnly) return sessionIdentity?.role === "super_admin";
+  if (["admin", "super_admin"].includes(sessionIdentity?.role)) return true;
+  return sessionPermissions.includes(config.permission);
+}
+
+function renderConfigurationTabs(root) {
+  const tabs = makeElement("div", "admin-workflow-tabs");
+  tabs.setAttribute("role", "group");
+  tabs.setAttribute("aria-label", "Configuration sections");
+  configurationSections.filter((section) => canAccessConfigurationSection(section.key))
+    .forEach((section) => {
+      const button = makeElement("button", "admin-workflow-tab", section.label);
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(activeConfigurationSection === section.key));
+      button.classList.toggle("is-active", activeConfigurationSection === section.key);
+      button.addEventListener("click", () => void loadConfigurationPage(section.key));
+      tabs.append(button);
+    });
+  root.append(tabs);
+}
+
+async function loadConfigurationPage(requestedSection = "configurations") {
+  document.body.classList.remove("admin-hr-theme");
+  const permittedSections = configurationSections.filter((section) =>
+    canAccessConfigurationSection(section.key)
+  );
+  const requested = configurationSections.some((section) => section.key === requestedSection)
+    ? requestedSection
+    : activeConfigurationSection;
+  const selected = permittedSections.some((section) => section.key === requested)
+    ? requested
+    : permittedSections[0]?.key;
+  if (!selected) {
+    showPageError("You do not have permission to access configuration.", loadSession);
+    return;
+  }
+
+  activeConfigurationSection = selected;
+  activeSection = selected;
+  const section = configurationSections.find((item) => item.key === selected);
+  document.querySelector("#breadcrumb-section").textContent = `Configuration · ${section.label}`;
+  navItems.forEach((item) => {
+    const isCurrent = item.dataset.section === "configurations";
+    item.classList.toggle("is-active", isCurrent);
+    if (isCurrent) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+  content.replaceChildren(makeElement("div", "admin-loading", `Loading ${section.label.toLowerCase()}…`));
+
+  const root = makeElement("div", "admin-section");
+  addHeading(
+    root,
+    "SYSTEM CONFIGURATION",
+    "Configuration",
+    "Manage locations, reporter setup, and organization-wide settings from one place."
+  );
+  renderConfigurationTabs(root);
+  root.append(makeElement("h2", "admin-configuration-section-title", section.label));
+  root.append(makeElement("p", "admin-workflow-scope-note", section.description));
+
+  try {
+    if (selected === "locations") {
+      const result = await apiRequest(modules.locations.path);
+      locationRecords = unwrapData(result) || [];
+      renderLocationModule(root, []);
+    } else if (selected === "reporter-configuration") {
+      const result = await apiRequest(modules["reporter-configuration"].path);
+      renderReporterAdminSection("reporter-configuration", root, unwrapData(result));
+    } else {
+      const result = await apiRequest("admin/organization/configuration");
+      organizationConfigurationData = unwrapData(result) || {};
+      renderOrganizationConfiguration(root);
+    }
+  } catch (error) {
+    const panel = makeElement("section", "admin-error-panel");
+    panel.append(
+      makeElement("strong", "", "Couldn’t load this configuration."),
+      makeElement("p", "", error instanceof Error ? error.message : "The request could not be completed.")
+    );
+    const retry = makeElement("button", "admin-secondary-button", "Try again");
+    retry.type = "button";
+    retry.addEventListener("click", () => void loadConfigurationPage(selected));
+    panel.append(retry);
+    root.append(panel);
+  }
+  content.replaceChildren(root);
+}
+
 async function loadSection(section) {
   document.body.classList.remove("admin-hr-theme");
   if (legacySectionRoutes[section]) {
@@ -531,6 +643,9 @@ async function loadSection(section) {
       return loadWorkflowPage(destination, preferredTab || activeWorkflowTabs[destination]);
     }
     section = destination;
+  }
+  if (section === "configurations" || configurationSections.some((item) => item.key === section)) {
+    return loadConfigurationPage(section);
   }
   if (workflowTabs[section]) {
     return loadWorkflowPage(section);
@@ -566,11 +681,6 @@ async function loadSection(section) {
 
   if (section === "hr-management") {
     void loadHrManagement();
-    return;
-  }
-
-  if (section === "organization-configuration") {
-    void loadOrganizationConfiguration();
     return;
   }
 
@@ -2472,26 +2582,24 @@ async function loadHrManagement() {
 }
 
 async function loadOrganizationConfiguration() {
-  content.replaceChildren(makeElement("div", "admin-loading", "Loading organization configuration…"));
-  try {
-    const result = await apiRequest("admin/organization/configuration");
-    organizationConfigurationData = unwrapData(result) || {};
-    renderOrganizationConfiguration();
-  } catch (error) {
-    showPageError(error instanceof Error ? error.message : "Organization configuration could not be loaded.",
-      loadOrganizationConfiguration);
-  }
+  return loadConfigurationPage("organization-configuration");
 }
 
-function renderOrganizationConfiguration() {
-  const root = makeElement("div", "admin-section");
-  addHeading(
-    root,
-    "SYSTEM CONFIGURATION",
-    "Organization setup",
-    "Configure organization identity, settings, module availability, and reusable workflow definitions."
-  );
+function renderOrganizationConfiguration(outerRoot = null) {
+  const root = outerRoot || makeElement("div", "admin-section");
+  if (!outerRoot) {
+    addHeading(
+      root,
+      "SYSTEM CONFIGURATION",
+      "Organization setup",
+      "Configure organization identity, settings, module availability, and reusable workflow definitions."
+    );
+  }
+  root.querySelector(".admin-organization-configuration-content")?.remove();
+  const configurationContent = makeElement("div", "admin-organization-configuration-content");
   const tabs = makeElement("div", "admin-workflow-tabs");
+  tabs.setAttribute("role", "group");
+  tabs.setAttribute("aria-label", "Organization setup sections");
   [
     ["identity", "Identity"],
     ["people", "People"],
@@ -2505,17 +2613,18 @@ function renderOrganizationConfiguration() {
     button.setAttribute("aria-pressed", String(activeOrganizationTab === key));
     button.addEventListener("click", () => {
       activeOrganizationTab = key;
-      renderOrganizationConfiguration();
+      renderOrganizationConfiguration(outerRoot);
     });
     tabs.append(button);
   });
-  root.append(tabs);
-  if (activeOrganizationTab === "identity") renderOrganizationIdentity(root);
-  else if (activeOrganizationTab === "people") renderOrganizationPeople(root);
-  else if (activeOrganizationTab === "settings") renderOrganizationSettings(root);
-  else if (activeOrganizationTab === "modules") renderOrganizationModules(root);
-  else renderOrganizationWorkflows(root);
-  content.replaceChildren(root);
+  configurationContent.append(tabs);
+  if (activeOrganizationTab === "identity") renderOrganizationIdentity(configurationContent);
+  else if (activeOrganizationTab === "people") renderOrganizationPeople(configurationContent);
+  else if (activeOrganizationTab === "settings") renderOrganizationSettings(configurationContent);
+  else if (activeOrganizationTab === "modules") renderOrganizationModules(configurationContent);
+  else renderOrganizationWorkflows(configurationContent);
+  root.append(configurationContent);
+  if (!outerRoot) content.replaceChildren(root);
 }
 
 function renderOrganizationIdentity(root) {
@@ -5548,9 +5657,11 @@ async function loadSession() {
     };
     navItems.forEach((item) => {
       const section = item.dataset.section;
-      const allowed = isLegacyAdmin
-        ? section !== "organization-configuration" || sessionIdentity.role === "super_admin"
-        : sectionPermissions[section]?.some((permission) => sessionPermissions.includes(permission)) === true
+      const allowed = section === "configurations"
+        ? configurationSections.some((configuration) =>
+          canAccessConfigurationSection(configuration.key))
+        : isLegacyAdmin
+          || sectionPermissions[section]?.some((permission) => sessionPermissions.includes(permission)) === true
           || section === "settings";
       item.hidden = !allowed;
     });

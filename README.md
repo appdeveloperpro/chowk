@@ -272,7 +272,15 @@ Requires Node.js 18 or newer.
   and custom newsroom job titles; built-in titles remain protected. Apply it
   after 0071 and before deploying the matching code. Account deletion requires
   `SUPABASE_SERVICE_ROLE_KEY` on the server; no manual Supabase dashboard delete
-  is needed.
+  is needed. Migration 0073 updates the organization-scope foreign keys on
+  HR assignments and policy acceptances so they cascade consistently with
+  account deletion, while nulling deleted manager and relationship references
+  in retained history. Apply it after 0072 before retrying deletion of an employee
+  account. Migration 0074 fixes an ambiguous organization ID in the organization
+  setup loader; apply it after 0073 before using Organization setup. The admin
+  sidebar groups Locations, Reporter setup, and Organization setup under one
+  Configuration page, with only the sections permitted for the signed-in role
+  shown as in-page tabs.
 
   The generic workflow runtime currently stores a format-validated subject
   type and ID as text; it does not resolve or bind them to authoritative

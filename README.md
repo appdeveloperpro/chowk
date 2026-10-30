@@ -293,9 +293,9 @@ The HR vocabulary is intentional: a **profile** is an account/identity;
 profile ID), with a generated `employee_number`, `employment_type`,
 `employment_status`, `hired_on`, and `terminated_on`. An
 `hr_employee_assignments` row links an employee to a department, position,
-access role, manager employee, and dated assignment status. **Position** means
-the job in the organization; **access role** means database-enforced
-permissions. Policy acceptances reference `employee_id` and an immutable
+organization permission role, manager employee, and dated assignment status.
+**Position** means the job in the organization; **permission role** means
+database-enforced capabilities. Policy acceptances reference `employee_id` and an immutable
 policy-version hash. Employment types are `full_time`, `part_time`,
 `fixed_term`, `temporary`, `intern`, or `other`; employment lifecycle states
 are `preboarding`, `active`, `suspended`, and `terminated`.
@@ -416,17 +416,51 @@ key and authenticated user tokens.
   Reporter Coverage and Credentials are backed by authenticated admin API
   routes for assignment, ending, issue, revoke, and print actions. Configuration
   uses one grouped navigation; Organization people shows only active,
-  non-employee relationships, with employee access managed in HR and invitations
-  managed in Accounts.
-  Newsroom job titles are managed separately from account permissions. Admins can
-  define newsroom titles and duties, map each title to the existing Moderator or
-  Editor access profile, invite staff through the shared onboarding and agreement
-  process, and preserve primary assignment changes as dated history. A custom job
-  title does not add permissions; a new access profile requires separate
-  authorization and workflow implementation.
+  non-employee relationships, with employee access and invitations managed in
+  HR Management. User accounts owns general account access and account deletion;
+  HR employee records and their dated assignment histories remain in HR, while
+  reporter office and designation changes are managed from the Newsroom
+  Directory, separately from Reporter Coverage.
+  Newsroom job titles are managed separately from organization permission roles.
+  Admins can define newsroom titles and duties, map each title to the existing
+  Moderator or Editor legacy account profile, invite staff through the shared
+  onboarding and agreement process, and preserve primary assignment changes as
+  dated history. A custom job title does not add permissions. Organization
+  permission roles bundle scoped application capabilities and include seeded
+  Reporter, Moderator, Editor, and Publisher entries; some older newsroom
+  authorization still checks the fixed account profile, so custom permission
+  roles do not yet replace those profiles across every newsroom operation.
+  Migration `0078_newsroom_title_access_mapping.sql` corrects the compatibility
+  bridge: a newsroom job title's fixed account profile, not its custom title
+  key, selects the corresponding organization permission role. It repairs
+  existing active/pending newsroom relationships without removing legacy
+  profile checks. Apply it after migrations through `0077`; it refuses to run
+  if a currently assigned title has no active matching permission role.
+- Territory leadership adds configurable geographic titles and dated
+  appointments for active HR employees or active newsroom contributors.
+  Built-in titles cover State, Region, Zone, Range, District, and Coverage Area
+  heads; admins can add other titles and choose their location level. Permanent
+  and acting appointments are tracked separately, overlapping appointments of
+  the same type and role are rejected per territory, and replacements, endings,
+  and scheduled cancellations retain an audited history with reasons. An
+  appointment records responsibility only; it does not grant application
+  permissions or change an HR reporting line. The feature is defined in
+  migration `0075_geographic_leadership_assignments.sql` and requires that
+  migration to be applied before its admin screen can be used. Migration
+  `0076_hr_manager_cycles_and_leadership_eligibility.sql` prevents new circular
+  HR manager chains and rejects pre-existing cycles before it installs the
+  protection. It also excludes future-dated reporter/HR assignments from
+  current geographic-leadership eligibility. Migration
+  `0077_hr_department_head_appointments.sql` adds a separate dated Department
+  Head appointment for one holder at a time. Acting appointments replace the
+  current holder; eligible appointees must be active HR employees with a current
+  active assignment. The appointment is not a job title, manager link, or
+  permission grant. Employment changes do not automatically end head
+  appointments; HR displays an alert so an administrator can review and close
+  affected appointments with a reason.
 - HR management adds organization departments and positions, employee records
   with generated employee numbers and employment lifecycle/type, configurable
-  access-role permission bundles with `all`, `department`, `assigned`, and
+  organization permission-role bundles with `all`, `department`, `assigned`, and
   `own` scopes, employee assignment lifecycle history, and versioned required
   policy acceptance. Super admins can configure and delegate HR access; users
   with delegated HR access are restricted to HR endpoints. Permissions for
@@ -447,6 +481,10 @@ key and authenticated user tokens.
   workflow records are not yet managed through the admin UI or enforced by all
   native modules. Optional modules listed in the catalog (for example payroll,
   leave/attendance, and recruitment) are not implemented features.
+- The standalone visual system map is available at
+  `/organization-hierarchy.html`. It explains the enforced location and HR
+  trees, the people and access relationships, and the boundaries between
+  newsroom titles, HR positions, reporter coverage, and geographic leadership.
 - System configuration includes shared locations, reporter application setup,
   and the organization legal profile used in reporter agreements; agreement
   wording and publication remain under Agreements.
@@ -585,7 +623,7 @@ invitations require `SUPABASE_SERVICE_ROLE_KEY` on the server. Include `/staff-o
 Supabase Auth's allowed redirect URLs
 so legacy staff and HR invitations return to the correct profile and policy
 workflows. Authenticated staff use `/organization` to access the custom models
-assigned to their active HR access role.
+assigned to their active organization permission role.
 The public site,
 account, reporter, credential, and newsroom pages use one shared site header and
 footer; the admin console retains its dedicated management navigation.

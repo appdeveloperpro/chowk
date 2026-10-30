@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101829">
+    <title>Chowk News · System hierarchy</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17233a;
+        --muted: #64728a;
+        --line: #d7dfeb;
+        --paper: #f4f7fb;
+        --card: #fff;
+        --navy: #17233a;
+        --blue: #2863c5;
+        --teal: #0c8c83;
+        --orange: #e87926;
+        --purple: #7653c8;
+        --green: #31845d;
+        --rose: #bc5264;
+        --shadow: 0 16px 38px rgb(23 35 58 / 8%);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(ellipse at 10% 0%, rgb(39 99 197 / 8%), transparent 34rem),
+          radial-gradient(ellipse at 92% 10%, rgb(12 140 131 / 8%), transparent 31rem),
+          var(--paper);
+      }
+
+      button, a { font: inherit; }
+      a { color: inherit; }
+
+      .page {
+        width: min(1500px, calc(100% - 44px));
+        margin: 0 auto;
+        padding: 36px 0 64px;
+      }
+
+      .topline {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: .11em;
+        text-transform: uppercase;
+      }
+
+      .brand { display: flex; align-items: center; gap: 10px; }
+
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 11px;
+        color: white;
+        background: var(--navy);
+        font-size: 18px;
+        font-weight: 850;
+        letter-spacing: 0;
+      }
+
+      .top-actions { display: flex; gap: 8px; }
+
+      .top-actions a, .top-actions button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+        padding: 0 13px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        color: var(--ink);
+        background: rgb(255 255 255 / 84%);
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 750;
+        cursor: pointer;
+      }
+
+      .hero {
+        max-width: 930px;
+        padding: 64px 0 34px;
+      }
+
+      .eyebrow {
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 850;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 800px;
+        margin: 14px 0 15px;
+        font-size: clamp(36px, 5vw, 66px);
+        line-height: .99;
+        letter-spacing: -.055em;
+      }
+
+      .hero p {
+        max-width: 740px;
+        margin: 0;
+        color: var(--muted);
+        font-size: clamp(15px, 1.7vw, 18px);
+        line-height: 1.7;
+      }
+
+      .truth-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        max-width: 850px;
+        margin-top: 23px;
+        padding: 14px 16px;
+        border: 1px solid #f1d8b8;
+        border-radius: 12px;
+        color: #704317;
+        background: #fff9f0;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .truth-note strong { color: #60370f; }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 20px;
+        align-items: center;
+        margin: 0 0 20px;
+        padding: 12px 15px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: rgb(255 255 255 / 74%);
+      }
+
+      .legend-title {
+        margin-right: 2px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #45536b;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .line-key { width: 27px; height: 0; border-top: 2px solid #63728b; }
+      .line-key.dashed { border-top-style: dashed; }
+      .line-key.dotted { border-top-style: dotted; }
+
+      .root-card {
+        position: relative;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 17px;
+        width: min(610px, 100%);
+        margin: 0 auto;
+        padding: 18px 22px;
+        border: 1px solid #263957;
+        border-radius: 17px;
+        color: #fff;
+        background: linear-gradient(125deg, #17233a, #243b60);
+        box-shadow: var(--shadow);
+      }
+
+      .root-symbol {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        place-items: center;
+        border-radius: 14px;
+        background: rgb(255 255 255 / 12%);
+        font-size: 21px;
+      }
+
+      .root-card h2 { margin: 0 0 4px; font-size: 18px; letter-spacing: -.02em; }
+      .root-card p { margin: 0; color: #c3cee0; font-size: 12px; line-height: 1.5; }
+
+      .root-tag, .node-tag {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        padding: 5px 8px;
+        border: 1px solid rgb(255 255 255 / 20%);
+        border-radius: 999px;
+        color: #e0e9f8;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .root-stem {
+        width: 1px;
+        height: 34px;
+        margin: 0 auto;
+        background: #8d9ab0;
+      }
+
+      .domains {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 17px;
+        padding-top: 21px;
+      }
+
+      .domains::before {
+        position: absolute;
+        top: 0;
+        right: 16.66%;
+        left: 16.66%;
+        height: 1px;
+        background: #aebacc;
+        content: "";
+      }
+
+      .domain {
+        --accent: var(--blue);
+        position: relative;
+        min-width: 0;
+        padding: 17px;
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--accent);
+        border-radius: 15px;
+        background: rgb(255 255 255 / 88%);
+        box-shadow: 0 8px 25px rgb(23 35 58 / 4%);
+      }
+
+      .domain::before {
+        position: absolute;
+        top: -24px;
+        left: 50%;
+        width: 1px;
+        height: 21px;
+        background: #aebacc;
+        content: "";
+      }
+
+      .domain.people { --accent: var(--purple); }
+      .domain.newsroom { --accent: var(--teal); }
+      .domain.geo { --accent: var(--orange); }
+
+      .domain-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .domain-index {
+        color: var(--accent);
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: .12em;
+      }
+
+      .domain h2 { margin: 4px 0 0; font-size: 19px; letter-spacing: -.025em; }
+
+      .domain-intro {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .flow { display: grid; gap: 7px; }
+
+      .node {
+        position: relative;
+        padding: 10px 11px;
+        border: 1px solid #e1e7ef;
+        border-radius: 10px;
+        background: #fff;
+      }
+
+      .node strong {
+        display: block;
+        margin-bottom: 3px;
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .node p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.5;
+      }
+
+      .node .node-tag {
+        margin-top: 7px;
+        border-color: #e3e9f1;
+        color: #66738a;
+        font-size: 8px;
+      }
+
+      .node.primary {
+        border-color: color-mix(in srgb, var(--accent) 32%, white);
+        background: color-mix(in srgb, var(--accent) 5%, white);
+      }
+
+      .connector {
+        position: relative;
+        display: flex;
+        justify-content: center;
+        min-height: 20px;
+      }
+
+      .connector::before {
+        width: 1px;
+        border-left: 1px solid #aebacc;
+        content: "";
+      }
+
+      .connector.dashed::before { border-left-style: dashed; }
+      .connector.dotted::before { border-left-style: dotted; }
+
+      .connector span {
+        position: absolute;
+        top: 50%;
+        left: calc(50% + 9px);
+        width: max-content;
+        max-width: 155px;
+        padding: 2px 5px;
+        transform: translateY(-50%);
+        border-radius: 5px;
+        color: #738097;
+        background: #fff;
+        font-size: 8px;
+        line-height: 1.3;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      .split .node { min-height: 100%; }
+
+      .micro-note {
+        margin: 12px 0 0;
+        padding: 9px 10px;
+        border-radius: 9px;
+        color: #526179;
+        background: #f2f5f9;
+        font-size: 10px;
+        line-height: 1.55;
+      }
+
+      .below-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr;
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .support-card {
+        min-width: 0;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--card);
+      }
+
+      .support-card h2 { margin: 0 0 7px; font-size: 16px; letter-spacing: -.02em; }
+      .support-card > p { margin: 0 0 12px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+      .pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+      .pill {
+        display: inline-flex;
+        padding: 6px 8px;
+        border: 1px solid #e0e6ef;
+        border-radius: 8px;
+        color: #4b5a72;
+        background: #f8fafd;
+        font-size: 9px;
+        font-weight: 700;
+      }
+
+      .flow-list { display: grid; gap: 7px; }
+
+      .flow-step {
+        display: grid;
+        grid-template-columns: 22px 1fr;
+        gap: 8px;
+        align-items: start;
+        color: #506078;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .step-no {
+        display: grid;
+        width: 20px;
+        height: 20px;
+        place-items: center;
+        border-radius: 7px;
+        color: #fff;
+        background: var(--teal);
+        font-size: 9px;
+        font-weight: 800;
+      }
+
+      .flow-step strong { color: var(--ink); }
+
+      .truth-section {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .truth-panel {
+        padding: 19px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .truth-panel h2 { margin: 0 0 11px; font-size: 16px; }
+
+      .truth-panel ul {
+        display: grid;
+        gap: 9px;
+        margin: 0;
+        padding-left: 17px;
+        color: #59677e;
+        font-size: 11px;
+        line-height: 1.6;
+      }
+
+      .truth-panel strong { color: var(--ink); }
+
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        margin-top: 22px;
+        padding: 15px 2px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 1040px) {
+        .domains { grid-template-columns: 1fr 1fr; }
+        .domains::before { display: none; }
+        .domain::before { display: none; }
+        .below-grid { grid-template-columns: 1fr 1fr; }
+        .support-card:first-child { grid-column: 1 / -1; }
+      }
+
+      @media (max-width: 700px) {
+        .page { width: min(100% - 26px, 560px); padding-top: 20px; }
+        .topline { align-items: flex-start; }
+        .top-actions { flex-direction: column; }
+        .hero { padding-top: 46px; }
+        .root-card { grid-template-columns: auto 1fr; padding: 15px; }
+        .root-tag { grid-column: 2; }
+        .domains, .below-grid, .truth-section { grid-template-columns: 1fr; }
+        .support-card:first-child { grid-column: auto; }
+        .domain { padding: 15px; }
+        .footer { flex-direction: column; }
+      }
+
+      @media print {
+        body { background: white; }
+        .page { width: 100%; padding: 0; }
+        .top-actions { display: none; }
+        .hero { padding-top: 28px; }
+        .domain, .support-card, .truth-panel, .root-card { break-inside: avoid; box-shadow: none; }
+        .domains { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .below-grid { grid-template-columns: 1.2fr 1fr 1fr; }
+        .truth-section { grid-template-columns: 1fr 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topline">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">C</span>
+          <span>Chowk News <span aria-hidden="true">/</span> System map</span>
+        </div>
+        <div class="top-actions">
+          <a href="/admin/dashboard">Admin dashboard</a>
+          <button type="button" onclick="window.print()">Print / save PDF</button>
+        </div>
+      </header>
+
+      <section class="hero">
+        <span class="eyebrow">Organization · people · newsroom · geography</span>
+        <h1>One organization.<br>Several connected structures.</h1>
+        <p>
+          This map shows how the current application connects its organization,
+          people, HR assignments, newsroom job titles, geographic locations, and
+          editorial work. The connections matter: a job title, a manager, a
+          permission, and a territory appointment are different things.
+        </p>
+        <div class="truth-note">
+          <span aria-hidden="true">✦</span>
+          <span><strong>Read the lines, not just the boxes.</strong> Solid lines show enforced ownership or a direct record link. Dashed lines show an assignment or scoped relationship. Dotted lines show operational context. These structures are related, but the application does not put every person, role, or location into one universal reporting tree.</span>
+        </div>
+      </section>
+
+      <section aria-label="System hierarchy diagram">
+        <div class="legend">
+          <span class="legend-title">Connection key</span>
+          <span class="legend-item"><i class="line-key"></i> Direct record / enforced parent</span>
+          <span class="legend-item"><i class="line-key dashed"></i> Assignment / membership</span>
+          <span class="legend-item"><i class="line-key dotted"></i> Operational context, not authority</span>
+        </div>
+
+        <div class="root-card">
+          <span class="root-symbol" aria-hidden="true">⌂</span>
+          <div>
+            <h2>Chowk News · Primary organization</h2>
+            <p>Organization identity scopes organization settings, people relationships, enabled modules, and configurable workflows.</p>
+          </div>
+          <span class="root-tag">Organization root</span>
+        </div>
+        <div class="root-stem" aria-hidden="true"></div>
+
+        <div class="domains">
+          <article class="domain people">
+            <header class="domain-head">
+              <div><span class="domain-index">01 · PEOPLE &amp; HR</span><h2>Employment structure</h2></div>
+            </header>
+            <p class="domain-intro">The person's account is reused. HR stores employment and dated assignment records separately.</p>
+            <div class="flow">
+              <div class="node primary">
+                <strong>Profile / account</strong>
+                <p>Shared identity: one profile may participate in more than one organization workflow.</p>
+                <span class="node-tag">profiles.id</span>
+              </div>
+              <div class="connector dashed"><span>same person</span></div>
+              <div class="node">
+                <strong>HR employee record</strong>
+                <p>Employee number, employment type, status, hire and termination dates. Its ID is the profile ID.</p>
+                <span class="node-tag">hr_employees.id → profiles.id</span>
+              </div>
+              <div class="connector dashed"><span>dated assignment</span></div>
+              <div class="node primary">
+                <strong>Employee assignment</strong>
+                <p>Connects the employee to a department, position, organization permission role, manager employee, and assignment status/history.</p>
+                <span class="node-tag">hr_employee_assignments</span>
+              </div>
+              <div class="connector"></div>
+              <div class="split">
+                <div class="node">
+                  <strong>Department tree</strong>
+                  <p>Departments can have a parent department.</p>
+                  <span class="node-tag">hr_departments.parent_id</span>
+                </div>
+                <div class="node">
+                  <strong>Position / job</strong>
+                  <p>A title belongs to a department. It describes the job, not the permission set.</p>
+                  <span class="node-tag">hr_positions.department_id</span>
+                </div>
+                <div class="node">
+                  <strong>Department head appointment</strong>
+                  <p>One active HR employee holds the department head appointment at a time. Acting appointments replace the current holder and retain dated history; they do not grant permissions.</p>
+                  <span class="node-tag">hr_department_head_appointments</span>
+                </div>
+              </div>
+              <div class="connector dashed"><span>manager_employee_id</span></div>
+              <div class="node">
+                <strong>Manager relationship</strong>
+                <p>An assignment can point to another employee as its manager. Reporting lines remain separate from department-head appointments.</p>
+              </div>
+              <div class="connector dotted"></div>
+              <div class="node">
+                <strong>Policies &amp; acceptance history</strong>
+                <p>Versioned HR policy records can be tied to a department/permission role; employee acceptance references the employee and exact version.</p>
+              </div>
+            </div>
+            <p class="micro-note"><strong>Important:</strong> a position named “Department Head” remains a job title; the separate dated appointment identifies the current department head and does not change the manager link or access permissions.</p>
+          </article>
+
+          <article class="domain newsroom">
+            <header class="domain-head">
+              <div><span class="domain-index">02 · NEWSROOM</span><h2>Editorial roles &amp; work</h2></div>
+            </header>
+            <p class="domain-intro">Newsroom job titles map to fixed legacy account profiles; organization permission roles are a separate layer.</p>
+            <div class="flow">
+              <div class="node primary">
+                <strong>Profile / account</strong>
+                <p>The existing account role gates legacy newsroom features.</p>
+                <span class="node-tag">reporter · moderator · editor · admin</span>
+              </div>
+              <div class="connector dashed"><span>onboarding / assignment</span></div>
+              <div class="split">
+                <div class="node">
+                  <strong>Reporter</strong>
+                  <p>Application review → reporter profile → dated assignment to reporting office and designation.</p>
+                </div>
+                <div class="node">
+                  <strong>Moderator / editor</strong>
+                  <p>Staff onboarding and agreement acceptance activate the existing access profile.</p>
+                </div>
+              </div>
+              <div class="connector dashed"><span>custom job title</span></div>
+              <div class="node">
+                <strong>Newsroom job title</strong>
+                <p>Admin-defined title and duties map to a fixed Reporter, Moderator, or Editor legacy account profile.</p>
+                <span class="node-tag">staff_role_definitions</span>
+              </div>
+              <div class="connector dashed"><span>dated role history</span></div>
+              <div class="node">
+                <strong>Staff role assignment</strong>
+                <p>Records a person's assigned newsroom title and its active/ended history.</p>
+                <span class="node-tag">staff_role_assignments</span>
+              </div>
+              <div class="connector dotted"><span>author / assignee / location</span></div>
+              <div class="node primary">
+                <strong>Article &amp; editorial workflow</strong>
+                <p>Article links to an author, optional assignee/category, reporting location, status transitions, revisions, and workflow events.</p>
+                <span class="node-tag">articles · revisions · workflow events</span>
+              </div>
+            </div>
+            <p class="micro-note"><strong>Important:</strong> custom newsroom titles do not create application permissions. A title like “Senior Editor” still maps to a fixed account profile; it is not an organization permission role.</p>
+          </article>
+
+          <article class="domain geo">
+            <header class="domain-head">
+              <div><span class="domain-index">03 · GEOGRAPHY</span><h2>Territories &amp; leadership</h2></div>
+            </header>
+            <p class="domain-intro">One location tree supports territory context. Coverage and leadership are separate dated links into it.</p>
+            <div class="flow">
+              <div class="node primary"><strong>State</strong><p>Only top-level location.</p></div>
+              <div class="connector"><span>parent_id</span></div>
+              <div class="node"><strong>Region</strong></div>
+              <div class="connector"><span>parent_id</span></div>
+              <div class="node"><strong>Zone</strong></div>
+              <div class="connector"><span>parent_id</span></div>
+              <div class="node"><strong>Range</strong></div>
+              <div class="connector"><span>parent_id</span></div>
+              <div class="node"><strong>District</strong></div>
+              <div class="connector"><span>parent_id</span></div>
+              <div class="node primary"><strong>Coverage area</strong><p>Leaf territory used for local coverage.</p></div>
+              <div class="connector dotted"></div>
+              <div class="split">
+                <div class="node">
+                  <strong>Leadership role</strong>
+                  <p>Configurable title bound to one location level.</p>
+                </div>
+                <div class="node">
+                  <strong>Reporter coverage</strong>
+                  <p>Assigns a newsroom person to a territory, optionally including descendants.</p>
+                </div>
+              </div>
+              <div class="connector dashed"><span>dated person ↔ territory</span></div>
+              <div class="node primary">
+                <strong>Leadership appointment</strong>
+                <p>Links role + one location + eligible person, as permanent or acting, with dates and retained history.</p>
+                <span class="node-tag">location_leadership_assignments</span>
+              </div>
+              <div class="connector dotted"><span>separate relationship</span></div>
+              <div class="node">
+                <strong>Not an access grant</strong>
+                <p>A territory head title does not automatically grant geographic data access or become an HR manager.</p>
+              </div>
+            </div>
+            <p class="micro-note"><strong>Parallel geography:</strong> reporter office assignment uses State → RTO office and a reporter designation. That RTO catalog is not the same tree as the location hierarchy above.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="below-grid" aria-label="Cross-cutting organization structures">
+        <article class="support-card">
+          <h2>Access control runs across the structures</h2>
+          <p>Authority is assigned through access records and checked by application/database rules—not inferred from a job title or a territory appointment.</p>
+          <div class="flow-list">
+            <div class="flow-step"><span class="step-no">1</span><span><strong>Person relationship</strong> — organization + profile + relationship type/status; may carry an organization permission role and department scope.</span></div>
+            <div class="flow-step"><span class="step-no">2</span><span><strong>Organization permission role</strong> — bundles catalogued permissions and scope: all, department, assigned, or own. Seeded Editor/Moderator permission roles are distinct from identically named legacy account profiles.</span></div>
+            <div class="flow-step"><span class="step-no">3</span><span><strong>Capability check</strong> — enabled module, active relationship/role, permission, scope, and applicable HR policy readiness are checked.</span></div>
+          </div>
+          <p class="micro-note">Employee assignments reference an organization permission role. Some newsroom operations still check fixed legacy account profiles too; therefore these similarly named role records are not yet one unified permission model. Do not treat either role as a job title.</p>
+        </article>
+
+        <article class="support-card">
+          <h2>Organization platform</h2>
+          <p>Administrative configuration surrounds the operational structures; it is not itself a staff reporting chain.</p>
+          <div class="pill-list">
+            <span class="pill">Organization identity &amp; settings</span>
+            <span class="pill">Module catalog &amp; enablement</span>
+            <span class="pill">Reusable workflow definitions</span>
+            <span class="pill">Organization data models</span>
+            <span class="pill">Audit history</span>
+          </div>
+          <p class="micro-note">Some workflow/model features are generic platform capabilities. They do not automatically replace or govern every native HR, newsroom, or reporter workflow.</p>
+        </article>
+
+        <article class="support-card">
+          <h2>Reporter lifecycle</h2>
+          <p>The reporter-specific process retains its own application, agreement, identity, and assignment records.</p>
+          <div class="flow-list">
+            <div class="flow-step"><span class="step-no">1</span><span>Application &amp; review</span></div>
+            <div class="flow-step"><span class="step-no">2</span><span>Profile + accepted service agreement</span></div>
+            <div class="flow-step"><span class="step-no">3</span><span>Reporter code + office/designation assignment</span></div>
+            <div class="flow-step"><span class="step-no">4</span><span>Coverage territory + credentials/history</span></div>
+          </div>
+          <p class="micro-note">In the admin workflow, manage reporter office and designation assignments from the Newsroom Directory. Reporter coverage is maintained separately under Reporter Coverage.</p>
+        </article>
+      </section>
+
+      <section class="truth-section" aria-label="Model boundaries and current limitations">
+        <article class="truth-panel">
+          <h2>What is a real hierarchy?</h2>
+          <ul>
+            <li><strong>Geographic locations:</strong> State → Region → Zone → Range → District → Coverage area. The database validates these parent levels; legacy city rows may remain.</li>
+            <li><strong>HR departments:</strong> departments can nest under other departments. Positions belong to a department.</li>
+            <li><strong>HR reporting:</strong> each employee assignment can identify a manager employee; this is a manager link, not an automatically derived org chart.</li>
+            <li><strong>Organization:</strong> a primary organization scopes its configuration and people relationships; the organization root is not the parent of every profile row.</li>
+          </ul>
+        </article>
+        <article class="truth-panel">
+          <h2>What the system does not imply</h2>
+          <ul>
+            <li>A department-head appointment is not inferred from a job title or manager relationship.</li>
+            <li>A geographic leadership appointment does not grant application permissions.</li>
+            <li>Reporter coverage does not appoint a territory leader.</li>
+            <li>A staff title does not create a new account access profile.</li>
+            <li>Optional catalog entries such as payroll, recruitment, leave/attendance, and performance are not implemented modules just because they appear in the module catalog.</li>
+          </ul>
+        </article>
+      </section>
+
+      <footer class="footer">
+        <span>Static system map · based on the repository's Supabase migrations and current application documentation.</span>
+        <span>Schema records, live database migration state, and enabled production modules may differ.</span>
+      </footer>
+    </main>
+  </body>
+</html>

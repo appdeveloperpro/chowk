@@ -653,6 +653,12 @@
   font-size: 13px;
 }
 
+.admin-workflow-scope-note-warning {
+  border-color: #e7b5a8;
+  background: #fff3ef;
+  color: #842d20;
+}
+
 .admin-page-actions {
   display: flex;
   flex-wrap: wrap;
@@ -909,6 +915,11 @@
   border-top: 1px solid #e8ebf0;
 }
 
+.admin-hr-record.is-nested-department {
+  border-left: 2px solid #e8ebf0;
+  padding-left: 14px;
+}
+
 .admin-hr-record h3 {
   margin: 0;
   color: #27334a;
@@ -926,6 +937,69 @@
 
 .admin-hr-record .admin-page-actions {
   margin-top: 4px;
+}
+
+.admin-hr-assignment-heading {
+  margin-top: 6px;
+  color: #647086;
+  font-size: 13px;
+}
+
+.admin-hr-assignment-history {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-hr-assignment {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e8ebf0;
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.admin-hr-assignment > strong {
+  color: #27334a;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.admin-hr-assignment .admin-page-actions {
+  margin-top: 2px;
+}
+
+.admin-hr-department-heads {
+  border-color: #e8d8c6;
+}
+
+.admin-hr-department-head-history {
+  margin-top: 4px;
+  color: #647086;
+  font-size: 13px;
+}
+
+.admin-hr-department-head-history summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.admin-hr-department-head-appointment {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #e8ebf0;
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.admin-hr-department-head-appointment > strong {
+  color: #27334a;
+  font-size: 13px;
 }
 
 .admin-hr-record .admin-secondary-button {
@@ -2441,12 +2515,18 @@
 }
 
 .admin-hr-theme .admin-panel-heading,
-.admin-hr-theme .admin-hr-record {
+.admin-hr-theme .admin-hr-record,
+.admin-hr-theme .admin-hr-assignment {
   border-color: var(--hr-line);
 }
 
+.admin-hr-theme .admin-hr-record.is-nested-department {
+  border-left-color: var(--hr-line);
+}
+
 .admin-hr-theme .admin-panel-heading h2,
-.admin-hr-theme .admin-hr-record h3 {
+.admin-hr-theme .admin-hr-record h3,
+.admin-hr-theme .admin-hr-assignment > strong {
   color: var(--hr-ink);
 }
 
@@ -2493,8 +2573,27 @@
 }
 
 .admin-hr-theme .admin-hr-panel > .admin-dialog-help,
-.admin-hr-theme .admin-hr-record .admin-dialog-help {
+.admin-hr-theme .admin-hr-record .admin-dialog-help,
+.admin-hr-theme .admin-hr-assignment-heading,
+.admin-hr-theme .admin-hr-assignment .admin-dialog-help {
   color: var(--hr-muted);
+}
+
+.admin-hr-theme .admin-hr-assignment {
+  background: #fffdfa;
+}
+
+.admin-hr-theme .admin-hr-department-heads {
+  border-color: var(--hr-line);
+}
+
+.admin-hr-theme .admin-hr-department-head-appointment {
+  border-color: var(--hr-line);
+  background: #fffdfa;
+}
+
+.admin-hr-theme .admin-hr-department-head-appointment > strong {
+  color: var(--hr-ink);
 }
 
 .admin-hr-theme .admin-hr-permission-row,

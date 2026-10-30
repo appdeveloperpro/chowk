@@ -1880,6 +1880,7 @@ async function organizationWorkflowsRoute(request, response, requestUrl, session
 
 function organizationModuleForAdminPath(pathname) {
   if (pathname.startsWith("/api/admin/hr/")) return "human-resources";
+  if (pathname.startsWith("/api/admin/territory-leadership")) return "locations";
   if (pathname.startsWith("/api/admin/role-agreements")
       || pathname.startsWith("/api/admin/agreement-records")
       || pathname.startsWith("/api/admin/reporter-agreement")) return "agreements";
@@ -1922,8 +1923,9 @@ function organizationPermissionForAdminPath(pathname, method) {
   if (pathname.startsWith("/api/admin/reports")) return "newsroom.reports.manage";
   if (pathname.startsWith("/api/admin/media")
       || pathname.startsWith("/api/admin/live-streams")) return "newsroom.media.manage";
+  if (pathname.startsWith("/api/admin/territory-leadership")) return "newsroom.locations.manage";
   if (pathname.startsWith("/api/admin/locations")
-      || pathname.startsWith("/api/admin/district-range")
+    || pathname.startsWith("/api/admin/district-range")
       || pathname.startsWith("/api/admin/district-zone")) return "newsroom.locations.manage";
   if (pathname.startsWith("/api/admin/reporter-directory") && method === "GET") {
     return "people.directory.read";
@@ -1974,6 +1976,119 @@ async function adminRoute(request, response, requestUrl, session) {
         && !(await Promise.all(routePermissions.map((permission) =>
           userHasOrganizationCapability(token, permission)))).some(Boolean)) {
       sendJson(response, 403, { error: "Your organization access role does not grant this action." });
+      return;
+    }
+
+    if (pathname === "/api/admin/territory-leadership" && request.method === "GET") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_location_leadership_snapshot", {
+        method: "POST", token, body: {}
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Territory leadership could not be loaded.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/territory-leadership/roles" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const validBody = body && typeof body === "object" && !Array.isArray(body);
+      if (!validBody
+          || (body.id != null && (typeof body.id !== "string"
+            || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id)))
+          || typeof body.role_key !== "string"
+          || typeof body.name !== "string"
+          || (body.description != null && typeof body.description !== "string")
+          || typeof body.location_type !== "string"
+          || typeof body.is_active !== "boolean") {
+        sendJson(response, 400, { error: "Provide a valid leadership role, location level, and status." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_location_leadership_save_role", {
+        method: "POST",
+        token,
+        body: {
+          target_id: body.id || null,
+          target_key: body.role_key,
+          target_name: body.name,
+          target_description: body.description || "",
+          target_location_type: body.location_type,
+          target_is_active: body.is_active
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "The leadership role could not be saved.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/territory-leadership/appointments" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        sendJson(response, 400, { error: "Provide appointment details." });
+        return;
+      }
+      const locationId = Number(body.location_id);
+      const startsAt = typeof body.valid_from === "string" ? new Date(body.valid_from) : null;
+      const endsAt = typeof body.valid_to === "string" && body.valid_to
+        ? new Date(body.valid_to)
+        : null;
+      if (typeof body.role_id !== "string" || !idPattern.test(body.role_id)
+          || typeof body.person_id !== "string" || !idPattern.test(body.person_id)
+          || !/^[1-9]\d*$/.test(String(body.location_id))
+          || !Number.isSafeInteger(locationId)
+          || !["permanent", "acting"].includes(body.appointment_type)
+          || !startsAt || Number.isNaN(startsAt.getTime())
+          || (body.valid_to && (!endsAt || Number.isNaN(endsAt.getTime())))
+          || (body.replace_assignment_id != null
+            && (typeof body.replace_assignment_id !== "string" || !idPattern.test(body.replace_assignment_id)))
+          || typeof body.reason !== "string"
+          || (body.replace_reason != null && typeof body.replace_reason !== "string")) {
+        sendJson(response, 400, { error: "Choose an eligible person, role, territory, appointment type, and valid dates." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_location_leadership_save_appointment", {
+        method: "POST",
+        token,
+        body: {
+          target_role: body.role_id,
+          target_location: locationId,
+          target_person: body.person_id,
+          target_appointment_type: body.appointment_type,
+          target_valid_from: startsAt.toISOString(),
+          target_valid_to: endsAt?.toISOString() || null,
+          target_reason: body.reason || "",
+          target_replace_assignment: body.replace_assignment_id || null,
+          target_replace_reason: body.replace_reason || ""
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "The leadership appointment could not be saved.") });
+      return;
+    }
+
+    const territoryAppointmentEnd = pathname.match(
+      /^\/api\/admin\/territory-leadership\/appointments\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/end$/i
+    );
+    if (territoryAppointmentEnd && request.method === "POST") {
+      const body = await readJsonBody(request);
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || typeof body.reason !== "string") {
+        sendJson(response, 400, { error: "Provide an appointment end or cancellation reason." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_location_leadership_end_appointment", {
+        method: "POST",
+        token,
+        body: {
+          target_assignment: territoryAppointmentEnd[1],
+          target_end_reason: body.reason || ""
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "The leadership appointment could not be ended.") });
       return;
     }
 
@@ -2430,18 +2545,69 @@ async function adminRoute(request, response, requestUrl, session) {
     }
     if (pathname.startsWith("/api/admin/hr/")) {
       if (pathname === "/api/admin/hr/configuration" && request.method === "GET") {
-        const [snapshot, models] = await Promise.all([
+        const [snapshot, models, departmentHeads] = await Promise.all([
           supabaseRequest("/rest/v1/rpc/chowk_hr_configuration_snapshot", {
             method: "POST", token, body: {}
           }),
           supabaseRequest("/rest/v1/rpc/chowk_org_model_snapshot", {
             method: "POST", token, body: {}
+          }),
+          supabaseRequest("/rest/v1/rpc/chowk_hr_department_head_snapshot", {
+            method: "POST", token, body: {}
           })
         ]);
-        const failed = [snapshot, models].find((result) => !result.response.ok);
+        const failed = [snapshot, models, departmentHeads].find((result) => !result.response.ok);
         sendJson(response, failed?.response.status || 200, failed
           ? { error: apiErrorMessage(failed.payload, "HR configuration could not be loaded.") }
-          : { success: true, data: { ...snapshot.payload, ...models.payload } });
+          : {
+            success: true,
+            data: {
+              ...snapshot.payload,
+              ...models.payload,
+              ...departmentHeads.payload
+            }
+          });
+        return;
+      }
+
+      if (pathname === "/api/admin/hr/department-head-appointments" && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_save_department_head_appointment", {
+          method: "POST",
+          token,
+          body: {
+            target_department_id: body.department_id,
+            target_employee_id: body.employee_id,
+            target_appointment_type: body.appointment_type,
+            target_valid_from: body.valid_from,
+            target_valid_to: body.valid_to || null,
+            target_reason: body.reason,
+            target_replace_appointment: body.replace_appointment_id || null,
+            target_replace_reason: body.replace_reason || ""
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The department head appointment could not be saved.") });
+        return;
+      }
+
+      const departmentHeadEndRoute = pathname.match(
+        /^\/api\/admin\/hr\/department-head-appointments\/([0-9a-f-]{36})\/end$/i
+      );
+      if (departmentHeadEndRoute && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_end_department_head_appointment", {
+          method: "POST",
+          token,
+          body: {
+            target_appointment: departmentHeadEndRoute[1],
+            target_end_reason: body.end_reason || ""
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The department head appointment could not be ended.") });
         return;
       }
 

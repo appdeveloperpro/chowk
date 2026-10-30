@@ -50,19 +50,50 @@ const configurationSections = [
     key: "locations",
     label: "Locations",
     description: "Manage the State, Region, Zone, Range, District, and Coverage area hierarchy.",
-    permission: "newsroom.locations.manage"
+    permission: "newsroom.locations.manage",
+    group: "GEOGRAPHY"
   },
   {
     key: "reporter-configuration",
     label: "Reporter setup",
     description: "Manage reporter organization details, reporting areas, designations, and service agreements.",
-    permission: "reporters.manage"
+    permission: "reporters.manage",
+    group: "REPORTING"
   },
   {
-    key: "organization-configuration",
-    label: "Organization setup",
-    description: "Manage organization identity, people access, settings, modules, and workflows.",
-    superAdminOnly: true
+    key: "organization-identity",
+    label: "Organization identity",
+    description: "Set the legal name, contact details, locale, timezone, and currency used for new records.",
+    superAdminOnly: true,
+    group: "ORGANIZATION"
+  },
+  {
+    key: "organization-people",
+    label: "People & access",
+    description: "Manage organization access relationships. Employee assignments are managed in HR Management.",
+    superAdminOnly: true,
+    group: "ORGANIZATION"
+  },
+  {
+    key: "organization-settings",
+    label: "Settings",
+    description: "Manage versioned organization-wide settings.",
+    superAdminOnly: true,
+    group: "ORGANIZATION"
+  },
+  {
+    key: "organization-modules",
+    label: "Modules",
+    description: "Review enabled system modules and update supported configuration.",
+    superAdminOnly: true,
+    group: "ORGANIZATION"
+  },
+  {
+    key: "organization-workflows",
+    label: "Workflows",
+    description: "Configure reusable workflow definitions, states, and transitions.",
+    superAdminOnly: true,
+    group: "ORGANIZATION"
   }
 ];
 
@@ -234,7 +265,7 @@ function renderLocationModule(root, results) {
   ];
   const panel = makeElement("section", "admin-panel admin-location-panel");
   const panelHeader = makeElement("div", "admin-panel-heading");
-  panelHeader.append(makeElement("h2", "", "Locations"));
+  panelHeader.append(makeElement("h2", "", "Location records"));
   panelHeader.append(makeElement("span", "", `${managedLocationRows.length} managed locations`));
   const groupList = makeElement("div", "admin-location-groups");
   groups.forEach(([key, label, matches]) => {
@@ -275,7 +306,6 @@ let reporterSetupView = "overview";
 let hrManagementData = null;
 let activeHrTab = "departments";
 let organizationConfigurationData = null;
-let activeOrganizationTab = "identity";
 let activeConfigurationSection = "locations";
 let sessionPermissions = [];
 const auditFilters = { q: "", table: "", action: "", from: "", to: "", page: 1, page_size: 25 };
@@ -378,7 +408,9 @@ function addHeading(root, eyebrow, title, description) {
   heading.append(copy);
   const refresh = makeElement("button", "admin-secondary-button", "Refresh");
   refresh.type = "button";
-  refresh.addEventListener("click", () => void loadSection(activeSection));
+  refresh.addEventListener("click", () => activeSection === "configurations"
+    ? void loadConfigurationPage(activeConfigurationSection)
+    : void loadSection(activeSection));
   heading.append(refresh);
   root.append(heading);
 }
@@ -547,20 +579,26 @@ function canAccessConfigurationSection(section) {
   return sessionPermissions.includes(config.permission);
 }
 
-function renderConfigurationTabs(root) {
-  const tabs = makeElement("div", "admin-workflow-tabs");
-  tabs.setAttribute("role", "group");
-  tabs.setAttribute("aria-label", "Configuration sections");
-  configurationSections.filter((section) => canAccessConfigurationSection(section.key))
-    .forEach((section) => {
-      const button = makeElement("button", "admin-workflow-tab", section.label);
+function renderConfigurationNavigation() {
+  const navigation = makeElement("nav", "admin-configuration-nav");
+  navigation.setAttribute("aria-label", "Configuration sections");
+  const availableSections = configurationSections.filter((section) =>
+    canAccessConfigurationSection(section.key)
+  );
+  [...new Set(availableSections.map((section) => section.group))].forEach((groupName) => {
+    const group = makeElement("div", "admin-configuration-nav-group");
+    group.append(makeElement("span", "admin-configuration-nav-heading", groupName));
+    availableSections.filter((section) => section.group === groupName).forEach((section) => {
+      const button = makeElement("button", "admin-configuration-nav-item", section.label);
       button.type = "button";
-      button.setAttribute("aria-pressed", String(activeConfigurationSection === section.key));
       button.classList.toggle("is-active", activeConfigurationSection === section.key);
+      if (activeConfigurationSection === section.key) button.setAttribute("aria-current", "page");
       button.addEventListener("click", () => void loadConfigurationPage(section.key));
-      tabs.append(button);
+      group.append(button);
     });
-  root.append(tabs);
+    navigation.append(group);
+  });
+  return navigation;
 }
 
 async function loadConfigurationPage(requestedSection = "configurations") {
@@ -580,7 +618,7 @@ async function loadConfigurationPage(requestedSection = "configurations") {
   }
 
   activeConfigurationSection = selected;
-  activeSection = selected;
+  activeSection = "configurations";
   const section = configurationSections.find((item) => item.key === selected);
   document.querySelector("#breadcrumb-section").textContent = `Configuration · ${section.label}`;
   navItems.forEach((item) => {
@@ -592,28 +630,38 @@ async function loadConfigurationPage(requestedSection = "configurations") {
   content.replaceChildren(makeElement("div", "admin-loading", `Loading ${section.label.toLowerCase()}…`));
 
   const root = makeElement("div", "admin-section");
+  root.classList.add("admin-configuration-page");
   addHeading(
     root,
     "SYSTEM CONFIGURATION",
     "Configuration",
     "Manage locations, reporter setup, and organization-wide settings from one place."
   );
-  renderConfigurationTabs(root);
-  root.append(makeElement("h2", "admin-configuration-section-title", section.label));
-  root.append(makeElement("p", "admin-workflow-scope-note", section.description));
+  const layout = makeElement("div", "admin-configuration-layout");
+  const view = makeElement("main", "admin-configuration-view");
+  const viewHeader = makeElement("header", "admin-configuration-view-header");
+  viewHeader.append(
+    makeElement("span", "admin-eyebrow", section.group),
+    makeElement("h2", "", section.label),
+    makeElement("p", "", section.description)
+  );
+  const viewContent = makeElement("div", "admin-configuration-content");
+  layout.append(renderConfigurationNavigation(), view);
+  view.append(viewHeader, viewContent);
+  root.append(layout);
 
   try {
     if (selected === "locations") {
       const result = await apiRequest(modules.locations.path);
       locationRecords = unwrapData(result) || [];
-      renderLocationModule(root, []);
+      renderLocationModule(viewContent, []);
     } else if (selected === "reporter-configuration") {
       const result = await apiRequest(modules["reporter-configuration"].path);
-      renderReporterAdminSection("reporter-configuration", root, unwrapData(result));
+      renderReporterAdminSection("reporter-configuration", viewContent, unwrapData(result));
     } else {
       const result = await apiRequest("admin/organization/configuration");
       organizationConfigurationData = unwrapData(result) || {};
-      renderOrganizationConfiguration(root);
+      renderOrganizationConfiguration(viewContent, selected);
     }
   } catch (error) {
     const panel = makeElement("section", "admin-error-panel");
@@ -625,7 +673,7 @@ async function loadConfigurationPage(requestedSection = "configurations") {
     retry.type = "button";
     retry.addEventListener("click", () => void loadConfigurationPage(selected));
     panel.append(retry);
-    root.append(panel);
+    viewContent.append(panel);
   }
   content.replaceChildren(root);
 }
@@ -1104,13 +1152,6 @@ function renderReporterSetup(root, data) {
     },
   ];
   const overview = makeElement("section", "reporter-setup-overview");
-  const overviewHeading = makeElement("div", "reporter-setup-overview-heading");
-  overviewHeading.append(
-    makeElement("div", "", "SYSTEM CONFIGURATION"),
-    makeElement("p", "", "Manage the organization’s legal identity and the reporting areas and designations used by newsroom workflows. Configure agreement wording under Agreements.")
-  );
-  overview.append(overviewHeading);
-
   const cards = makeElement("div", "reporter-setup-cards");
   setupSections.forEach((item) => {
     const card = makeElement("button", "reporter-setup-card");
@@ -2582,55 +2623,24 @@ async function loadHrManagement() {
 }
 
 async function loadOrganizationConfiguration() {
-  return loadConfigurationPage("organization-configuration");
+  return loadConfigurationPage(
+    activeConfigurationSection.startsWith("organization-")
+      ? activeConfigurationSection
+      : "organization-identity"
+  );
 }
 
-function renderOrganizationConfiguration(outerRoot = null) {
-  const root = outerRoot || makeElement("div", "admin-section");
-  if (!outerRoot) {
-    addHeading(
-      root,
-      "SYSTEM CONFIGURATION",
-      "Organization setup",
-      "Configure organization identity, settings, module availability, and reusable workflow definitions."
-    );
-  }
-  root.querySelector(".admin-organization-configuration-content")?.remove();
-  const configurationContent = makeElement("div", "admin-organization-configuration-content");
-  const tabs = makeElement("div", "admin-workflow-tabs");
-  tabs.setAttribute("role", "group");
-  tabs.setAttribute("aria-label", "Organization setup sections");
-  [
-    ["identity", "Identity"],
-    ["people", "People"],
-    ["settings", "Settings"],
-    ["modules", "Modules"],
-    ["workflows", "Workflows"]
-  ].forEach(([key, label]) => {
-    const button = makeElement("button",
-      `admin-workflow-tab${activeOrganizationTab === key ? " is-active" : ""}`, label);
-    button.type = "button";
-    button.setAttribute("aria-pressed", String(activeOrganizationTab === key));
-    button.addEventListener("click", () => {
-      activeOrganizationTab = key;
-      renderOrganizationConfiguration(outerRoot);
-    });
-    tabs.append(button);
-  });
-  configurationContent.append(tabs);
-  if (activeOrganizationTab === "identity") renderOrganizationIdentity(configurationContent);
-  else if (activeOrganizationTab === "people") renderOrganizationPeople(configurationContent);
-  else if (activeOrganizationTab === "settings") renderOrganizationSettings(configurationContent);
-  else if (activeOrganizationTab === "modules") renderOrganizationModules(configurationContent);
-  else renderOrganizationWorkflows(configurationContent);
-  root.append(configurationContent);
-  if (!outerRoot) content.replaceChildren(root);
+function renderOrganizationConfiguration(root, section) {
+  if (section === "organization-identity") renderOrganizationIdentity(root);
+  else if (section === "organization-people") renderOrganizationPeople(root);
+  else if (section === "organization-settings") renderOrganizationSettings(root);
+  else if (section === "organization-modules") renderOrganizationModules(root);
+  else if (section === "organization-workflows") renderOrganizationWorkflows(root);
 }
 
 function renderOrganizationIdentity(root) {
   const organization = organizationConfigurationData.organization || {};
-  const panel = makeElement("section", "admin-panel");
-  panel.append(makeElement("h2", "", "Organization identity"));
+  const panel = makeElement("section", "admin-panel admin-configuration-panel");
   panel.append(makeElement("p", "admin-dialog-help",
     "Identity and locale are organization-wide values. Updating them does not rewrite issued legal agreements."));
   const edit = makeElement("button", "admin-primary-button", "Edit organization identity");
@@ -2674,30 +2684,34 @@ function renderOrganizationIdentity(root) {
 }
 
 function renderOrganizationPeople(root) {
-  const people = organizationConfigurationData.people || [];
-  const panel = makeElement("section", "admin-panel");
-  panel.append(makeElement("h2", "", "Organization people and access"),
-    makeElement("p", "admin-dialog-help",
-      "Employees keep their access role on the HR assignment. Reporter and newsroom relationships can be assigned an organization access role here; the relationship type remains separate from employment."));
-  if (!people.length) panel.append(makeElement("p", "admin-empty", "No organization people relationships are recorded."));
+  const allPeople = organizationConfigurationData.people || [];
+  const activeEmployeeIds = new Set(allPeople
+    .filter((person) => person.relationship_type === "employee"
+      && person.status === "active"
+      && !person.ends_at)
+    .map((person) => person.person_id));
+  const people = allPeople.filter((person) =>
+    person.relationship_type !== "employee"
+      && !person.ends_at
+      && person.status === "active"
+      && !activeEmployeeIds.has(person.person_id)
+  );
+  const panel = makeElement("section", "admin-panel admin-configuration-panel");
+  panel.append(makeElement("p", "admin-dialog-help",
+    "Manage active non-employee relationships here. Employee access belongs in HR Management; pending invitations are managed in Accounts."));
+  if (!people.length) panel.append(makeElement("p", "admin-empty",
+    "No active non-employee relationships are recorded."));
   people.forEach((person) => {
-    const card = makeElement("article", "admin-panel admin-role-agreement-card");
+    const card = makeElement("article", "admin-configuration-person-card");
     card.append(makeElement("h3", "", person.full_name || person.email || "Organization person"));
     card.append(makeElement("p", "admin-dialog-help",
-      `${person.email || "No email"} · ${person.relationship_type.replaceAll("_", " ")} · ${person.status}`));
+      `${person.email || "No email"} · ${(person.relationship_type || "person").replaceAll("_", " ")} · ${person.status || "active"}`));
     card.append(makeElement("p", "admin-dialog-help",
       `Access role: ${person.access_role_name || "None"} · Department: ${person.department_name || "None"} · Source: ${person.source_type}`));
-    if (person.ends_at) {
-      card.append(makeElement("p", "admin-dialog-help", `Relationship ended ${formatDate(person.ends_at)}; history is read-only.`));
-    } else if (person.relationship_type === "employee") {
-      card.append(makeElement("p", "admin-dialog-help",
-        "Employee roles are changed in HR Management → Employees and assignments."));
-    } else {
-      const edit = makeElement("button", "admin-secondary-button", "Assign access role");
-      edit.type = "button";
-      edit.addEventListener("click", () => openOrganizationPersonAccessDialog(person));
-      card.append(edit);
-    }
+    const edit = makeElement("button", "admin-secondary-button", "Assign access role");
+    edit.type = "button";
+    edit.addEventListener("click", () => openOrganizationPersonAccessDialog(person));
+    card.append(edit);
     panel.append(card);
   });
   root.append(panel);
@@ -2729,10 +2743,9 @@ function openOrganizationPersonAccessDialog(person) {
 
 function renderOrganizationSettings(root) {
   const settings = organizationConfigurationData.settings || [];
-  const panel = makeElement("section", "admin-panel");
+  const panel = makeElement("section", "admin-panel admin-configuration-panel");
   const header = makeElement("div", "admin-panel-heading");
-  header.append(makeElement("h2", "", "Organization settings"),
-    makeElement("span", "", `${settings.length} active settings`));
+  header.append(makeElement("span", "", `${settings.length} active settings`));
   const add = makeElement("button", "admin-primary-button", "Add setting");
   add.type = "button";
   add.addEventListener("click", () => openOrganizationSettingDialog(null));
@@ -2799,10 +2812,9 @@ function openOrganizationSettingDialog(setting) {
 
 function renderOrganizationModules(root) {
   const modules = organizationConfigurationData.modules || [];
-  const panel = makeElement("section", "admin-panel");
-  panel.append(makeElement("h2", "", "Organization modules"),
-    makeElement("p", "admin-dialog-help",
-      "Disabling a module blocks its configured API routes. Required core modules cannot be disabled. Module catalog entries do not implement absent application features."));
+  const panel = makeElement("section", "admin-panel admin-configuration-panel");
+  panel.append(makeElement("p", "admin-dialog-help",
+    "Disabling a module blocks its configured API routes. Required core modules cannot be disabled. Module catalog entries do not implement absent application features."));
   modules.forEach((module) => {
     const card = makeElement("article", "admin-panel admin-role-agreement-card");
     const title = makeElement("div", "admin-panel-heading");
@@ -2859,10 +2871,9 @@ function openOrganizationModuleDialog(module) {
 
 function renderOrganizationWorkflows(root) {
   const workflows = organizationConfigurationData.workflows || [];
-  const panel = makeElement("section", "admin-panel");
+  const panel = makeElement("section", "admin-panel admin-configuration-panel");
   const header = makeElement("div", "admin-panel-heading");
-  header.append(makeElement("h2", "", "Reusable workflows"),
-    makeElement("span", "", `${workflows.length} workflows`));
+  header.append(makeElement("span", "", `${workflows.length} workflows`));
   const add = makeElement("button", "admin-primary-button", "Create workflow");
   add.type = "button";
   add.addEventListener("click", () => openOrganizationWorkflowDialog(null));

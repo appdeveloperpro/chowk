@@ -413,6 +413,11 @@ key and authenticated user tokens.
   Agreements separates role-specific templates from per-person issued and
   accepted records. Existing role-specific tables and legal history are
   retained rather than destructively merged or reset.
+  Reporter Coverage and Credentials are backed by authenticated admin API
+  routes for assignment, ending, issue, revoke, and print actions. Configuration
+  uses one grouped navigation; Organization people shows only active,
+  non-employee relationships, with employee access managed in HR and invitations
+  managed in Accounts.
   Newsroom job titles are managed separately from account permissions. Admins can
   define newsroom titles and duties, map each title to the existing Moderator or
   Editor access profile, invite staff through the shared onboarding and agreement

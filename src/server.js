@@ -1977,6 +1977,235 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (pathname === "/api/admin/reporter-coverage" && request.method === "GET") {
+      const [assignments, locations, staff] = await Promise.all([
+        supabaseRequestAll(
+          "/rest/v1/user_coverage_assignments?select=id,user_id,region_id,zone_id,district_id,city_id,coverage_area_id,include_descendants,valid_from,valid_to&order=valid_from.desc,id.desc",
+          { token }
+        ),
+        supabaseRequestAll(
+          "/rest/v1/locations?select=id,name,location_type,parent_id,is_active&order=name.asc,id.asc",
+          { token }
+        ),
+        supabaseRequestAll(
+          "/rest/v1/profiles?select=id,email,full_name,role&role=in.(reporter,moderator,editor)&order=full_name.asc,id.asc",
+          { token }
+        )
+      ]);
+      const failed = [assignments, locations, staff].find((result) => !result.response.ok);
+      if (failed) {
+        sendJson(response, failed.response.status, {
+          error: apiErrorMessage(failed.payload, "Reporter coverage could not be loaded.")
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          assignments: assignments.payload,
+          locations: locations.payload,
+          staff: staff.payload
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-coverage" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const locationId = Number(body.location_id);
+      if (typeof body.user_id !== "string"
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.user_id)
+          || !/^[1-9]\d*$/.test(String(body.location_id))
+          || !Number.isSafeInteger(locationId)
+          || typeof body.include_descendants !== "boolean") {
+        sendJson(response, 400, { error: "Choose a staff member, active location, and descendant coverage option." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_assign_coverage", {
+        method: "POST",
+        token,
+        body: {
+          target_user: body.user_id,
+          target_location: locationId,
+          include_children: body.include_descendants
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Reporter coverage could not be assigned.") });
+      return;
+    }
+
+    const coverageEndRoute = pathname.match(/^\/api\/admin\/reporter-coverage\/([1-9]\d*)\/end$/);
+    if (coverageEndRoute && request.method === "POST") {
+      const assignmentId = Number(coverageEndRoute[1]);
+      if (!Number.isSafeInteger(assignmentId)) {
+        sendJson(response, 400, { error: "Coverage assignment ID is invalid." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_end_coverage", {
+        method: "POST",
+        token,
+        body: { target_assignment: assignmentId }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Reporter coverage could not be ended.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-credentials" && request.method === "GET") {
+      const [credentials, profiles, applications, organizationProfile] = await Promise.all([
+        supabaseRequestAll(
+          "/rest/v1/staff_credentials?select=id,user_id,subject_user_id_snapshot,credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,issued_by_name_snapshot,issued_by_role_snapshot,issued_at,valid_from,valid_until,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version_snapshot,avatar_url_snapshot,member_since_snapshot&order=issued_at.desc,id.desc",
+          { token }
+        ),
+        supabaseRequestAll(
+          "/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&role=in.(reporter,moderator,editor,subscriber)&order=full_name.asc,id.asc",
+          { token }
+        ),
+        supabaseRequestAll(
+          "/rest/v1/reporter_applications?select=user_id,status,service_agreement_accepted_at&status=in.(approved,active)&order=created_at.desc,id.desc",
+          { token }
+        ),
+        supabaseRequest(
+          "/rest/v1/reporter_organization_profile?select=id,legal_name,trade_name,entity_type,registered_address,registration_number,official_email,official_phone,website_url,is_verified,updated_at&limit=1",
+          { token }
+        )
+      ]);
+      const failed = [credentials, profiles, applications, organizationProfile]
+        .find((result) => !result.response.ok);
+      if (failed) {
+        sendJson(response, failed.response.status, {
+          error: apiErrorMessage(failed.payload, "Reporter credentials could not be loaded.")
+        });
+        return;
+      }
+      const acceptedApplications = new Map(
+        applications.payload.map((application) => [
+          application.user_id,
+          Boolean(application.service_agreement_accepted_at)
+        ])
+      );
+      const staff = profiles.payload
+        .filter((profile) => ["reporter", "moderator", "editor"].includes(profile.role)
+          || acceptedApplications.has(profile.id))
+        .map((profile) => {
+          const isApprovedReporter = acceptedApplications.has(profile.id);
+          const hasAcceptedAgreement = acceptedApplications.get(profile.id) === true;
+          return {
+            ...profile,
+            ...(isApprovedReporter ? {
+              onboarding_status: "approved",
+              can_issue_id_card: hasAcceptedAgreement,
+              can_receive_authority_letter: hasAcceptedAgreement
+            } : {})
+          };
+        });
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          credentials: credentials.payload,
+          staff,
+          organization_profile: organizationProfile.payload?.[0] || null
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/api/admin/reporter-credentials" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const isDateOnly = (value) => {
+        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+        const parsed = new Date(`${value}T00:00:00.000Z`);
+        return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+      };
+      if (typeof body.user_id !== "string"
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.user_id)
+          || !["id_card", "authority_letter"].includes(body.credential_type)
+          || !isDateOnly(body.valid_from)
+          || !isDateOnly(body.valid_until)
+          || body.valid_until < body.valid_from) {
+        sendJson(response, 400, { error: "Choose a valid staff member, credential type, and validity period." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_issue_credential", {
+        method: "POST",
+        token,
+        body: {
+          target_user: body.user_id,
+          credential_kind: body.credential_type,
+          start_date: body.valid_from,
+          end_date: body.valid_until,
+          signer_name: body.signer_name || "",
+          signer_designation: body.signer_designation || "",
+          signer_address: body.return_address || ""
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Staff credential could not be issued.") });
+      return;
+    }
+
+    const credentialRevokeRoute = pathname.match(/^\/api\/admin\/reporter-credentials\/([1-9]\d*)\/revoke$/);
+    if (credentialRevokeRoute && request.method === "POST") {
+      const credentialId = Number(credentialRevokeRoute[1]);
+      if (!Number.isSafeInteger(credentialId)) {
+        sendJson(response, 400, { error: "Credential ID is invalid." });
+        return;
+      }
+      const body = await readJsonBody(request);
+      if (typeof body.reason !== "string" || body.reason.trim().length < 2 || body.reason.trim().length > 500) {
+        sendJson(response, 400, { error: "Enter a revocation reason between 2 and 500 characters." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_revoke_credential", {
+        method: "POST",
+        token,
+        body: {
+          target_credential: credentialId,
+          reason: body.reason.trim()
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Staff credential could not be revoked.") });
+      return;
+    }
+
+    const credentialPrintRoute = pathname.match(/^\/api\/admin\/reporter-credentials\/([1-9]\d*)\/print$/);
+    if (credentialPrintRoute && request.method === "GET") {
+      if (!Number.isSafeInteger(Number(credentialPrintRoute[1]))) {
+        sendJson(response, 400, { error: "Credential ID is invalid." });
+        return;
+      }
+      const result = await supabaseRequest(
+        `/rest/v1/staff_credentials?select=id,subject_user_id_snapshot,credential_type,reference_code,verification_token,status,name_snapshot,role_snapshot,reporter_code_snapshot,scope_snapshot,issued_by_name_snapshot,issued_by_role_snapshot,issued_at,valid_from,valid_until,authorized_signer_name,authorized_signer_designation,return_address,service_agreement_version_snapshot,avatar_url_snapshot,member_since_snapshot&id=eq.${credentialPrintRoute[1]}&limit=1`,
+        { token }
+      );
+      if (!result.response.ok) {
+        sendJson(response, result.response.status, {
+          error: apiErrorMessage(result.payload, "Credential could not be loaded for printing.")
+        });
+        return;
+      }
+      const credential = result.payload?.[0];
+      if (!credential) {
+        sendJson(response, 404, { error: "Credential was not found." });
+        return;
+      }
+      const html = await credentialPrintPage(credential, request, token);
+      response.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end(html);
+      return;
+    }
+
     if (pathname === "/api/admin/organization/configuration" && request.method === "GET") {
       const result = await supabaseRequest("/rest/v1/rpc/chowk_org_configuration_snapshot", {
         method: "POST", token, body: {}

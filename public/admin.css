@@ -508,6 +508,141 @@
   color: #d94e17;
 }
 
+.admin-configuration-page {
+  gap: 20px;
+}
+
+.admin-configuration-layout {
+  display: grid;
+  grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.admin-configuration-nav {
+  position: sticky;
+  top: 20px;
+  display: grid;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid #e8ebf0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(25 36 58 / 5%);
+}
+
+.admin-configuration-nav-group {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-configuration-nav-heading {
+  padding: 0 10px 6px;
+  color: #8490a2;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.admin-configuration-nav-item {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #566276;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.admin-configuration-nav-item:hover {
+  background: #f7f8fa;
+  color: #263248;
+}
+
+.admin-configuration-nav-item.is-active {
+  background: #fff1e9;
+  color: #c84b16;
+}
+
+.admin-configuration-nav-item:focus-visible {
+  outline: 3px solid rgb(228 92 34 / 28%);
+  outline-offset: 2px;
+}
+
+.admin-configuration-view {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.admin-configuration-view-header {
+  padding: 20px 24px;
+  border: 1px solid #e8ebf0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(25 36 58 / 5%);
+}
+
+.admin-configuration-view-header h2 {
+  margin: 6px 0 5px;
+  color: #202b3d;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.admin-configuration-view-header p {
+  margin: 0;
+  color: #6f7b8e;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-configuration-content {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+.admin-configuration-panel {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+
+.admin-configuration-panel > h2,
+.admin-configuration-person-card h3 {
+  margin: 0;
+  color: #273247;
+}
+
+.admin-configuration-panel > .admin-dialog-help {
+  margin: 0;
+}
+
+.admin-configuration-person-card {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #e8ebf0;
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+
+.admin-configuration-person-card p {
+  margin: 0;
+}
+
+.admin-configuration-person-card .admin-secondary-button {
+  margin-top: 4px;
+}
+
 .admin-workflow-scope-note {
   margin: 0;
   padding: 12px 16px;
@@ -2415,7 +2550,28 @@
   outline-offset: 2px;
 }
 
+@media (max-width: 900px) {
+  .admin-configuration-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-configuration-nav {
+    position: static;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+}
+
 @media (max-width: 640px) {
+  .admin-configuration-view-header {
+    padding: 17px;
+  }
+
+  .admin-configuration-panel {
+    padding: 17px;
+  }
+
   .admin-hr-theme .admin-workflow-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

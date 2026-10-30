@@ -607,6 +607,49 @@ async function supabaseRequest(endpoint, options = {}) {
   return { response: result, payload };
 }
 
+async function supabaseRequestAll(endpoint, options = {}, pageSize = 500) {
+  const rows = [];
+  let offset = 0;
+  let lastResult;
+  const separator = endpoint.includes("?") ? "&" : "?";
+  const prefer = [options.prefer, "count=exact"].filter(Boolean).join(",");
+
+  while (true) {
+    const result = await supabaseRequest(
+      `${endpoint}${separator}limit=${pageSize}&offset=${offset}`,
+      { ...options, prefer }
+    );
+    if (!result.response.ok) return result;
+    if (!Array.isArray(result.payload)) {
+      throw new Error("Supabase returned an unexpected response while loading paginated records.");
+    }
+    lastResult = result;
+    rows.push(...result.payload);
+
+    const rangeTotal = result.response.headers.get("content-range")?.split("/").at(-1);
+    const total = rangeTotal && rangeTotal !== "*" ? Number(rangeTotal) : null;
+    if (Number.isSafeInteger(total) && rows.length >= total) break;
+    if (!result.payload.length) {
+      if (Number.isSafeInteger(total) && rows.length < total) {
+        throw new Error("Supabase records changed while loading pages. Refresh and try again.");
+      }
+      break;
+    }
+    if (total === null && result.payload.length < pageSize) break;
+    offset += result.payload.length;
+  }
+
+  return { ...lastResult, payload: rows };
+}
+
+function chunksOf(values, size) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
 async function deleteSupabaseAuthUser(userId) {
   const { url } = supabaseConfig();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -1454,6 +1497,49 @@ async function removeReporterAgreementPdf(objectPath, token) {
   }
 }
 
+async function removeAdminStorageObject(bucket, objectPath, userId) {
+  const validPaths = {
+    "chowk-reporter-applications": new RegExp(
+      `^applications/${userId}/(profile_photo|masked_aadhaar|pan_card|bank_proof)/[0-9a-f-]{36}\\.(jpg|png|pdf)$`, "i"
+    ),
+    "chowk-reporter-agreements": new RegExp(
+      `^(?:service/[0-9a-f-]{36}\\.pdf|acceptance/${userId}/[0-9a-f-]{36}\\.pdf)$`, "i"
+    ),
+    "chowk-staff-profiles": new RegExp(
+      `^staff/${userId}/profile/[0-9a-f-]{36}\\.(jpg|png)$`, "i"
+    )
+  };
+  if (!validPaths[bucket]?.test(objectPath)) {
+    throw Object.assign(new Error("A private file reference is invalid."), { statusCode: 400 });
+  }
+  const { url } = supabaseConfig();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) {
+    throw Object.assign(
+      new Error("Permanent account deletion requires SUPABASE_SERVICE_ROLE_KEY in the server environment."),
+      { statusCode: 503 }
+    );
+  }
+  const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+  const result = await fetch(`${url}/storage/v1/object/${bucket}/${encodedPath}`, {
+    method: "DELETE",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      Accept: "application/json"
+    },
+    signal: AbortSignal.timeout(apiTimeoutMs),
+    cache: "no-store"
+  });
+  if (!result.ok && result.status !== 404) {
+    const payload = await result.json().catch(() => ({}));
+    throw Object.assign(
+      new Error(apiErrorMessage(payload, "A private account file could not be removed.")),
+      { statusCode: result.status }
+    );
+  }
+}
+
 function isSameOrigin(request) {
   const origin = request.headers.origin;
   if (!origin) return true;
@@ -2177,6 +2263,19 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
 
+      const modelFieldDeleteRoute = pathname.match(
+        /^\/api\/admin\/hr\/model-fields\/([0-9a-f-]{36})$/i
+      );
+      if (modelFieldDeleteRoute && request.method === "DELETE") {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_org_delete_model_field", {
+          method: "POST", token, body: { target_id: modelFieldDeleteRoute[1] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The model field could not be deleted.") });
+        return;
+      }
+
       const modelPermissionsRoute = pathname.match(
         /^\/api\/admin\/hr\/models\/([0-9a-f-]{36})\/roles\/([0-9a-f-]{36})$/i
       );
@@ -2292,6 +2391,80 @@ async function adminRoute(request, response, requestUrl, session) {
           })
         }
       };
+
+      const assignmentChangeRoute = pathname.match(
+        /^\/api\/admin\/hr\/assignments\/([0-9a-f-]{36})\/change$/i
+      );
+      if (assignmentChangeRoute && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_change_employee_assignment", {
+          method: "POST",
+          token,
+          body: {
+            target_id: assignmentChangeRoute[1],
+            target_department_id: body.department_id || null,
+            target_position_id: body.position_id || null,
+            target_access_role_id: body.access_role_id,
+            target_manager_employee_id: body.manager_employee_id || null,
+            target_status: body.status,
+            target_is_primary: body.is_primary !== false,
+            target_starts_at: body.starts_at || null,
+            target_end_reason: body.end_reason || "",
+            target_employment_type: body.employment_type || null
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true, data: result.payload }
+          : { error: apiErrorMessage(result.payload, "The employee assignment could not be changed.") });
+        return;
+      }
+
+      const assignmentDeleteRoute = pathname.match(
+        /^\/api\/admin\/hr\/assignments\/([0-9a-f-]{36})$/i
+      );
+      const assignmentEndRoute = pathname.match(
+        /^\/api\/admin\/hr\/assignments\/([0-9a-f-]{36})\/end$/i
+      );
+      if (assignmentEndRoute && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_end_employee_assignment", {
+          method: "POST",
+          token,
+          body: {
+            target_id: assignmentEndRoute[1],
+            target_end_at: body.ends_at || null,
+            target_end_reason: body.end_reason || ""
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The employee assignment could not be ended.") });
+        return;
+      }
+
+      if (assignmentDeleteRoute && request.method === "DELETE") {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_delete_assignment", {
+          method: "POST", token, body: { target_id: assignmentDeleteRoute[1] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The employee assignment could not be deleted.") });
+        return;
+      }
+
+      const employeeDeleteRoute = pathname.match(
+        /^\/api\/admin\/hr\/employees\/([0-9a-f-]{36})$/i
+      );
+      if (employeeDeleteRoute && request.method === "DELETE") {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_delete_employee", {
+          method: "POST", token, body: { target_employee: employeeDeleteRoute[1] }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The employee HR record could not be deleted.") });
+        return;
+      }
+
       const collection = pathname.match(/^\/api\/admin\/hr\/(departments|positions|access-roles|policies)$/);
       if (collection && request.method === "POST") {
         const config = saveRoutes[collection[1]];
@@ -2445,12 +2618,24 @@ async function adminRoute(request, response, requestUrl, session) {
 
       const deleteRoute = pathname.match(/^\/api\/admin\/hr\/(departments|positions|access-roles|policies|policy-versions)\/([0-9a-f-]{36})$/i);
       if (deleteRoute && request.method === "DELETE") {
+        if (deleteRoute[1] === "policies" || deleteRoute[1] === "policy-versions") {
+          const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_delete_policy_record", {
+            method: "POST",
+            token,
+            body: {
+              target_table: deleteRoute[1] === "policies" ? "policy" : "policy_version",
+              target_id: deleteRoute[2]
+            }
+          });
+          sendJson(response, result.response.status, result.response.ok
+            ? { success: true }
+            : { error: apiErrorMessage(result.payload, "This HR policy record could not be deleted.") });
+          return;
+        }
         const tableName = {
           departments: "department",
           positions: "position",
-          "access-roles": "access_role",
-          policies: "policy",
-          "policy-versions": "policy_version"
+          "access-roles": "access_role"
         }[deleteRoute[1]];
         const result = await supabaseRequest("/rest/v1/rpc/chowk_hr_delete_unused_draft", {
           method: "POST",
@@ -2921,9 +3106,28 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    const staffRoleDelete = pathname.match(
+      /^\/api\/admin\/staff-roles\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+    );
+    if (staffRoleDelete && request.method === "DELETE") {
+      if (identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only the super-admin can permanently delete newsroom job titles." });
+        return;
+      }
+      const deleted = await supabaseRequest("/rest/v1/rpc/chowk_admin_delete_staff_role_definition", {
+        method: "POST",
+        token,
+        body: { target_role_id: staffRoleDelete[1] }
+      });
+      sendJson(response, deleted.response.status, deleted.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(deleted.payload, "Newsroom job title could not be deleted.") });
+      return;
+    }
+
     if (pathname === "/api/admin/staff-onboarding" && request.method === "GET") {
-      const onboarding = await supabaseRequest(
-        "/rest/v1/staff_onboarding?select=*&order=submitted_at.desc.nullslast,invited_at.desc&limit=500",
+      const onboarding = await supabaseRequestAll(
+        "/rest/v1/staff_onboarding?select=*&order=submitted_at.desc.nullslast,invited_at.desc,user_id.desc",
         { token }
       );
       if (!onboarding.response.ok) {
@@ -2933,13 +3137,10 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const rows = onboarding.payload || [];
-      const staffRoleIds = [...new Set(rows.map((row) => row.staff_role_id).filter(Boolean))];
-      const roleDefinitions = staffRoleIds.length
-        ? await supabaseRequest(
-          `/rest/v1/staff_role_definitions?select=id,role_key,display_name,description,duties,access_profile,is_active&id=in.(${staffRoleIds.join(",")})`,
-          { token }
-        )
-        : { response: { ok: true }, payload: [] };
+      const roleDefinitions = await supabaseRequestAll(
+        "/rest/v1/staff_role_definitions?select=id,role_key,display_name,description,duties,access_profile,is_active",
+        { token }
+      );
       if (!roleDefinitions.response.ok) {
         sendJson(response, roleDefinitions.response.status, {
           error: apiErrorMessage(roleDefinitions.payload, "Staff job role details could not be loaded.")
@@ -2948,33 +3149,36 @@ async function adminRoute(request, response, requestUrl, session) {
       }
       const staffRolesById = new Map((roleDefinitions.payload || []).map((role) => [role.id, role]));
       const userIds = rows.map((row) => row.user_id).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
-      const profiles = userIds.length
-        ? await supabaseRequest(
-          `/rest/v1/profiles?select=id,email,full_name,phone&id=in.(${userIds.join(",")})`,
+      const profileBatches = await Promise.all(chunksOf(userIds, 100).map((userIdBatch) =>
+        supabaseRequestAll(
+          `/rest/v1/profiles?select=id,email,full_name,phone&id=in.(${userIdBatch.join(",")})`,
           { token }
         )
-        : { response: { ok: true }, payload: [] };
-      if (!profiles.response.ok) {
-        sendJson(response, profiles.response.status, {
-          error: apiErrorMessage(profiles.payload, "Staff member profiles could not be loaded.")
+      ));
+      const failedProfiles = profileBatches.find((result) => !result.response.ok);
+      if (failedProfiles) {
+        sendJson(response, failedProfiles.response.status, {
+          error: apiErrorMessage(failedProfiles.payload, "Staff member profiles could not be loaded.")
         });
         return;
       }
-      const assignments = userIds.length
-        ? await supabaseRequest(
-          `/rest/v1/staff_role_assignments?select=id,user_id,role_key_snapshot,display_name_snapshot,status,duties_snapshot,assigned_at,starts_at,ended_at,end_reason&user_id=in.(${userIds.join(",")})&order=assigned_at.desc`,
+      const assignmentBatches = await Promise.all(chunksOf(userIds, 100).map((userIdBatch) =>
+        supabaseRequestAll(
+          `/rest/v1/staff_role_assignments?select=id,user_id,role_key_snapshot,display_name_snapshot,status,duties_snapshot,assigned_at,starts_at,ended_at,end_reason&user_id=in.(${userIdBatch.join(",")})&order=assigned_at.desc,id.desc`,
           { token }
         )
-        : { response: { ok: true }, payload: [] };
-      if (!assignments.response.ok) {
-        sendJson(response, assignments.response.status, {
-          error: apiErrorMessage(assignments.payload, "Staff job assignment history could not be loaded.")
+      ));
+      const failedAssignments = assignmentBatches.find((result) => !result.response.ok);
+      if (failedAssignments) {
+        sendJson(response, failedAssignments.response.status, {
+          error: apiErrorMessage(failedAssignments.payload, "Staff job assignment history could not be loaded.")
         });
         return;
       }
-      const profilesById = new Map((profiles.payload || []).map((profile) => [profile.id, profile]));
+      const profilesById = new Map(profileBatches.flatMap((result) => result.payload || [])
+        .map((profile) => [profile.id, profile]));
       const assignmentsByUserId = new Map();
-      (assignments.payload || []).forEach((assignment) => {
+      assignmentBatches.flatMap((result) => result.payload || []).forEach((assignment) => {
         const history = assignmentsByUserId.get(assignment.user_id) || [];
         history.push(assignment);
         assignmentsByUserId.set(assignment.user_id, history);
@@ -2989,6 +3193,50 @@ async function adminRoute(request, response, requestUrl, session) {
           : null
       })));
       sendJson(response, 200, { success: true, data });
+      return;
+    }
+
+    const staffApplicationDelete = pathname.match(
+      /^\/api\/admin\/staff-onboarding\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+    );
+    if (staffApplicationDelete && request.method === "DELETE") {
+      if (identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only the super-admin can permanently delete staff applications." });
+        return;
+      }
+      const assets = await supabaseRequest("/rest/v1/rpc/chowk_admin_staff_onboarding_assets", {
+        method: "POST",
+        token,
+        body: { target_user: staffApplicationDelete[1] }
+      });
+      if (!assets.response.ok) {
+        sendJson(response, assets.response.status, {
+          error: apiErrorMessage(assets.payload, "Staff application could not be prepared for deletion.")
+        });
+        return;
+      }
+      if (assets.payload?.profile_photo_path) {
+        try {
+          await removeAdminStorageObject(
+            "chowk-staff-profiles",
+            assets.payload.profile_photo_path,
+            staffApplicationDelete[1]
+          );
+        } catch (error) {
+          sendJson(response, error.statusCode || 502, {
+            error: `The staff application was not deleted because its private photo could not be removed. Retry the deletion. ${error.message}`
+          });
+          return;
+        }
+      }
+      const deleted = await supabaseRequest("/rest/v1/rpc/chowk_admin_delete_staff_application", {
+        method: "POST",
+        token,
+        body: { target_user: staffApplicationDelete[1] }
+      });
+      sendJson(response, deleted.response.status, deleted.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(deleted.payload, "Staff application could not be deleted.") });
       return;
     }
 
@@ -3860,8 +4108,8 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/users" && request.method === "GET") {
       const [result, onboarding] = await Promise.all([
-        supabaseRequest("/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&order=created_at.desc&limit=100", { token }),
-        supabaseRequest("/rest/v1/staff_onboarding?select=user_id,requested_role,status&limit=1000", { token })
+        supabaseRequestAll("/rest/v1/profiles?select=id,email,full_name,phone,role,created_at&order=created_at.desc,id.desc", { token }),
+        supabaseRequestAll("/rest/v1/staff_onboarding?select=user_id,requested_role,status&order=user_id.asc", { token })
       ]);
       for (const responseResult of [result, onboarding]) {
         if (!responseResult.response.ok) {
@@ -3892,6 +4140,10 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 403, { error: "Cross-origin request rejected." });
         return;
       }
+      if (session.identity.role !== "super_admin") {
+        sendJson(response, 403, { error: "Only the super-admin can permanently delete user accounts." });
+        return;
+      }
 
       const targetUser = userDelete[1];
       if (targetUser.toLowerCase() === session.identity.id.toLowerCase()) {
@@ -3915,50 +4167,40 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
 
-      try {
-        await deleteSupabaseAuthUser(targetUser);
-      } catch (error) {
-        sendJson(response, error.statusCode || 502, {
-          error: error.message || "The Supabase login account could not be deleted."
-        });
-        return;
-      }
-
       const applicationPaths = Array.isArray(assets.payload?.application_document_paths)
         ? assets.payload.application_document_paths
         : [];
       const agreementPaths = Array.isArray(assets.payload?.agreement_document_paths)
         ? assets.payload.agreement_document_paths
         : [];
-      const cleanupErrors = [];
-      for (const objectPath of applicationPaths) {
-        try {
-          await removeReporterApplicationDocument(objectPath, targetUser, token, { allowMissing: true });
-        } catch (error) {
-          console.error(`Could not remove a private document for deleted user ${targetUser}:`, error.message);
-          cleanupErrors.push(error);
+      const staffProfilePath = assets.payload?.staff_profile_photo_path;
+      try {
+        for (const objectPath of applicationPaths) {
+          await removeAdminStorageObject("chowk-reporter-applications", objectPath, targetUser);
         }
-      }
-      for (const objectPath of agreementPaths) {
-        try {
-          if (typeof objectPath !== "string"
-              || !/^(?:application|service)\/[0-9a-f-]{36}\.pdf$|^acceptance\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.pdf$/.test(objectPath)) {
-            throw new Error("The stored agreement document reference is invalid.");
-          }
-          await removeReporterAgreementPdf(objectPath, token);
-        } catch (error) {
-          console.error(`Could not remove an agreement document for deleted user ${targetUser}:`, error.message);
-          cleanupErrors.push(error);
+        for (const objectPath of agreementPaths) {
+          await removeAdminStorageObject("chowk-reporter-agreements", objectPath, targetUser);
         }
-      }
-      if (cleanupErrors.length) {
-        sendJson(response, 207, {
-          success: false,
-          user_deleted: true,
-          cleanup_warning: "The login and profile were deleted, but one or more private files could not be removed from storage. Contact support for cleanup."
+        if (staffProfilePath) {
+          await removeAdminStorageObject("chowk-staff-profiles", staffProfilePath, targetUser);
+        }
+      } catch (error) {
+        console.error(`Could not remove private files for account ${targetUser}:`, error.message);
+        sendJson(response, error.statusCode || 502, {
+          error: `The account was not deleted because private files could not be fully removed. Retry the deletion; already removed files are safe to retry. ${error.message}`
         });
         return;
       }
+
+      try {
+        await deleteSupabaseAuthUser(targetUser);
+      } catch (error) {
+        sendJson(response, error.statusCode || 502, {
+          error: `Private files were removed, but the login and profile remain because Supabase could not delete the account. Retry or resolve the database error: ${error.message}`
+        });
+        return;
+      }
+
       sendJson(response, 200, { success: true });
       return;
     }
@@ -5856,14 +6098,22 @@ const server = http.createServer((request, response) => {
           return;
         }
         if (employeePolicyPath === "/api/employee/hr-policies" && request.method === "GET") {
-          const policies = await supabaseRequest("/rest/v1/rpc/chowk_hr_current_policies", {
-            method: "POST",
-            token: session.token,
-            body: {}
-          });
-          sendJson(response, policies.response.status, policies.response.ok
-            ? { success: true, data: policies.payload || [] }
-            : { error: apiErrorMessage(policies.payload, "Required HR policies could not be loaded.") });
+          const [policies, access] = await Promise.all([
+            supabaseRequest("/rest/v1/rpc/chowk_hr_current_policies", {
+              method: "POST", token: session.token, body: {}
+            }),
+            supabaseRequest("/rest/v1/rpc/chowk_hr_my_access_ready", {
+              method: "POST", token: session.token, body: {}
+            })
+          ]);
+          const failed = [policies, access].find((result) => !result.response.ok);
+          sendJson(response, failed?.response.status || 200, failed
+            ? { error: apiErrorMessage(failed.payload, "Required HR policies could not be loaded.") }
+            : {
+              success: true,
+              data: policies.payload || [],
+              access_paused: access.payload === false
+            });
           return;
         }
         if (employeePolicyPath === "/api/employee/hr-policies/accept" && request.method === "POST") {
@@ -5921,7 +6171,9 @@ const server = http.createServer((request, response) => {
         if (employeeProfilePath === "/api/employee/hr-profile" && request.method === "PATCH") {
           const body = await readJsonBody(request);
           const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
-          const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+          const phone = typeof body.phone === "string"
+            ? body.phone.trim().replace(/[\s().-]/g, "")
+            : "";
           if (fullName.length < 2 || fullName.length > 120
               || (phone && !/^\+?[1-9][0-9]{6,14}$/.test(phone))) {
             sendJson(response, 400, { error: "Enter a full name and a valid phone number." });

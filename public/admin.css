@@ -2273,6 +2273,161 @@
   margin: 20px 0 0;
 }
 
+.admin-dashboard-body.admin-hr-theme {
+  --hr-canvas: var(--paper);
+  --hr-surface: var(--white);
+  --hr-ink: var(--ink);
+  --hr-muted: #746d64;
+  --hr-line: var(--line);
+  --hr-accent: var(--orange);
+  --hr-accent-strong: var(--orange-dark);
+  --hr-accent-soft: var(--peach);
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 75% 0, rgb(255 240 223 / 70%), transparent 42%),
+    var(--hr-canvas);
+  color: var(--hr-ink);
+}
+
+.admin-hr-theme .admin-sidebar {
+  border-color: var(--hr-line);
+  background: var(--hr-surface);
+}
+
+.admin-hr-theme .admin-topbar {
+  border-color: var(--hr-line);
+  background: rgb(255 254 250 / 94%);
+}
+
+.admin-hr-theme .admin-panel {
+  border-color: var(--hr-line);
+  background: var(--hr-surface);
+  box-shadow: 0 10px 28px rgb(75 48 22 / 5%);
+}
+
+.admin-hr-theme .admin-panel-heading,
+.admin-hr-theme .admin-hr-record {
+  border-color: var(--hr-line);
+}
+
+.admin-hr-theme .admin-panel-heading h2,
+.admin-hr-theme .admin-hr-record h3 {
+  color: var(--hr-ink);
+}
+
+.admin-hr-theme .admin-workflow-tabs {
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid var(--hr-line);
+  border-radius: 14px;
+  background: var(--hr-surface);
+  box-shadow: 0 5px 16px rgb(75 48 22 / 4%);
+}
+
+.admin-hr-theme .admin-workflow-tab {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--hr-muted);
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.admin-hr-theme .admin-workflow-tab:hover {
+  border-color: #f2d5bb;
+  background: #fff8f0;
+  color: var(--hr-accent-strong);
+}
+
+.admin-hr-theme .admin-workflow-tab.is-active {
+  border-color: #f2c29f;
+  background: var(--hr-accent-soft);
+  color: #a74410;
+}
+
+.admin-hr-theme .admin-hr-guidance {
+  margin: -10px 0 0;
+  padding: 13px 16px;
+  border: 1px solid #f1dfcb;
+  border-left: 4px solid var(--hr-accent);
+  border-radius: 10px;
+  background: #fff8ef;
+  color: #68523d;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.admin-hr-theme .admin-hr-panel > .admin-dialog-help,
+.admin-hr-theme .admin-hr-record .admin-dialog-help {
+  color: var(--hr-muted);
+}
+
+.admin-hr-theme .admin-hr-permission-row,
+.admin-hr-theme .admin-hr-policy-version,
+.admin-hr-theme .admin-hr-model-item {
+  border-color: #f0e7dc;
+}
+
+.admin-hr-theme .admin-hr-permission-row > select,
+.admin-hr-theme .admin-form-field input,
+.admin-hr-theme .admin-form-field select,
+.admin-hr-theme .admin-form-field textarea {
+  border-color: #e6d9ca;
+  background-color: #fffefa;
+  color: var(--hr-ink);
+}
+
+.admin-hr-theme .admin-hr-permission-row > select:focus,
+.admin-hr-theme .admin-form-field input:focus,
+.admin-hr-theme .admin-form-field select:focus,
+.admin-hr-theme .admin-form-field textarea:focus {
+  border-color: var(--hr-accent);
+  outline: 3px solid rgb(255 105 11 / 15%);
+  outline-offset: 1px;
+}
+
+.admin-hr-theme input[type="checkbox"],
+.admin-hr-theme input[type="radio"] {
+  accent-color: var(--hr-accent);
+}
+
+.admin-hr-theme .admin-nav-item.is-active {
+  background: var(--hr-accent-soft);
+  color: var(--hr-accent-strong);
+}
+
+.admin-hr-theme .admin-secondary-button.admin-danger-button {
+  border-color: #edc9c4;
+  color: #9c3934;
+}
+
+.admin-hr-theme .admin-secondary-button.admin-danger-button:hover {
+  border-color: #d89087;
+  background: #fff4f2;
+  color: #842b26;
+}
+
+.admin-hr-theme .admin-secondary-button:focus-visible,
+.admin-hr-theme .admin-primary-button:focus-visible,
+.admin-hr-theme .admin-workflow-tab:focus-visible,
+.admin-hr-theme .admin-nav-item:focus-visible {
+  outline: 3px solid rgb(255 105 11 / 28%);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .admin-hr-theme .admin-workflow-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-hr-theme .admin-workflow-tab {
+    justify-content: center;
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+}
+
 .admin-organization-summary dt {
   color: var(--muted);
   font-weight: 700;

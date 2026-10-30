@@ -255,7 +255,7 @@ async function runTransition(record, transition) {
 }
 
 async function deleteRecord(record) {
-  if (!window.confirm("Delete this record? Its audit history will be retained.")) return;
+  if (!window.confirm("Permanently delete this record? Its immutable audit history will be retained.")) return;
   try {
     await request(`/api/employee/org-model-records/${record.id}`, "DELETE");
     await renderSelectedModel();

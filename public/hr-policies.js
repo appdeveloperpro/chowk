@@ -22,18 +22,36 @@ function request(path, method = "GET", body) {
   });
 }
 
-function renderPolicies(policies) {
+function renderPolicies(policies, accessPaused = false) {
   policyPanel.replaceChildren();
   policyPanel.hidden = false;
   if (!policies.length) {
     policyPanel.append(Object.assign(document.createElement("p"), {
       textContent: "There are no current policies assigned to your employee role."
     }));
+    if (accessPaused) {
+      const notice = document.createElement("p");
+      notice.className = "staff-onboarding-review-note";
+      notice.textContent = "Your organization access is paused because a required policy does not have a current published version. Contact HR.";
+      policyPanel.append(notice);
+    }
     return;
   }
   const heading = document.createElement("h2");
   heading.textContent = "Current organization policies";
   policyPanel.append(heading);
+  const requiredPolicies = policies.filter((item) => {
+    const policy = Array.isArray(item.policy) ? item.policy[0] : item.policy;
+    return policy?.requires_acceptance === true;
+  });
+  if (accessPaused) {
+    const notice = document.createElement("p");
+    notice.className = "staff-onboarding-review-note";
+    notice.textContent = requiredPolicies.some((item) => !item.accepted_at)
+      ? "Your organization access is paused until you accept every current required policy below."
+      : "Your organization access is paused because a required policy does not have a current published version. Contact HR.";
+    policyPanel.append(notice);
+  }
   policies.forEach((item) => {
     const policy = Array.isArray(item.policy) ? item.policy[0] : item.policy;
     const card = document.createElement("article");
@@ -71,8 +89,9 @@ function renderPolicies(policies) {
         button.textContent = "Recording acceptance…";
         try {
           await request("/api/employee/hr-policies/accept", "POST", { policy_version_id: item.id });
-          item.accepted_at = new Date().toISOString();
-          renderPolicies(policies);
+          statePanel.hidden = true;
+          statePanel.classList.remove("is-error");
+          await loadPolicies();
         } catch (error) {
           button.disabled = false;
           button.textContent = "Accept policy";
@@ -85,6 +104,12 @@ function renderPolicies(policies) {
     }
     policyPanel.append(card);
   });
+  if (requiredPolicies.length && requiredPolicies.every((item) => item.accepted_at)) {
+    const nextStep = document.createElement("p");
+    nextStep.className = "staff-onboarding-review-note";
+    nextStep.textContent = "All current required policies are accepted. This restores access that was waiting on policy acceptance. New or pending employee assignments still need HR activation.";
+    policyPanel.append(nextStep);
+  }
 }
 
 async function acceptInviteFromHash() {
@@ -115,7 +140,7 @@ async function loadPolicies() {
     profileForm.elements.phone.value = profileResult.data?.phone || "";
     profileForm.hidden = false;
     statePanel.hidden = true;
-    renderPolicies(policyResult.data || []);
+    renderPolicies(policyResult.data || [], policyResult.access_paused === true);
   } catch (error) {
     statePanel.classList.add("is-error");
     statePanel.textContent = error instanceof Error ? error.message : "Organization policies could not be loaded.";
@@ -125,18 +150,26 @@ async function loadPolicies() {
 profileForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   profileMessage.hidden = true;
+  const submitButton = profileForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  submitButton.textContent = "Saving profile…";
   try {
+    const phone = profileForm.elements.phone.value.trim().replace(/[\s().-]/g, "");
     await request("/api/employee/hr-profile", "PATCH", {
       full_name: profileForm.elements.full_name.value.trim(),
-      phone: profileForm.elements.phone.value.trim()
+      phone
     });
     profileMessage.className = "staff-onboarding-message is-success";
+    profileMessage.setAttribute("role", "status");
     profileMessage.textContent = "Your employee profile was saved.";
   } catch (error) {
     profileMessage.className = "staff-onboarding-message is-error";
+    profileMessage.setAttribute("role", "alert");
     profileMessage.textContent = error instanceof Error ? error.message : "Your profile could not be saved.";
   } finally {
     profileMessage.hidden = false;
+    submitButton.disabled = false;
+    submitButton.textContent = "Save employee profile";
   }
 });
 

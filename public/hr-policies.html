@@ -43,10 +43,11 @@
             </label>
             <label class="staff-field">
               <span>Phone number</span>
-              <input name="phone" type="tel" autocomplete="tel">
+              <input name="phone" type="tel" autocomplete="tel" maxlength="30" aria-describedby="hr-phone-help">
+              <small id="hr-phone-help">Use an international number, for example +15551234567. Spaces, hyphens, and parentheses are okay.</small>
             </label>
           </div>
-          <p id="hr-profile-message" class="staff-onboarding-message" hidden></p>
+          <p id="hr-profile-message" class="staff-onboarding-message" role="status" aria-live="polite" aria-atomic="true" hidden></p>
           <button class="staff-submit-button" type="submit">Save employee profile</button>
         </section>
       </form>

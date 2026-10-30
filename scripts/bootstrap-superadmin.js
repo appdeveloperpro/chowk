@@ -137,6 +137,17 @@ async function main() {
     await client.query(fs.readFileSync(migrationPath, "utf8"));
     console.log("Chowk database schema is installed.");
 
+    const superAdmin = await client.query(
+      `select auth_user.email
+       from public.profiles profile
+       join auth.users auth_user on auth_user.id = profile.id
+       where profile.role = 'super_admin'
+       limit 1`
+    );
+    if (superAdmin.rowCount && superAdmin.rows[0].email.toLowerCase() !== email) {
+      throw new Error("A super-admin account already exists. The Chowk system allows only one super admin.");
+    }
+
     const existing = await client.query(
       "select id, email_confirmed_at from auth.users where lower(email) = lower($1) limit 1",
       [email]

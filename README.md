@@ -210,7 +210,7 @@ Requires Node.js 18 or newer.
    policies, immutable acceptance records, and safe deletion rules. Migration
    0065 adds configurable
    organization data models, typed fields, per-role action scopes, configurable
-   workflow transitions, optimistic record revisions, soft deletion, and
+   workflow transitions, optimistic record revisions, and
    immutable record history. Administrators configure these models in Admin →
    HR management → Data models; permitted employees use `/organization`. Custom
    model rules are enforced by database functions rather than the UI.
@@ -235,9 +235,11 @@ Requires Node.js 18 or newer.
   Super admins retain full organization-configuration control; other admins
   retain existing account-level administration. Ordinary admins do not inherit
   organization permissions or HR access; HR access requires an active
-  organization relationship with `hr.console.access`. Used organization,
-   access, and policy records are deactivated or retired rather than erased;
-   model records retain their history. Apply migration 0064 after 0063 and
+   organization relationship with `hr.console.access`. Departments, positions,
+   and access roles cannot be deleted while dependent records reference them.
+   HR policy versions and employee assignments can be permanently deleted;
+   audit logs remain retained. Configurable model records can be permanently
+   deleted while their immutable event snapshots remain. Apply migration 0064 after 0063 and
   migration 0065 after 0064, before deploying the matching application code,
   then apply migrations 0066, 0067, 0068, 0069, and 0070 in order. Migration 0068
    adds organization IDs and composite foreign keys to workflow and
@@ -258,7 +260,19 @@ Requires Node.js 18 or newer.
   0070 removes implicit organization-permission grants for ordinary admin
   accounts; explicit organization access-role assignments are now required
   for organization and HR capabilities. Apply it after 0069 and before
-  deploying the matching server code.
+  deploying the matching server code. Migration 0071 requires active employees
+  to accept each current required HR policy before organization permissions are
+  granted, preserves assignment history on change, and adds confirmed permanent
+  deletes for HR employment and configurable model records while retaining
+  audit history. Apply it after 0070 and before deploying the matching code.
+  Migration 0072 enforces a single super-admin account, lets the super-admin
+  permanently delete other Supabase accounts from Chowk, cleans their private
+  application files, and preserves audit history while removing restrictive
+  account references. It also adds permanent deletion for staff applications
+  and custom newsroom job titles; built-in titles remain protected. Apply it
+  after 0071 and before deploying the matching code. Account deletion requires
+  `SUPABASE_SERVICE_ROLE_KEY` on the server; no manual Supabase dashboard delete
+  is needed.
 
   The generic workflow runtime currently stores a format-validated subject
   type and ID as text; it does not resolve or bind them to authoritative
@@ -554,8 +568,8 @@ public homepage category chips load active categories from the database.
 Migration 0058 adds secure moderator/editor invitations, private staff profile
 completion, Admin review, and database-enforced role activation. Apply it after
 migration 0057 and before deploying the matching application code. Staff
-invitations require `SUPABASE_SERVICE_ROLE_KEY` on the server. Include both
-`/staff-onboarding` and `/hr-policies` in Supabase Auth's allowed redirect URLs
+invitations require `SUPABASE_SERVICE_ROLE_KEY` on the server. Include `/staff-onboarding`, `/hr-policies`, and `/employee-policies` in
+Supabase Auth's allowed redirect URLs
 so legacy staff and HR invitations return to the correct profile and policy
 workflows. Authenticated staff use `/organization` to access the custom models
 assigned to their active HR access role.

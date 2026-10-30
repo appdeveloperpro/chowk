@@ -335,6 +335,11 @@ function formatDate(value) {
       }).format(date);
 }
 
+function dateInputValue(date = new Date()) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
+}
+
 function currentCredentialStatus(credential) {
   if (!["active", "pending_acceptance"].includes(credential.status)) return credential.status;
   const today = new Date().toISOString().slice(0, 10);
@@ -405,6 +410,7 @@ function renderAgreementModeTabs(root) {
 }
 
 async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
+  document.body.classList.remove("admin-hr-theme");
   let agreementRoleData = null;
   if (page === "agreements") {
     const roleResult = await apiRequest(modules["role-agreements"].path).catch(() => null);
@@ -420,7 +426,12 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
   activeSection = page;
   const label = sectionLabels[page];
   document.querySelector("#breadcrumb-section").textContent = label;
-  navItems.forEach((item) => item.classList.toggle("is-active", item.dataset.section === page));
+  navItems.forEach((item) => {
+    const isCurrent = item.dataset.section === page;
+    item.classList.toggle("is-active", isCurrent);
+    if (isCurrent) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
   content.replaceChildren(makeElement("div", "admin-loading", `Loading ${label.toLowerCase()}…`));
 
   const root = makeElement("div", "admin-section");
@@ -508,6 +519,7 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
 }
 
 async function loadSection(section) {
+  document.body.classList.remove("admin-hr-theme");
   if (legacySectionRoutes[section]) {
     const destination = legacySectionRoutes[section];
     if (workflowTabs[destination]) {
@@ -526,9 +538,12 @@ async function loadSection(section) {
   activeSection = section;
   const label = sectionLabels[section] || "Overview";
   document.querySelector("#breadcrumb-section").textContent = label;
-  navItems.forEach((item) =>
-    item.classList.toggle("is-active", item.dataset.section === section)
-  );
+  navItems.forEach((item) => {
+    const isCurrent = item.dataset.section === section;
+    item.classList.toggle("is-active", isCurrent);
+    if (isCurrent) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
   content.replaceChildren(
     makeElement("div", "admin-loading", `Loading ${label.toLowerCase()}…`)
   );
@@ -2352,6 +2367,41 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
         record.review_note ? makeElement("p", "admin-staff-review-note", record.review_note) : makeElement("span")
       );
     }
+    if (sessionIdentity?.role === "super_admin") {
+      const actions = makeElement("div", "admin-page-actions");
+      if (record.status === "invited") {
+        const removeInvitation = makeElement("button", "admin-secondary-button admin-danger-button",
+          "Delete invitation and account");
+        removeInvitation.type = "button";
+        removeInvitation.addEventListener("click", () => {
+          void confirmAdminAction(
+            "Permanently delete staff invitation?",
+            `Delete the invitation, unaccepted Supabase login, Chowk profile, and private files for ${profile.email || name}? Audit/security history is retained. This cannot be undone.`
+          ).then((confirmed) => {
+            if (confirmed) {
+              void runAction(() => apiRequest(`admin/users/${record.user_id}`, "DELETE"), refresh);
+            }
+          });
+        });
+        actions.append(removeInvitation);
+      } else if (["submitted", "changes_requested", "approved_pending_agreement", "rejected"].includes(record.status)) {
+        const removeApplication = makeElement("button", "admin-secondary-button admin-danger-button",
+          "Delete staff application");
+        removeApplication.type = "button";
+        removeApplication.addEventListener("click", () => {
+          void confirmAdminAction(
+            "Permanently delete staff application?",
+            `Delete ${profile.email || name}'s staff onboarding application and private profile photo? The Chowk login account will remain; audit/security history is retained. This cannot be undone.`
+          ).then((confirmed) => {
+            if (confirmed) {
+              void runAction(() => apiRequest(`admin/staff-onboarding/${record.user_id}`, "DELETE"), refresh);
+            }
+          });
+        });
+        actions.append(removeApplication);
+      }
+      if (actions.childElementCount) card.append(actions);
+    }
     grid.append(card);
   });
   root.append(grid);
@@ -2381,6 +2431,25 @@ function renderStaffRoleCatalog(root, roles) {
     edit.type = "button";
     edit.addEventListener("click", () => void openStaffRoleDialog(role, () => loadSection("staff-roles")));
     card.append(edit);
+    if (!role.is_builtin && sessionIdentity?.role === "super_admin") {
+      const remove = makeElement("button", "admin-secondary-button admin-danger-button", "Delete job title");
+      remove.type = "button";
+      remove.addEventListener("click", () => {
+        void confirmAdminAction(
+          "Permanently delete newsroom job title?",
+          `Delete "${role.display_name}" from the job-title catalog? Existing staff assignments retain their saved title and duties for history; new assignments can no longer select it. This cannot be undone.`
+        ).then(async (confirmed) => {
+          if (!confirmed) return;
+          try {
+            await apiRequest(`admin/staff-roles/${role.id}`, "DELETE");
+            await loadSection("staff-roles");
+          } catch (error) {
+            void showAdminMessage("Job title was not deleted", error.message);
+          }
+        });
+      });
+      card.append(remove);
+    }
     catalog.append(card);
   });
   root.append(catalog);
@@ -2894,18 +2963,20 @@ function openOrganizationWorkflowTransitionDialog(workflow, transition) {
 }
 
 function renderHrManagement() {
+  document.body.classList.add("admin-hr-theme");
   const root = makeElement("div", "admin-section");
   addHeading(
     root,
     "PEOPLE",
     "HR management",
-    "Configure organization structure, access roles, employee assignments, and versioned policies."
+    "Manage HR structure, employee access, assignments, and policies. HR access roles are separate from newsroom job titles."
   );
   const tabBar = makeElement("div", "admin-workflow-tabs");
+  tabBar.setAttribute("aria-label", "HR management areas");
   [
     ["departments", "Departments"],
     ["positions", "Employee positions"],
-    ["access_roles", "Access roles"],
+    ["access_roles", "HR access roles"],
     ["models", "Data models"],
     ["assignments", "Employees and assignments"],
     ["policies", "Policies"]
@@ -2920,6 +2991,8 @@ function renderHrManagement() {
     tabBar.append(tab);
   });
   root.append(tabBar);
+  root.append(makeElement("p", "admin-hr-guidance",
+    "A position describes an employee's work. An HR access role controls what they can do in the system. Newsroom job titles are managed separately; Organization setup manages organization-level access and workflows."));
   const canConfigure = hrManagementData?.capabilities?.configuration === true;
   const canManageEmployees = hrManagementData?.capabilities?.employees === true;
   const canAssignEmployees = hrManagementData?.capabilities?.manage_employees === true;
@@ -2948,10 +3021,10 @@ function renderHrConfigurationTab(root) {
   const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   const heading = isDepartments ? "Organization departments"
-    : isPositions ? "Employee positions" : "Configurable access roles";
+    : isPositions ? "Employee positions" : "Configurable HR access roles";
   header.append(makeElement("h2", "", heading), makeElement("span", "", `${records.length} records`));
   const add = makeElement("button", "admin-primary-button", isDepartments ? "Add department"
-    : isPositions ? "Add position" : "Add access role");
+    : isPositions ? "Add position" : "Add HR access role");
   add.type = "button";
   add.addEventListener("click", () => {
     if (isDepartments) openHrDepartmentDialog(null);
@@ -2990,13 +3063,18 @@ function renderHrConfigurationTab(root) {
       actions.append(permissions);
     }
     if (!record.is_system) {
-      const remove = makeElement("button", "admin-secondary-button", "Delete if unused");
+      const remove = makeElement("button", "admin-secondary-button admin-danger-button", "Delete");
       remove.type = "button";
+      const deleteExplanation = isDepartments
+        ? "This permanently deletes the department only when nothing references it. Remove dependent positions, assignments, policies, and model records first. Audit logs are retained."
+        : isPositions
+          ? "This permanently deletes the position only when no assignments reference it. Audit logs are retained."
+            : "This permanently deletes the HR access role only when no assignments or policies reference it. It also removes this role's configurable-model permissions and may revoke organization access mapped to the role. Audit logs are retained.";
       remove.addEventListener("click", () => void deleteHrRecord(
         isDepartments ? "departments" : isPositions ? "positions" : "access-roles",
         record.id,
         `Delete ${title}?`,
-        "Records with assignment or organizational history cannot be hard-deleted; deactivate them instead."
+        deleteExplanation
       ));
       actions.append(remove);
     }
@@ -3050,7 +3128,7 @@ function renderHrModelsTab(root) {
       transition.addEventListener("click", () => openHrModelTransitionDialog(model, null));
       actions.append(transition);
     }
-    const remove = makeElement("button", "admin-secondary-button", "Delete if unused");
+    const remove = makeElement("button", "admin-secondary-button admin-danger-button", "Delete");
     remove.type = "button";
     remove.addEventListener("click", () => void deleteHrModel(model));
     actions.append(remove);
@@ -3063,7 +3141,16 @@ function renderHrModelsTab(root) {
       editField.type = "button";
       editField.disabled = !model.is_active;
       editField.addEventListener("click", () => openHrModelFieldDialog(model, field));
-      row.append(editField);
+      const deleteField = makeElement("button", "admin-secondary-button admin-danger-button", "Delete field");
+      deleteField.type = "button";
+      deleteField.disabled = !model.is_active;
+      deleteField.addEventListener("click", () => void deleteHrRecord(
+        "model-fields",
+        field.id,
+        `Delete the "${field.label}" field?`,
+        "This permanently removes the field and its current values from model records. Immutable record history remains."
+      ));
+      row.append(editField, deleteField);
       fieldList.append(row);
     });
     (model.transitions || []).forEach((transition) => {
@@ -3268,7 +3355,7 @@ async function deleteHrModelTransition(transition) {
 
 async function deleteHrModel(model) {
   if (!await confirmAdminAction(`Delete ${model.name}?`,
-    "A model with any record history cannot be deleted. Deactivate it instead.", "Delete")) return;
+    "This permanently deletes the model configuration after its records have been deleted. Audit history is retained.", "Delete permanently")) return;
   try {
     await apiRequest(`admin/hr/models/${model.id}`, "DELETE");
     await loadHrManagement();
@@ -3279,6 +3366,8 @@ async function deleteHrModel(model) {
 
 function renderHrAssignmentsTab(root, canAssignEmployees) {
   const assignments = hrManagementData.assignments || [];
+  const shownEmployeeDeletes = new Set();
+  const shownAccountDeletes = new Set();
   const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   header.append(makeElement("h2", "", "Employee lifecycle and assignments"),
@@ -3294,7 +3383,7 @@ function renderHrAssignmentsTab(root, canAssignEmployees) {
     actions.append(add, invite);
     panel.append(header, actions);
     const note = makeElement("p", "admin-dialog-help",
-      "Create an employment record for an existing account or invite an employee by email. Employees complete their profile and accept current required policy versions before activation.");
+      "Create an employment record for an existing account or invite an employee by email. Employees complete their profile and accept required policies before HR activates their assignment.");
     panel.append(note);
   } else {
     panel.append(header);
@@ -3320,9 +3409,54 @@ function renderHrAssignmentsTab(root, canAssignEmployees) {
       end.addEventListener("click", () => openHrAssignmentDialog(assignment, true));
       actions.append(end);
     }
+    if (canAssignEmployees) {
+      const removeAssignment = makeElement("button", "admin-secondary-button admin-danger-button", "Delete assignment");
+      removeAssignment.type = "button";
+      removeAssignment.addEventListener("click", () => void deleteHrRecord(
+        "assignments",
+        assignment.id,
+        "Permanently delete this assignment?",
+        "The assignment and its employment history will be removed. Its audit log entry will remain."
+      ));
+      actions.append(removeAssignment);
+      if (!shownEmployeeDeletes.has(assignment.employee_id)) {
+        shownEmployeeDeletes.add(assignment.employee_id);
+        const removeEmployee = makeElement("button", "admin-secondary-button admin-danger-button", "Delete HR employee record");
+        removeEmployee.type = "button";
+        removeEmployee.addEventListener("click", () => void deleteHrRecord(
+          "employees",
+          assignment.employee_id,
+          `Permanently delete ${assignment.employee_name || assignment.employee_email || "this employee"}'s HR record?`,
+          "This removes the HR employee record, assignments, and policy acceptance records. The Chowk login account remains; audit logs are retained."
+        ));
+        actions.append(removeEmployee);
+      }
+    }
+    if (sessionIdentity?.role === "super_admin"
+        && !shownAccountDeletes.has(assignment.employee_id)
+        && assignment.employee_id !== sessionIdentity.id) {
+      shownAccountDeletes.add(assignment.employee_id);
+      const removeAccount = makeElement("button", "admin-secondary-button admin-danger-button", "Delete account");
+      removeAccount.type = "button";
+      removeAccount.addEventListener("click", () => {
+        void confirmAdminAction(
+          "Permanently delete employee account?",
+          `Delete ${assignment.employee_name || assignment.employee_email || "this employee"}'s Supabase login and Chowk profile, related HR records, and private files? Audit/security history is retained. The single super-admin account and your own account cannot be deleted. This cannot be undone.`
+        ).then((confirmed) => {
+          if (confirmed) {
+            void runAction(() => apiRequest(`admin/users/${assignment.employee_id}`, "DELETE"), loadHrManagement);
+          }
+        });
+      });
+      actions.append(removeAccount);
+    }
     card.append(actions);
     panel.append(card);
   });
+  if (!assignments.length) {
+    panel.append(makeElement("p", "admin-empty",
+      "No employee assignments yet. Assign an existing account or invite an employee to get started."));
+  }
   root.append(panel);
 }
 
@@ -3369,31 +3503,34 @@ function renderHrPoliciesTab(root) {
         const publish = makeElement("button", "admin-primary-button", "Publish");
         publish.type = "button";
         publish.addEventListener("click", () => void publishHrPolicyVersion(version.id));
-        const remove = makeElement("button", "admin-secondary-button", "Delete draft");
-        remove.type = "button";
-        remove.addEventListener("click", () => void deleteHrRecord(
-          "policy-versions", version.id, `Delete draft ${version.version}?`,
-          "Only unused drafts can be deleted. Published or accepted policy history is retained."
-        ));
-        versionRow.append(editDraft, publish, remove);
+        versionRow.append(editDraft, publish);
       } else {
         versionRow.append(makeElement("span", "admin-dialog-help",
           `Published ${formatDate(version.published_at)} · SHA-256 ${version.sha256}`));
       }
+      const removeVersion = makeElement("button", "admin-secondary-button admin-danger-button", "Delete version");
+      removeVersion.type = "button";
+      removeVersion.addEventListener("click", () => void deleteHrRecord(
+        "policy-versions",
+        version.id,
+        `Permanently delete version ${version.version}?`,
+        "This removes the version and its employee acceptances. The audit log is retained. An active required policy must have another published version."
+      ));
+      versionRow.append(removeVersion);
       card.append(versionRow);
     });
-    const remove = makeElement("button", "admin-secondary-button", "Delete if unused");
+    const remove = makeElement("button", "admin-secondary-button admin-danger-button", "Delete policy");
     remove.type = "button";
     remove.addEventListener("click", () => void deleteHrRecord(
       "policies", policy.id, `Delete ${policy.title}?`,
-      "Policies with version or acceptance history cannot be deleted; deactivate them instead."
+      "This permanently removes the policy, all versions, and all associated employee acceptances. Audit logs are retained."
     ));
     card.append(remove);
     panel.append(card);
   });
   root.append(panel);
   root.append(makeElement("p", "admin-dialog-help",
-    "Publishing a new required version retires the prior version. Staff must accept the exact current version before activation; accepted copies remain immutable."));
+    "Publishing a new required version retires the prior version. Existing employees lose organization access until they accept the new version. Audit history is retained after HR records are deleted."));
 }
 
 function addHrSelect(form, labelText, name, options, selected, emptyLabel = null, required = true) {
@@ -3496,8 +3633,8 @@ function openHrPositionDialog(record) {
 }
 
 function openHrAccessRoleDialog(record) {
-  openFormDialog(record ? "Edit access role" : "Add access role",
-    "Access roles bundle supported application permissions. Changes affect employees with this role.",
+  openFormDialog(record ? "Edit HR access role" : "Add HR access role",
+    "HR access roles grant application permissions. They are separate from newsroom job titles and employee positions.",
     (form) => {
       const name = addField(form, "Role name", "name", "text", record?.name, { minLength: 2, maxLength: 100 });
       addHrKeyField(form, "Role key", "role_key", record?.role_key, name);
@@ -3562,7 +3699,9 @@ function openHrAssignmentDialog(record, ending = false) {
   const roles = (hrManagementData.access_roles || []).filter((item) => item.is_active);
   openFormDialog(ending ? "End employee assignment" : record ? "Change employee assignment" : "Assign employee",
     ending ? "Ending access preserves the assignment and all audit history."
-      : "Assign an employee account to a department, position, manager, and access role. Access activates only after required HR policy acceptance.",
+      : record
+        ? "This creates a new effective-dated assignment and ends the previous one, preserving the assignment history."
+        : "Assign an employee account to a department, position, manager, and HR access role. Access activates only after required policy acceptance.",
     (form) => {
       addHrSelect(form, "Employee account", "employee_id",
         accounts.map((item) => ({ value: item.id, label: `${item.full_name || item.email} · ${item.email || item.role}` })),
@@ -3594,10 +3733,14 @@ function openHrAssignmentDialog(record, ending = false) {
           .map((item) => ({ value: item.id, label: `${item.full_name || item.email} · ${item.employee_number}` })),
         record?.manager_employee_id, "No manager", false);
       addHrSelect(form, "Assignment status", "status",
-        ["pending", "active", "suspended", "ended"].map((item) => ({ value: item, label: item })),
+        (ending ? ["ended"] : record ? ["pending", "active", "suspended"] : ["pending", "active", "suspended"])
+          .map((item) => ({ value: item, label: item })),
         ending ? "ended" : record?.status || "pending", null);
-      const start = record?.starts_at ? new Date(record.starts_at).toISOString().slice(0, 10) : "";
-      addField(form, "Start date", "starts_at", "date", start, { required: false });
+      const today = dateInputValue();
+      const start = today;
+      const dateField = addField(form, ending ? "End date" : record ? "Effective date" : "Start date",
+        "starts_at", "date", start, { required: Boolean(record) });
+      if (record) dateField.max = today;
       if (ending || record?.status === "ended") {
         addField(form, "Reason for ending", "end_reason", "text", record?.end_reason || "", { minLength: 2, maxLength: 1000 });
       }
@@ -3615,8 +3758,7 @@ function openHrAssignmentDialog(record, ending = false) {
     },
     async (values) => {
       const date = values.get("starts_at");
-      await apiRequest("admin/hr/assignments", "POST", {
-        id: record?.id || null,
+      const payload = {
         employee_id: record?.employee_id || values.get("employee_id"),
         employment_type: values.get("employment_type"),
         department_id: values.get("department_id") || null,
@@ -3625,10 +3767,20 @@ function openHrAssignmentDialog(record, ending = false) {
         manager_employee_id: values.get("manager_employee_id") || null,
         status: ending ? "ended" : values.get("status"),
         is_primary: values.get("is_primary") === "on",
-        starts_at: date ? new Date(`${date}T00:00:00.000Z`).toISOString()
+        starts_at: date ? new Date(`${date}T00:00:00`).toISOString()
           : record?.starts_at || (ending ? new Date().toISOString() : null),
         end_reason: values.get("end_reason") || ""
-      });
+      };
+      if (record && ending) {
+        await apiRequest(`admin/hr/assignments/${record.id}/end`, "POST", {
+          ends_at: payload.starts_at,
+          end_reason: payload.end_reason
+        });
+      } else if (record) {
+        await apiRequest(`admin/hr/assignments/${record.id}/change`, "POST", payload);
+      } else {
+        await apiRequest("admin/hr/assignments", "POST", { ...payload, id: record?.id || null });
+      }
       await loadHrManagement();
     },
     ending ? "End assignment" : "Save assignment");
@@ -3730,7 +3882,7 @@ function openHrPolicyVersionDialog(policy, version) {
 
 async function publishHrPolicyVersion(id) {
   if (!await confirmAdminAction("Publish policy version?",
-    "This makes the exact version effective and retires the prior published version. Staff may need to accept it again.",
+    "This makes the exact version effective and retires the prior one. Active employees in scope lose organization access until they accept this version.",
     "Publish", false)) return;
   try {
     await apiRequest(`admin/hr/policy-versions/${id}/publish`, "POST", {});
@@ -3742,7 +3894,7 @@ async function publishHrPolicyVersion(id) {
 }
 
 async function deleteHrRecord(collection, id, title, explanation) {
-  if (!await confirmAdminAction(title, explanation, "Delete")) return;
+  if (!await confirmAdminAction(title, explanation, "Delete permanently")) return;
   try {
     await apiRequest(`admin/hr/${collection}/${id}`, "DELETE");
     await loadHrManagement();
@@ -4185,37 +4337,40 @@ function addRowActions(container, row, section) {
   const refresh = () => loadSection(section === "workflow-directory" ? "directory" : section);
 
   if (section === "users" || section === "accounts") {
-    const role = document.createElement("select");
-    role.className = "admin-role-select";
-    role.setAttribute("aria-label", `Role for ${row.name || id}`);
-    const roles = sessionIdentity?.role === "super_admin"
-      ? ["subscriber", "reporter", "publisher", "admin", "super_admin"]
-      : ["subscriber", "reporter", "publisher", "admin"];
-    if (["moderator", "editor"].includes(row.role)) roles.push(row.role);
-    roles.filter((value) => value !== "reporter" || row.role === "reporter").forEach((value) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = value.replace("_", " ");
-      option.selected = value === row.role;
-      role.append(option);
-    });
-    role.addEventListener("change", async () => {
-      if (role.value === "reporter" && row.role !== "reporter") {
-        role.value = row.role;
-        void showAdminMessage("Reporter access unavailable", "Reporter access is granted only after the applicant completes the reporter onboarding steps.");
-        return;
-      }
+    if (row.role === "super_admin") {
+      container.append(makeElement("span", "admin-dialog-help", "Single super-admin account"));
+    } else {
+      const role = document.createElement("select");
+      role.className = "admin-role-select";
+      role.setAttribute("aria-label", `Role for ${row.name || id}`);
+      const roles = ["subscriber", "reporter", "publisher", "admin"];
+      if (["moderator", "editor"].includes(row.role)) roles.push(row.role);
+      roles.filter((value) => value !== "reporter" || row.role === "reporter").forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value.replace("_", " ");
+        option.selected = value === row.role;
+        role.append(option);
+      });
+      role.addEventListener("change", async () => {
+        if (role.value === "reporter" && row.role !== "reporter") {
+          role.value = row.role;
+          void showAdminMessage("Reporter access unavailable", "Reporter access is granted only after the applicant completes the reporter onboarding steps.");
+          return;
+        }
 
-      try {
-        await apiRequest(`admin/users/${id}/role`, "PATCH", { role: role.value });
-        await refresh();
-      } catch (error) {
-        void showAdminMessage("Role update failed", error.message);
-        await refresh();
-      }
-    });
-    container.append(role);
-    if (row.role !== "super_admin"
+        try {
+          await apiRequest(`admin/users/${id}/role`, "PATCH", { role: role.value });
+          await refresh();
+        } catch (error) {
+          void showAdminMessage("Role update failed", error.message);
+          await refresh();
+        }
+      });
+      container.append(role);
+    }
+    if (sessionIdentity?.role === "super_admin"
+        && row.role !== "super_admin"
         && String(row.id).toLowerCase() !== sessionIdentity?.id?.toLowerCase()) {
       rowButton(container, "Delete user", () => {
         const displayName = row.full_name && row.full_name !== "—"
@@ -4223,7 +4378,7 @@ function addRowActions(container, row, section) {
           : row.email || id;
         void confirmAdminAction(
           "Permanently delete user account?",
-          `Delete ${displayName}'s ${row.role.replace("_", " ")} login and profile permanently? Reporter applications and private documents will be removed. Article and comment history will be retained without identifying the account where possible. Super admin accounts and your own account cannot be deleted. This cannot be undone.`
+          `Permanently delete ${displayName}'s Supabase login and Chowk profile? HR and reporter account records, private application files, staff photos, and custom organization records owned by this account will be removed. Shared articles and comments remain without the account link where supported; audit/security history is retained. The single super-admin account and your own account cannot be deleted. This cannot be undone.`
         ).then((confirmed) => {
           if (!confirmed) return;
           void runAction(() => apiRequest(`admin/users/${id}`, "DELETE"), refresh);

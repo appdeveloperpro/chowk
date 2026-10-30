@@ -10,14 +10,12 @@ const sectionLabels = Object.fromEntries(
 const workflowTabs = {
   applications: [
     { key: "reporter", label: "Reporters" },
-    { key: "moderator", label: "Moderators" },
-    { key: "editor", label: "Editors" }
+    { key: "newsroom", label: "Newsroom staff" }
   ],
   directory: [
     { key: "all", label: "All active staff" },
     { key: "reporter", label: "Reporters" },
-    { key: "moderator", label: "Moderators" },
-    { key: "editor", label: "Editors" }
+    { key: "newsroom", label: "Newsroom staff" }
   ],
   agreements: [
     { key: "reporter", label: "Reporters" },
@@ -57,7 +55,7 @@ const configurationSections = [
   {
     key: "reporter-configuration",
     label: "Reporter setup",
-    description: "Manage reporter organization details, reporting areas, designations, and service agreements.",
+    description: "Manage reporter organization details, state codes, designations, and service agreements. District RTO codes are managed in Locations.",
     permission: "reporters.manage",
     navSection: "reporter-configuration",
     group: "REPORTING"
@@ -127,15 +125,15 @@ const modules = {
   },
   accounts: {
     path: "admin/users",
-    description: "Manage general account access and account deletion. Use HR Management for employee records and invitations, and the Newsroom Directory for reporter office and designation assignments."
+    description: "Manage general account access and account deletion. Newsroom staff responsibilities and permissions are managed through assigned newsroom roles."
   },
   "staff-roles": {
     path: "admin/staff-roles",
-    description: "Define newsroom job titles and duties. Each title maps to a fixed legacy newsroom account profile; it does not define a permission bundle."
+    description: "Create one assignable newsroom role with its title, responsibilities, and system permissions."
   },
   "staff-onboarding": {
     path: "admin/staff-onboarding",
-    description: "Review complete staff profiles before moderator or editor access is activated."
+    description: "Review complete staff profiles before assigned newsroom role access is activated."
   },
   "role-agreements": {
     path: "admin/role-agreements",
@@ -214,12 +212,13 @@ const modules = {
   },
   locations: {
     path: "admin/locations",
-    description: "Manage the State > Region > Zone > Range > District > Coverage area hierarchy. Enter an RTO code when creating a District; it is added to the existing State/RTO records used for reporter IDs. Existing Zones migrated under an 'Unassigned Region' must be moved into the correct Region.",
+    description: "Manage the State > Region > Zone > Range > District > Coverage area hierarchy. Enter a two-character reporter ID code on each State and an RTO code on each District. State locations linked to reporter IDs cannot be converted or deleted; deactivate them instead. Existing Zones migrated under an 'Unassigned Region' must be moved into the correct Region.",
     createPath: "admin/locations",
     formFields: [
       { name: "name", label: "Location name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
       { name: "location_type", label: "Location level", type: "select", options: ["state", "region", "zone", "range", "district", "coverage_area"] },
+      { name: "state_code", label: "Reporter ID state code (exactly 2 letters or numbers)", type: "text", required: false, maxLength: 2 },
       { name: "rto_code", label: "RTO code (without State prefix; e.g. 80)", type: "text", required: false, maxLength: 8 },
       { name: "parent_id", label: "Parent location", type: "number", required: false },
       { name: "is_active", label: "Active", type: "checkbox" }
@@ -260,6 +259,7 @@ function renderLocationModule(root, results) {
     ...location,
     _source_type: location.location_type,
     _parent_type: byId.get(String(location.parent_id))?.location_type || "",
+    state_code: location.location_type === "state" ? location.state_code || "—" : "—",
     rto_code: location.location_type === "district" ? location.rto_code || "—" : "—",
     hierarchy: locationPath(location, byId),
     parent_location: byId.get(String(location.parent_id))?.name || "Top level"
@@ -317,6 +317,12 @@ let overviewData = null;
 let locationRecords = [];
 let reporterSetupView = "overview";
 let hrManagementData = null;
+const legacyNewsroomPermissionRoleKeys = new Set(["reporter", "moderator", "editor", "publisher"]);
+
+function hrEmployeePermissionRoles() {
+  return (hrManagementData?.access_roles || [])
+    .filter((role) => !legacyNewsroomPermissionRoleKeys.has(role.role_key));
+}
 let activeHrTab = "departments";
 let organizationConfigurationData = null;
 let activeConfigurationSection = "locations";
@@ -505,8 +511,8 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
     ? "PEOPLE OPERATIONS"
     : "NEWSROOM · PEOPLE";
   addHeading(root, headingGroup, label, {
-    applications: "Review reporter applications and moderator/editor staff invitations in one queue.",
-    directory: "Browse approved reporters, moderators, and editors from one staff directory.",
+    applications: "Review reporter applications and newsroom role invitations in one queue.",
+    directory: "Browse reporters and newsroom staff by their assigned newsroom role.",
     agreements: "Manage reporter and newsroom staff agreements, wording, and acceptance records.",
     credentials: "Issue and manage staff ID cards and reporter authority letters."
   }[page]);
@@ -520,17 +526,18 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         renderReporterAdminSection("reporter-applications", root, unwrapData(result));
       } else {
         const result = await apiRequest(modules["staff-onboarding"].path);
-        const records = (unwrapData(result) || []).filter((row) => row.requested_role === tabKey);
+        const records = (unwrapData(result) || []).filter((row) =>
+          ["moderator", "editor"].includes(row.requested_role)
+        );
         const actions = pageActions(root);
-        const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage newsroom job titles");
+        const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage newsroom roles");
         manageRoles.type = "button";
         manageRoles.addEventListener("click", () => void loadSection("staff-roles"));
         actions.append(manageRoles);
-        const invite = makeElement("button", "admin-primary-button admin-create-button", `Invite ${tabKey}`);
+        const invite = makeElement("button", "admin-primary-button admin-create-button", "Invite newsroom staff");
         invite.type = "button";
         invite.addEventListener("click", () => void openStaffInvitationDialog(
-          () => loadWorkflowPage("applications", tabKey),
-          tabKey
+          () => loadWorkflowPage("applications", tabKey)
         ));
         actions.append(invite);
         renderStaffOnboarding(root, records, () => loadWorkflowPage("applications", tabKey), false);
@@ -544,7 +551,7 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
       const staff = (unwrapData(onboardingResult) || []).filter((row) =>
         row.status === "active"
         && ["moderator", "editor"].includes(row.requested_role)
-        && ["all", row.requested_role].includes(tabKey)
+        && (tabKey === "all" || tabKey === "newsroom")
       ).map((row) => ({
         id: row.user_id,
         staff_role_id: row.staff_role_id,
@@ -562,7 +569,7 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         renderReporterAdminSection("reporter-directory", root, reporters);
       }
       if (tabKey !== "reporter") {
-        root.append(renderTablePanel("Active moderators and editors", staff, "workflow-directory"));
+        root.append(renderTablePanel("Active newsroom staff", staff, "workflow-directory"));
       }
     } else if (page === "agreements") {
       if (agreementPanelMode === "records") {
@@ -721,7 +728,7 @@ async function loadSection(section) {
     const destination = legacySectionRoutes[section];
     if (workflowTabs[destination]) {
       const preferredTab = section === "reporter-applications" ? "reporter"
-        : section === "staff-onboarding" ? (activeWorkflowTabs.applications === "reporter" ? "moderator" : activeWorkflowTabs.applications)
+        : section === "staff-onboarding" ? "newsroom"
           : section === "reporter-directory" ? "reporter"
             : section === "role-agreements" ? activeWorkflowTabs.agreements
               : undefined;
@@ -773,9 +780,9 @@ async function loadSection(section) {
     try {
       const result = await apiRequest(modules["staff-roles"].path);
       const root = makeElement("div", "admin-section");
-      addHeading(root, "NEWSROOM · PEOPLE", "Newsroom job titles", modules["staff-roles"].description);
+      addHeading(root, "NEWSROOM · PEOPLE", "Newsroom roles", modules["staff-roles"].description);
       const actions = pageActions(root);
-      const addRole = makeElement("button", "admin-primary-button admin-create-button", "Add newsroom job title");
+      const addRole = makeElement("button", "admin-primary-button admin-create-button", "Add newsroom role");
       addRole.type = "button";
       addRole.addEventListener("click", () => void openStaffRoleDialog(null, () => loadSection("staff-roles")));
       actions.append(addRole);
@@ -1573,25 +1580,11 @@ function openEndLeadershipAppointmentDialog(assignmentId, isScheduled) {
 function renderReporterSetup(root, data) {
   root.querySelectorAll(".reporter-setup-overview, .reporter-setup-detail")
     .forEach((view) => view.remove());
-  const states = data.states || [];
-  const rtos = data.rtos || [];
   const designations = data.reporter_designations || [];
   const serviceAgreements = data.service_agreements || [];
   const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
   const organizationProfile = data.organization_profile;
   const setupSections = [
-    {
-      key: "states",
-      title: "States & UTs",
-      count: states.length,
-      detail: `${states.filter((state) => state.is_active).length} active · Territories served by Chowk.`
-    },
-    {
-      key: "rtos",
-      title: "RTO / reporting areas",
-      count: rtos.length,
-      detail: `${rtos.filter((rto) => rto.is_active).length} active · Offices connected to a state.`
-    },
     {
       key: "types",
       title: "Reporter designations",
@@ -1599,6 +1592,7 @@ function renderReporterSetup(root, data) {
       detail: `${designations.filter((designation) => designation.is_active).length} active · Two-digit designation codes are used in new state-RTO-code-number IDs.`
     },
   ];
+  if (!setupSections.some((item) => item.key === reporterSetupView)) reporterSetupView = "overview";
   const overview = makeElement("section", "reporter-setup-overview");
   const cards = makeElement("div", "reporter-setup-cards");
   setupSections.forEach((item) => {
@@ -1664,6 +1658,17 @@ function renderReporterSetup(root, data) {
     organizationCard.append(organizationActions);
     overview.append(organizationCard);
 
+    const locationNote = makeElement("section", "admin-panel reporter-setup-location-note");
+    locationNote.append(
+      makeElement("h2", "", "State codes, Districts, and RTO codes"),
+      makeElement("p", "admin-dialog-help",
+        "Manage each State's two-character reporter ID code and each District's RTO code in Locations. Reporter setup does not maintain a second state-code or RTO-office catalog; the application keeps linked legacy records internally so existing reporter assignments, IDs, and history continue to work.")
+    );
+    const locationsButton = makeElement("button", "admin-secondary-button", "Open Locations");
+    locationsButton.type = "button";
+    locationsButton.addEventListener("click", () => void loadSection("locations"));
+    locationNote.append(locationsButton);
+    overview.append(locationNote);
     const reporterSetupReady = Boolean(publishedServiceAgreement && organizationProfile?.is_verified);
     const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
@@ -1692,42 +1697,19 @@ function renderReporterSetup(root, data) {
     renderReporterAdminSection("reporter-configuration", root, data);
   });
   actions.append(back);
-  if (reporterSetupView === "states") {
-    rowButton(actions, "Add state", openStateDialog, "admin-primary-button reporter-setup-add");
-  } else if (reporterSetupView === "rtos") {
-    rowButton(actions, "Add RTO / area", () => openRtoDialog(states), "admin-primary-button reporter-setup-add");
-  } else if (reporterSetupView === "types") {
+  if (reporterSetupView === "types") {
     rowButton(actions, "Add designation", () => openConfiguredRecordDialog("reporter-designations", null), "admin-primary-button reporter-setup-add");
   }
   header.append(actions);
 
-  let rows = [];
-  let tableSection = "reporter-options";
-  if (reporterSetupView === "states") {
-    rows = states.map((state) => ({
-      state_name: state.state_name,
-      state_code: state.state_code,
-      is_active: state.is_active,
-      id: state.id
-    }));
-  } else if (reporterSetupView === "rtos") {
-    rows = rtos.map((rto) => ({
-      rto_code: rto.rto_code,
-      city_name: rto.city_name || "—",
-      state: states.find((state) => String(state.id) === String(rto.state_id))?.state_name || "—",
-      is_active: rto.is_active,
-      id: rto.id
-    }));
-  } else {
-    tableSection = "reporter-designations";
-    rows = designations.map((designation) => ({
-      name: designation.name,
-      designation_code: designation.designation_code,
-      description: designation.description || "—",
-      is_active: designation.is_active,
-      id: designation.id
-    }));
-  }
+  const tableSection = "reporter-designations";
+  const rows = designations.map((designation) => ({
+    name: designation.name,
+    designation_code: designation.designation_code,
+    description: designation.description || "—",
+    is_active: designation.is_active,
+    id: designation.id
+  }));
   const tableHeader = makeElement("div", "admin-panel-heading reporter-setup-table-heading");
   tableHeader.append(
     makeElement("strong", "", selected?.title || "Reporter setup"),
@@ -2107,46 +2089,6 @@ function openReporterOrganizationProfileDialog(profile) {
       await loadSection("reporter-configuration");
     },
     "Save profile"
-  );
-}
-
-function openStateDialog() {
-  openFormDialog(
-    "Add state",
-    "State codes are two alphanumeric characters and are part of future reporter IDs.",
-    (form) => {
-      const code = addField(form, "State code", "state_code", "text", "", { maxLength: 2 });
-      code.pattern = "[A-Za-z0-9]{2}";
-      addField(form, "State name", "state_name", "text", "", { maxLength: 100 });
-    },
-    async (values) => {
-      await apiRequest("admin/states", "POST", Object.fromEntries(values.entries()));
-      await loadSection("reporter-configuration");
-    },
-    "Add state"
-  );
-}
-
-function openRtoDialog(states) {
-  openFormDialog(
-    "Add RTO / reporting area",
-    "Enter the RTO code without the State prefix (for example, 80); the system combines the State, RTO, and designation codes for reporter IDs.",
-    (form) => {
-      appendReporterSelect(form, "state_id", "State", states.filter((state) => state.is_active),
-        (state) => `${state.state_name} (${state.state_code})`);
-      const code = addField(form, "RTO code", "rto_code", "text", "", { maxLength: 8 });
-      code.pattern = "[A-Za-z0-9]{2,8}";
-      addField(form, "City / reporting area name", "city_name", "text", "", { required: false, maxLength: 120 });
-    },
-    async (values) => {
-      await apiRequest("admin/rto-offices", "POST", {
-        state_id: Number(values.get("state_id")),
-        rto_code: values.get("rto_code"),
-        city_name: values.get("city_name") || ""
-      });
-      await loadSection("reporter-configuration");
-    },
-    "Add RTO"
   );
 }
 
@@ -2873,7 +2815,7 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
       root,
       "NEWSROOM · PEOPLE",
       "Applications & onboarding",
-      "Review moderator and editor profiles before granting newsroom access."
+      "Review each staff member's assigned newsroom role and submitted profile before granting access."
     );
   }
   const records = Array.isArray(rows) ? rows : [];
@@ -2888,7 +2830,7 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
     root.append(makeElement(
       "section",
       "admin-panel admin-staff-onboarding-empty",
-      "No applications or invitations for this role yet."
+      "No newsroom staff applications or invitations yet."
     ));
     return;
   }
@@ -2909,7 +2851,7 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
     heading.append(headingCopy, status);
     card.append(heading);
     if (record.staff_role?.duties) {
-      card.append(makeElement("p", "admin-dialog-help", `Job duties: ${record.staff_role.duties}`));
+      card.append(makeElement("p", "admin-dialog-help", `Responsibilities: ${record.staff_role.duties}`));
     }
     if (record.status === "submitted") {
       card.append(makeElement("p", "admin-dialog-help", "Profile submitted for review. Access is still restricted until approval."));
@@ -2985,7 +2927,7 @@ function renderStaffRoleCatalog(root, roles) {
   const records = Array.isArray(roles) ? roles : [];
   const catalog = makeElement("div", "admin-staff-role-catalog");
   if (!records.length) {
-    catalog.append(makeElement("section", "admin-panel admin-staff-onboarding-empty", "No newsroom job titles are configured."));
+    catalog.append(makeElement("section", "admin-panel admin-staff-onboarding-empty", "No newsroom roles are configured."));
   }
   records.forEach((role) => {
     const card = makeElement("article", "admin-panel admin-role-agreement-card");
@@ -2998,27 +2940,35 @@ function renderStaffRoleCatalog(root, roles) {
     card.append(makeElement(
       "p",
       "admin-dialog-help",
-      `${role.description || "No description"} · Legacy account profile: ${role.access_profile}${role.is_builtin ? " · built-in title" : ""}`
+      `${role.description || "No description"}${role.is_builtin ? " · built-in role" : ""}`
     ));
     card.append(makeElement("p", "", role.duties || "No duties defined."));
-    const edit = makeElement("button", "admin-secondary-button", "Edit job title");
+    const assignedPermissions = Array.isArray(role.permissions) ? role.permissions : [];
+    card.append(makeElement(
+      "p",
+      "admin-dialog-help",
+      `System access: ${assignedPermissions.length
+        ? assignedPermissions.map(({ permission_key, scope }) => `${permission_key} (${scope})`).join(", ")
+        : "None"}`
+    ));
+    const edit = makeElement("button", "admin-secondary-button", "Edit role");
     edit.type = "button";
     edit.addEventListener("click", () => void openStaffRoleDialog(role, () => loadSection("staff-roles")));
     card.append(edit);
     if (!role.is_builtin && sessionIdentity?.role === "super_admin") {
-      const remove = makeElement("button", "admin-secondary-button admin-danger-button", "Delete job title");
+      const remove = makeElement("button", "admin-secondary-button admin-danger-button", "Delete role");
       remove.type = "button";
       remove.addEventListener("click", () => {
         void confirmAdminAction(
-          "Permanently delete newsroom job title?",
-          `Delete "${role.display_name}" from the job-title catalog? Existing staff assignments retain their saved title and duties for history; new assignments can no longer select it. This cannot be undone.`
+          "Permanently delete newsroom role?",
+          `Delete "${role.display_name}" from the newsroom-role catalog? Existing staff assignments retain their saved title and duties for history; new assignments can no longer select it. This cannot be undone.`
         ).then(async (confirmed) => {
           if (!confirmed) return;
           try {
             await apiRequest(`admin/staff-roles/${role.id}`, "DELETE");
             await loadSection("staff-roles");
           } catch (error) {
-            void showAdminMessage("Job title was not deleted", error.message);
+            void showAdminMessage("Newsroom role was not deleted", error.message);
           }
         });
       });
@@ -3030,7 +2980,7 @@ function renderStaffRoleCatalog(root, roles) {
   root.append(makeElement(
     "p",
     "admin-dialog-help",
-    "These records are job titles, not permission roles. Each title maps to a fixed legacy Moderator or Editor account profile; custom titles do not create or change application permissions. Agreement acceptance is still required."
+    "Each newsroom role combines responsibilities with its system permissions. The same role is assigned to the staff member; agreement acceptance is still required."
   ));
 }
 
@@ -3130,8 +3080,8 @@ function renderOrganizationPeople(root) {
     card.append(makeElement("p", "admin-dialog-help",
       `${person.email || "No email"} · ${(person.relationship_type || "person").replaceAll("_", " ")} · ${person.status || "active"}`));
     card.append(makeElement("p", "admin-dialog-help",
-      `Access role: ${person.access_role_name || "None"} · Department: ${person.department_name || "None"} · Source: ${person.source_type}`));
-    const edit = makeElement("button", "admin-secondary-button", "Assign permission role");
+      `Organization permission role: ${person.access_role_name || "None"} · Department: ${person.department_name || "None"} · Source: ${person.source_type}`));
+    const edit = makeElement("button", "admin-secondary-button", "Assign organization permission role");
     edit.type = "button";
     edit.addEventListener("click", () => openOrganizationPersonAccessDialog(person));
     card.append(edit);
@@ -3141,13 +3091,14 @@ function renderOrganizationPeople(root) {
 }
 
 function openOrganizationPersonAccessDialog(person) {
-  const roles = organizationConfigurationData.access_roles || [];
+  const roles = (organizationConfigurationData.access_roles || [])
+    .filter((role) => !legacyNewsroomPermissionRoleKeys.has(role.role_key));
   const departments = organizationConfigurationData.departments || [];
   openFormDialog(
     "Assign organization access",
-    "The selected organization permission role grants its configured capabilities. Some newsroom operations also enforce fixed legacy account profiles. Changes are recorded in organization access history.",
+    "This organization-wide access role applies to non-employee, non-newsroom people. Newsroom staff permissions come from the assigned newsroom role. Changes are recorded in organization access history.",
     (form) => {
-      addHrSelect(form, "Access role", "access_role_id",
+      addHrSelect(form, "Organization permission role", "access_role_id",
         roles.map((role) => ({ value: role.id, label: `${role.name} · ${role.role_key}` })),
         person.access_role_id, "No permission role", false);
       addHrSelect(form, "Department", "department_id",
@@ -3512,14 +3463,14 @@ function renderHrManagement() {
     root,
     "HUMAN RESOURCES",
     "HR management",
-    "Manage employee records, assignments, departments, positions, and policies. Permission roles control application actions; they are not job titles."
+    "Manage employee records, assignments, departments, positions, and policies. HR permission roles control HR access; newsroom responsibilities and permissions are configured together under Newsroom roles."
   );
   const tabBar = makeElement("div", "admin-workflow-tabs");
   tabBar.setAttribute("aria-label", "HR management areas");
   [
     ["departments", "Departments"],
     ["positions", "Employee positions"],
-    ["access_roles", "Permission roles"],
+    ["access_roles", "HR permission roles"],
     ["assignments", "Employees"],
     ["policies", "Policies"]
   ].forEach(([key, label]) => {
@@ -3557,14 +3508,14 @@ function renderHrConfigurationTab(root) {
   const isPositions = activeHrTab === "positions";
   const records = isDepartments ? hrManagementData.departments || []
     : isPositions ? hrManagementData.positions || []
-      : hrManagementData.access_roles || [];
+      : hrEmployeePermissionRoles();
   const panel = makeElement("section", "admin-panel admin-hr-panel");
   const header = makeElement("div", "admin-panel-heading");
   const heading = isDepartments ? "Organization departments"
-    : isPositions ? "Employee positions" : "Organization permission roles";
+    : isPositions ? "Employee positions" : "HR employee permission roles";
   header.append(makeElement("h2", "", heading), makeElement("span", "", `${records.length} records`));
   const add = makeElement("button", "admin-primary-button", isDepartments ? "Add department"
-    : isPositions ? "Add position" : "Add permission role");
+    : isPositions ? "Add position" : "Add HR permission role");
   add.type = "button";
   add.addEventListener("click", () => {
     if (isDepartments) openHrDepartmentDialog(null);
@@ -3660,7 +3611,7 @@ function renderHrConfigurationTab(root) {
   root.append(panel);
   if (activeHrTab === "access_roles") {
     root.append(makeElement("p", "admin-dialog-help",
-      "These roles bundle application permissions and scopes; they do not describe job titles. Some newsroom screens still use fixed legacy account profiles, so a custom permission role does not replace those profiles or automatically grant equivalent access."));
+      "These permission roles apply to HR employees only. Newsroom roles combine newsroom responsibilities and newsroom system permissions in one record."));
   }
 }
 
@@ -3827,15 +3778,15 @@ function openHrModelFieldDialog(model, field) {
 }
 
 function openHrModelPermissionsDialog(model) {
-  const roles = (hrManagementData.access_roles || []).filter((role) => role.is_active);
+  const roles = hrEmployeePermissionRoles().filter((role) => role.is_active);
   if (!roles.length) {
-    void showAdminMessage("No active permission roles", "Create a permission role before configuring model access.");
+    void showAdminMessage("No active HR permission roles", "Create an HR permission role before configuring model access.");
     return;
   }
   openFormDialog(`Configure ${model.name} access`,
     "Each role receives only the model actions and record scope selected here. Scope changes are enforced by the database.",
     (form) => {
-      addHrSelect(form, "Access role", "role_id",
+      addHrSelect(form, "HR permission role", "role_id",
         roles.map((role) => ({ value: role.id, label: role.name })), roles[0].id);
       const permissions = model.permissions || [];
       const actionLabels = [
@@ -4002,7 +3953,7 @@ function renderHrAssignmentsTab(root, canAssignEmployees) {
       assignmentCard.append(makeElement("strong", "",
         `${assignment.position_title || "Position not set"} · ${assignment.department_name || "Department not set"}`));
       assignmentCard.append(makeElement("p", "admin-dialog-help",
-        `Access role: ${assignment.access_role_name || "Missing"} · ${assignment.status}${assignment.is_primary ? " · Primary" : ""}`));
+        `HR permission role: ${assignment.access_role_name || "Missing"} · ${assignment.status}${assignment.is_primary ? " · Primary" : ""}`));
       assignmentCard.append(makeElement("p", "admin-dialog-help",
         `Effective: ${formatDate(assignment.starts_at)} – ${assignment.ends_at ? formatDate(assignment.ends_at) : "Current"} · Manager: ${assignment.manager_name || "Not assigned"}`));
       if (assignment.end_reason) {
@@ -4279,10 +4230,10 @@ function renderHrPoliciesTab(root) {
       `${policy.policy_key} · ${policy.is_active ? "Active" : "Inactive"} · ${policy.requires_acceptance ? "Acceptance required" : "Informational"}`));
     const departmentName = (hrManagementData.departments || [])
       .find((item) => item.id === policy.department_id)?.name;
-    const roleName = (hrManagementData.access_roles || [])
+    const roleName = hrEmployeePermissionRoles()
       .find((item) => item.id === policy.access_role_id)?.name;
     card.append(makeElement("p", "admin-dialog-help",
-      `Audience: ${departmentName || "All departments"} · ${roleName || "All permission roles"}`));
+      `Audience: ${departmentName || "All departments"} · ${roleName || "All HR permission roles"}`));
     const edit = makeElement("button", "admin-secondary-button", "Edit policy");
     edit.type = "button";
     edit.addEventListener("click", () => openHrPolicyDialog(policy));
@@ -4414,7 +4365,7 @@ function openHrDepartmentDialog(record) {
 
 function openHrPositionDialog(record) {
   openFormDialog(record ? "Edit position" : "Add position",
-    "Employee positions describe organizational work; application access is granted separately through a permission role.",
+    "Employee positions describe organizational work; HR application access is granted separately through an HR permission role.",
     (form) => {
       const title = addField(form, "Position title", "title", "text", record?.title, { minLength: 2, maxLength: 100 });
       addHrKeyField(form, "Position key", "position_key", record?.position_key, title);
@@ -4436,8 +4387,8 @@ function openHrPositionDialog(record) {
 }
 
 function openHrAccessRoleDialog(record) {
-  openFormDialog(record ? "Edit permission role" : "Add permission role",
-    "Permission roles bundle application capabilities; they are not job titles or employee positions. Some existing newsroom authorization still depends on fixed account profiles.",
+  openFormDialog(record ? "Edit HR permission role" : "Add HR permission role",
+    "Configure HR employee access here. Newsroom roles combine newsroom responsibilities and system permissions and are managed separately under Newsroom · People.",
     (form) => {
       const name = addField(form, "Permission role name", "name", "text", record?.name, { minLength: 2, maxLength: 100 });
       addHrKeyField(form, "Permission role key", "role_key", record?.role_key, name);
@@ -4455,10 +4406,13 @@ function openHrAccessRoleDialog(record) {
 }
 
 function openHrRolePermissionsDialog(role) {
-  const permissions = hrManagementData.permissions || [];
+  const permissions = (hrManagementData.permissions || []).filter(({ permission_key }) =>
+    /^(hr|organization\.workflows)\./.test(permission_key)
+    || permission_key === "organization.audit.read"
+  );
   const current = new Map((role.permissions || []).map((item) => [item.permission_key, item.scope]));
-  openFormDialog("Configure permission role",
-    "Only grant capabilities required for this work. Existing active assignments receive changes immediately.",
+  openFormDialog("Configure HR permission role",
+    "Grant only HR and shared HR workflow capabilities. Newsroom responsibilities and permissions are configured together under Newsroom roles.",
     (form) => {
       permissions.forEach((permission) => {
         const row = makeElement("div", "admin-hr-permission-row");
@@ -4499,12 +4453,12 @@ function openHrAssignmentDialog(record, ending = false) {
   const employees = hrManagementData.employees || [];
   const departments = (hrManagementData.departments || []).filter((item) => item.is_active);
   const positions = (hrManagementData.positions || []).filter((item) => item.is_active);
-  const roles = (hrManagementData.access_roles || []).filter((item) => item.is_active);
+  const roles = hrEmployeePermissionRoles().filter((item) => item.is_active);
   openFormDialog(ending ? "End employee assignment" : record ? "Change employee assignment" : "Assign employee",
     ending ? "Ending access preserves the assignment and all audit history."
       : record
         ? "This creates a new effective-dated assignment and ends the previous one, preserving the assignment history."
-        : "Assign an employee account to a department, position, manager, and permission role. Access activates only after required policy acceptance.",
+        : "Assign an employee account to a department, position, manager, and HR permission role. Access activates only after required policy acceptance.",
     (form) => {
       addHrSelect(form, "Employee account", "employee_id",
         accounts.map((item) => ({ value: item.id, label: `${item.full_name || item.email} · ${item.email || item.role}` })),
@@ -4528,7 +4482,7 @@ function openHrAssignmentDialog(record, ending = false) {
       addHrSelect(form, "Position", "position_id",
         positions.map((item) => ({ value: item.id, label: item.title })),
         record?.position_id, "No position", false);
-      addHrSelect(form, "Organization permission role", "access_role_id",
+      addHrSelect(form, "HR permission role", "access_role_id",
         roles.map((item) => ({ value: item.id, label: item.name })),
         record?.access_role_id, null);
       addHrSelect(form, "Manager", "manager_employee_id",
@@ -4592,7 +4546,7 @@ function openHrAssignmentDialog(record, ending = false) {
 function openHrInvitationDialog() {
   const departments = (hrManagementData.departments || []).filter((item) => item.is_active);
   const positions = (hrManagementData.positions || []).filter((item) => item.is_active);
-  const roles = (hrManagementData.access_roles || []).filter((item) => item.is_active);
+  const roles = hrEmployeePermissionRoles().filter((item) => item.is_active);
   openFormDialog("Invite an employee",
     "Send a secure email invitation and create a pending employment record. The employee completes their profile and accepts current required policies before access is activated.",
     (form) => {
@@ -4609,7 +4563,7 @@ function openHrInvitationDialog() {
         departments.map((item) => ({ value: item.id, label: item.name })), "", "No department", false);
       addHrSelect(form, "Position", "position_id",
         positions.map((item) => ({ value: item.id, label: item.title })), "", "No position", false);
-      addHrSelect(form, "Access role", "access_role_id",
+      addHrSelect(form, "HR permission role", "access_role_id",
         roles.map((item) => ({ value: item.id, label: item.name })), "", null);
       addHrSelect(form, "Manager", "manager_employee_id",
         (hrManagementData.employees || []).map((item) => ({
@@ -4641,8 +4595,8 @@ function openHrPolicyDialog(policy) {
         (hrManagementData.departments || []).filter((item) => item.is_active)
           .map((item) => ({ value: item.id, label: item.name })),
         policy?.department_id, "All departments", false);
-      addHrSelect(form, "Applies to permission role", "access_role_id",
-        (hrManagementData.access_roles || []).filter((item) => item.is_active)
+      addHrSelect(form, "Applies to HR permission role", "access_role_id",
+        hrEmployeePermissionRoles().filter((item) => item.is_active)
           .map((item) => ({ value: item.id, label: item.name })),
         policy?.access_role_id, "All permission roles", false);
       const required = makeElement("label", "admin-form-checkbox");
@@ -4706,13 +4660,24 @@ async function deleteHrRecord(collection, id, title, explanation, refresh = load
   }
 }
 
-function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-roles")) {
+async function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-roles")) {
   const isEditing = Boolean(role);
+  let permissionCatalog;
+  try {
+    permissionCatalog = unwrapData(await apiRequest("admin/staff-role-permissions")) || [];
+  } catch (error) {
+    void showAdminMessage("Newsroom permissions could not be loaded", error.message);
+    return;
+  }
+  const currentPermissions = new Map(
+    (Array.isArray(role?.permissions) ? role.permissions : [])
+      .map((permission) => [permission.permission_key, permission.scope])
+  );
   openFormDialog(
-    isEditing ? "Edit newsroom job title" : "Create newsroom job title",
-    "Define the newsroom title and duties. This does not create a permission role; choose the fixed legacy Moderator or Editor account profile.",
+    isEditing ? "Edit newsroom role" : "Create newsroom role",
+    "Set the role's title, responsibilities, and system permissions together. Assign this single newsroom role to staff.",
     (form) => {
-      const nameInput = addField(form, "Job title", "display_name", "text", role?.display_name || "", {
+      const nameInput = addField(form, "Role title", "display_name", "text", role?.display_name || "", {
         minLength: 2,
         maxLength: 80
       });
@@ -4741,7 +4706,7 @@ function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-rol
         maxLength: 500
       });
       const dutiesLabel = makeElement("label", "admin-form-field");
-      dutiesLabel.append(makeElement("span", "", "Job duties"));
+      dutiesLabel.append(makeElement("span", "", "Responsibilities"));
       const duties = document.createElement("textarea");
       duties.name = "duties";
       duties.rows = 4;
@@ -4750,22 +4715,47 @@ function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-rol
       dutiesLabel.append(duties);
       form.append(dutiesLabel);
 
-      const profileLabel = makeElement("label", "admin-form-field");
-      profileLabel.append(makeElement("span", "", "Legacy newsroom account profile"));
-      const profileSelect = document.createElement("select");
-      profileSelect.name = "access_profile";
-      profileSelect.required = true;
-      ["moderator", "editor"].forEach((profile) => {
-        const option = makeElement("option", "", profile === "moderator"
-          ? "Moderator · submission review permissions"
-          : "Editor · editorial review and publishing permissions");
-        option.value = profile;
-        option.selected = profile === (role?.access_profile || "moderator");
-        profileSelect.append(option);
+      form.append(makeElement("h3", "admin-form-section-heading", "System permissions"));
+      form.append(makeElement(
+        "p",
+        "admin-dialog-help",
+        "Grant only what this role needs. Scope controls where each permission applies."
+      ));
+      permissionCatalog.forEach((permission) => {
+        const row = makeElement("div", "admin-hr-permission-row");
+        const label = makeElement("label", "admin-form-checkbox");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = `permission:${permission.permission_key}`;
+        checkbox.checked = currentPermissions.has(permission.permission_key);
+        label.append(
+          checkbox,
+          makeElement("span", "", `${permission.area} · ${permission.permission_key}`)
+        );
+        row.append(label, makeElement("small", "", permission.description));
+        const scope = document.createElement("select");
+        scope.name = `scope:${permission.permission_key}`;
+        const fixedScope = [
+          "newsroom.articles.publish",
+          "newsroom.articles.delete",
+          "newsroom.categories.manage",
+          "newsroom.comments.moderate",
+          "newsroom.reports.manage",
+          "newsroom.media.manage",
+          "newsroom.locations.manage",
+          "newsroom.people.manage",
+          "reporters.manage"
+        ].includes(permission.permission_key);
+        const scopes = fixedScope ? ["all"] : ["all", "assigned", "own"];
+        scopes.forEach((value) => {
+          const option = new Option(value, value);
+          option.selected = value === (currentPermissions.get(permission.permission_key) || "own");
+          scope.append(option);
+        });
+        scope.disabled = fixedScope;
+        row.append(scope);
+        form.append(row);
       });
-      if (role) profileSelect.disabled = true;
-      profileLabel.append(profileSelect);
-      form.append(profileLabel);
 
       const activeLabel = makeElement("label", "admin-form-field");
       activeLabel.append(makeElement("span", "", "Available for new invitations"));
@@ -4781,7 +4771,7 @@ function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-rol
       const name = String(values.get("display_name") || "").trim();
       const roleKey = String(values.get("role_key") || "").trim();
       if (!/^[a-z][a-z0-9_]{1,49}$/.test(roleKey)) {
-        throw new Error("Enter an English job title that generates a valid internal key.");
+        throw new Error("Enter a role name that generates a valid internal key.");
       }
       await apiRequest("admin/staff-roles", "POST", {
         id: role?.id || null,
@@ -4789,21 +4779,28 @@ function openStaffRoleDialog(role = null, refresh = () => loadSection("staff-rol
         display_name: name,
         description: values.get("description"),
         duties: values.get("duties"),
-        access_profile: role?.access_profile || values.get("access_profile"),
+        permissions: permissionCatalog.flatMap((permission) =>
+          values.has(`permission:${permission.permission_key}`)
+            ? [{
+              permission_key: permission.permission_key,
+              scope: values.get(`scope:${permission.permission_key}`)
+            }]
+            : []
+        ),
         is_active: role?.is_builtin ? true : values.get("is_active") === "on"
       });
       await refresh();
     },
-    isEditing ? "Save role" : "Create role"
+    isEditing ? "Save newsroom role" : "Create newsroom role"
   );
 }
 
-async function openStaffJobRoleDialog(user, refresh) {
+async function openStaffNewsroomRoleDialog(user, refresh) {
   let roles;
   try {
     roles = unwrapData(await apiRequest("admin/staff-roles")) || [];
   } catch (error) {
-    void showAdminMessage("Newsroom job titles could not be loaded", error.message);
+    void showAdminMessage("Newsroom roles could not be loaded", error.message);
     return;
   }
   roles = roles.filter((role) =>
@@ -4812,16 +4809,19 @@ async function openStaffJobRoleDialog(user, refresh) {
     && role.id !== user.staff_role_id
   );
   if (!roles.length) {
-    void showAdminMessage("No compatible active titles", "Create or activate a job title using this staff member’s current access profile.");
+    void showAdminMessage(
+      "No other active newsroom roles are available",
+      "Create or activate a role in this staff member's current onboarding workflow, or use a new invitation to change workflows."
+    );
     return;
   }
   openFormDialog(
-    "Change staff job title",
-    "This creates a dated assignment-history entry. The member’s access profile and agreement do not change.",
+    "Change staff newsroom role",
+    "This creates a dated role-assignment history entry. The new role's responsibilities and permission grants apply together; the existing account workflow stays unchanged.",
     (form) => {
-      form.append(makeElement("p", "admin-dialog-help", `${user.full_name} · ${user.access_profile} access`));
+      form.append(makeElement("p", "admin-dialog-help", user.full_name || user.email || "Staff member"));
       const label = makeElement("label", "admin-form-field");
-      label.append(makeElement("span", "", "New job title"));
+      label.append(makeElement("span", "", "New newsroom role"));
       const select = document.createElement("select");
       select.name = "staff_role_id";
       select.required = true;
@@ -4840,7 +4840,7 @@ async function openStaffJobRoleDialog(user, refresh) {
       });
       await refresh();
     },
-    "Save job title"
+    "Save newsroom role"
   );
 }
 
@@ -4852,7 +4852,7 @@ function openStaffRoleHistoryDialog(user) {
   body.append(
     makeElement("span", "admin-eyebrow", "STAFF ASSIGNMENT HISTORY"),
     makeElement("h2", "", user.full_name || user.email || "Staff member"),
-    makeElement("p", "admin-dialog-help", `${user.email || "Email unavailable"} · ${user.access_profile} access`)
+    makeElement("p", "admin-dialog-help", user.email || "Email unavailable")
   );
   if (!history.length) {
     body.append(makeElement("p", "admin-empty", "No assignment history is available."));
@@ -4894,7 +4894,7 @@ function openStaffReviewDialog(record, refresh) {
   dialog.className = "admin-json-dialog admin-staff-review-dialog";
   const body = makeElement("section", "admin-json-form");
   body.append(
-    makeElement("span", "admin-eyebrow", `${String(record.requested_role).replaceAll("_", " ").toUpperCase()} CANDIDATE`),
+    makeElement("span", "admin-eyebrow", `${String(record.staff_role?.display_name || "Newsroom staff").toUpperCase()} CANDIDATE`),
     makeElement("h2", "", profile.full_name || "Staff profile review"),
     makeElement("p", "admin-dialog-help", `${profile.email || "Email unavailable"} · ${profile.phone || "Phone unavailable"}`)
   );
@@ -4978,7 +4978,7 @@ function openStaffReviewDialog(record, refresh) {
             : decision === "approve" ? "Profile approved"
             : decision === "request_changes" ? "Profile changes requested" : "Staff invitation rejected",
           decision === "approve" && reviewResult.status === "active"
-            ? `${profile.full_name || profile.email} can now sign in with the ${record.requested_role} role.`
+            ? `${profile.full_name || profile.email} can now sign in with the assigned newsroom role.`
             : decision === "approve"
               ? "The profile is approved. The invitee must accept the currently published agreement before role access is activated."
             : "The decision and review note were saved."
@@ -5009,9 +5009,10 @@ function buildTable(rows, section) {
   }
 
   const excluded = new Set(["content", "body", "password", "token", "credentials"]);
+  if (section === "users" || section === "accounts") excluded.add("requested_role");
   const internalColumns = new Set(["id", "user_id", "application_id", "credential_id"]);
   const preferredColumns = section === "locations"
-    ? ["hierarchy", "location_type", "parent_location", "is_active"]
+    ? ["hierarchy", "location_type", "state_code", "rto_code", "parent_location", "is_active"]
     : section === "users" || section === "accounts"
     ? ["full_name", "email", "phone", "role", "requested_role", "staff_status", "created_at"]
     : section === "reporter-applications"
@@ -5028,7 +5029,7 @@ function buildTable(rows, section) {
     ...rows.flatMap((row) => Object.keys(row))
   ])]
     .filter((key) => !key.startsWith("_") && !excluded.has(key) && !internalColumns.has(key) && key !== "document_url")
-    .slice(0, section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" || section === "workflow-directory" ? 7 : 5);
+    .slice(0, section === "locations" || section === "reporter-applications" || section === "reporter-credentials" ? 7 : section === "reporter-coverage" || section === "reporter-directory" || section === "workflow-directory" ? 7 : 5);
   const wrapper = makeElement("div", "admin-table-wrap");
   const table = document.createElement("table");
   const head = document.createElement("thead");
@@ -5043,7 +5044,11 @@ function buildTable(rows, section) {
     const rowElement = document.createElement("tr");
     keys.forEach((key) => {
       const value = row[key];
-      const cell = makeElement("td", key === "title" || key === "name" ? "article-title-cell" : "", formatCell(value));
+      const displayValue = (section === "users" || section === "accounts")
+        && key === "role" && ["moderator", "editor"].includes(value)
+        ? "Newsroom staff"
+        : value;
+      const cell = makeElement("td", key === "title" || key === "name" ? "article-title-cell" : "", formatCell(displayValue));
       rowElement.append(cell);
     });
     const actions = makeElement("td", "admin-row-actions");
@@ -5142,6 +5147,12 @@ function addRowActions(container, row, section) {
   if (section === "users" || section === "accounts") {
     if (row.role === "super_admin") {
       container.append(makeElement("span", "admin-dialog-help", "Single super-admin account"));
+    } else if (["moderator", "editor"].includes(row.role)) {
+      container.append(makeElement(
+        "span",
+        "admin-dialog-help",
+        "Manage responsibilities and permissions in Newsroom roles."
+      ));
     } else {
       const role = document.createElement("select");
       role.className = "admin-role-select";
@@ -5202,8 +5213,8 @@ function addRowActions(container, row, section) {
   }
 
   if (section === "workflow-directory") {
-    rowButton(container, "Change job title", () => {
-      void openStaffJobRoleDialog(row, refresh);
+    rowButton(container, "Change newsroom role", () => {
+      void openStaffNewsroomRoleDialog(row, refresh);
     });
     rowButton(container, "View assignment history", () => openStaffRoleHistoryDialog(row));
     return;
@@ -5365,14 +5376,6 @@ function addRowActions(container, row, section) {
     return;
   }
 
-  if (section === "reporter-options" && typeof row.is_active === "boolean") {
-    const endpoint = row.state_code ? `admin/states/${id}` : `admin/rto-offices/${id}`;
-    rowButton(container, row.is_active ? "Deactivate" : "Activate", () =>
-      void runAction(() => apiRequest(endpoint, "PATCH", { is_active: !row.is_active }), refresh)
-    );
-    return;
-  }
-
   if (section === "reporter-designations") {
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, row.is_active ? "Deactivate" : "Activate", () =>
@@ -5391,6 +5394,30 @@ function openConfiguredRecordDialog(section, existing) {
     (form) => {
       config.formFields.forEach((field) => {
         const value = existing?.[field.name];
+        if (section === "locations" && field.name === "state_code") {
+          const locationTypeSelect = form.elements.location_type;
+          const label = makeElement("label", "admin-form-field");
+          label.append(makeElement("span", "", field.label));
+          const input = document.createElement("input");
+          input.name = field.name;
+          input.type = "text";
+          input.maxLength = field.maxLength;
+          input.pattern = "[A-Za-z0-9]{2}";
+          input.required = locationTypeSelect.value === "state";
+          if (value !== null && value !== undefined) input.value = String(value);
+          label.append(input);
+          form.append(label);
+          const refreshStateCodeField = () => {
+            const isState = locationTypeSelect.value === "state";
+            label.hidden = !isState;
+            input.disabled = !isState;
+            input.required = isState;
+            if (!isState) input.value = "";
+          };
+          locationTypeSelect.addEventListener("change", refreshStateCodeField);
+          refreshStateCodeField();
+          return;
+        }
         if (section === "locations" && field.name === "rto_code") {
           const locationTypeSelect = form.elements.location_type;
           const label = makeElement("label", "admin-form-field");
@@ -5488,6 +5515,10 @@ function openConfiguredRecordDialog(section, existing) {
         if (field.type === "select") {
           const options = section === "locations"
             && field.name === "location_type"
+            && existing?.location_type === "state"
+            ? ["state"]
+            : section === "locations"
+            && field.name === "location_type"
             && existing?.location_type === "city"
             ? [...field.options, "city"]
             : field.options;
@@ -5529,6 +5560,9 @@ function openConfiguredRecordDialog(section, existing) {
       });
       if (section === "locations") {
         payload.parent_id = payload.parent_id ? Number(payload.parent_id) : null;
+        payload.state_code = payload.location_type === "state" && payload.state_code
+          ? payload.state_code.trim().toUpperCase()
+          : null;
         payload.rto_code = payload.location_type === "district" && payload.rto_code
           ? payload.rto_code.trim().toUpperCase()
           : null;
@@ -5999,7 +6033,7 @@ function openFormDialog(title, helpText, fields, onSubmit, submitLabel = "Save c
 async function openUserDialog() {
   openFormDialog(
     "Create subscriber account",
-    "Create a standard account. Reporter applications use the Reporter Desk; moderator and editor access requires a reviewed staff invitation.",
+    "Create a standard account. Reporter applications use the Reporter Desk; newsroom access requires an assigned role and reviewed staff invitation.",
     (form) => {
       addField(form, "Full name", "full_name", "text", "", { minLength: 2, maxLength: 120, autocomplete: "name" });
       addField(form, "Email address", "email", "email", "", { maxLength: 254, autocomplete: "email" });
@@ -6022,35 +6056,37 @@ async function openUserDialog() {
   );
 }
 
-async function openStaffInvitationDialog(refresh = () => loadSection("applications"), initialRole = "moderator") {
+async function openStaffInvitationDialog(refresh = () => loadSection("applications")) {
   let roles;
   try {
     roles = unwrapData(await apiRequest("admin/staff-roles")) || [];
   } catch (error) {
-    void showAdminMessage("Newsroom job titles could not be loaded", error.message);
+    void showAdminMessage("Newsroom roles could not be loaded", error.message);
     return;
   }
-  roles = roles.filter((role) => role.is_active);
+  roles = roles.filter((role) =>
+    role.is_active && ["moderator", "editor"].includes(role.access_profile)
+  );
   if (!roles.length) {
-    void showAdminMessage("No active newsroom job titles", "Create or activate a newsroom job title before sending an invitation.");
+    void showAdminMessage("No active newsroom roles", "Create or activate a newsroom role before sending an invitation.");
     return;
   }
   openFormDialog(
     "Invite newsroom staff",
-    "We will email a secure invitation link. The invitee completes the shared staff profile and accepts the agreement for the selected access profile; their account remains limited until admin review and approval.",
+    "We will email a secure invitation link. The selected newsroom role defines both responsibilities and system permissions. The invitee completes the shared staff profile and accepts the agreement before admin approval.",
     (form) => {
       addField(form, "Staff member email", "email", "email", "", {
         maxLength: 254,
         autocomplete: "email"
       });
       const label = makeElement("label", "admin-form-field");
-      label.append(makeElement("span", "", "Job title"));
+      label.append(makeElement("span", "", "Newsroom role"));
       const select = document.createElement("select");
       select.name = "staff_role_id";
       select.required = true;
-      const preferredRole = roles.find((role) => role.access_profile === initialRole) || roles[0];
+      const preferredRole = roles[0];
       roles.forEach((role) => {
-        const option = makeElement("option", "", `${role.display_name} · ${role.access_profile} access`);
+        const option = makeElement("option", "", role.display_name);
         option.value = role.id;
         option.selected = role.id === preferredRole.id;
         select.append(option);
@@ -6060,9 +6096,11 @@ async function openStaffInvitationDialog(refresh = () => loadSection("applicatio
       const duties = makeElement("p", "admin-dialog-help");
       const updateDuties = () => {
         const selected = roles.find((role) => role.id === select.value);
-        duties.textContent = selected?.duties
-          ? `Duties: ${selected.duties}`
-          : "No duties have been described for this title.";
+        const grants = Array.isArray(selected?.permissions) ? selected.permissions : [];
+        duties.textContent = [
+          selected?.duties ? `Responsibilities: ${selected.duties}` : "No responsibilities have been described.",
+          `System permissions: ${grants.length ? grants.map((grant) => grant.permission_key).join(", ") : "none"}`
+        ].join(" · ");
       };
       select.addEventListener("change", updateDuties);
       updateDuties();
@@ -6070,7 +6108,7 @@ async function openStaffInvitationDialog(refresh = () => loadSection("applicatio
       form.append(makeElement(
         "p",
         "admin-dialog-help",
-        "Job title and duties do not grant new permissions. The selected moderator/editor access profile determines the agreement and system access. Reporter applications remain a separate workflow."
+        "Reporter applications remain a separate workflow."
       ));
     },
     async (values) => {

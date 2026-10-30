@@ -137,12 +137,14 @@ Requires Node.js 18 or newer.
    boundaries are confirmed; the migration does not guess real-world groupings.
    Region coverage can include its descendant Zones, Ranges, Districts,
    Coverage areas, and mapped legacy Districts when descendant coverage is
-   enabled. State/RTO/city-name records used to generate reporter IDs are
-   unchanged. Migration 0028 adds an RTO-code field to Districts and
+   enabled. Migration 0027 itself leaves existing reporter ID records unchanged.
+   Migration 0028 adds an RTO-code field to Districts and
    automatically links that code to the existing `rto_offices` table,
    reusing a matching State/code row or creating one when needed. The
    pre-seeded State and Uttar Pradesh RTO records from migration 0009 remain
-   available; no separate RTO-code store is introduced.
+   available. Districts are the admin source for RTO codes; `rto_offices` stays
+   as the linked compatibility table used by existing reporter assignments and
+   ID generation, not as a second admin-managed catalog.
    Migration 0029 updates the reporter application location step to use active
    State > named Region > District choices. The District's linked RTO code is
    displayed and used automatically; applicants do not enter it. The database
@@ -193,16 +195,13 @@ Requires Node.js 18 or newer.
    when corrected profile details change the personalized copy, validates that
    copy again before activation, serializes approval with publishing and
    acceptance, and adds a sample preview for saved drafts.
-   Migration 0062 adds an Admin-managed staff job-title and duties catalog,
-   backfills Moderator/Editor role definitions, and records pending, active,
-   and ended primary assignments with title/duties snapshots. Admins can add
-   custom job titles mapped to the existing Moderator or Editor access profile,
-   invite newsroom collaborators through the same profile and agreement
-   workflow, and reassign active collaborators to another title using that
-   same access profile. Custom titles
-   never grant new system permissions; reporter applications remain separate.
-   Role keys and access profiles are immutable after creation, and built-in
-   roles cannot be deactivated.
+   Migration 0062 adds an Admin-managed newsroom-role catalog and dated
+   assignments. Migration 0080 extends each role to include explicit scoped
+   system permissions, so admins configure responsibilities and access once and
+   assign that one role to a newsroom collaborator. Reporter applications remain
+   a separate workflow. Legacy account profiles are retained internally for
+   existing newsroom workflows and agreement code; they are not separately
+   configured as the role's permissions.
    Existing installations must run all additive migrations in order before
    deploying these features. Migration 0064 introduces the configurable HR
    foundation: departments, job positions, employee records and numbers,
@@ -269,7 +268,7 @@ Requires Node.js 18 or newer.
   permanently delete other Supabase accounts from Chowk, cleans their private
   application files, and preserves audit history while removing restrictive
   account references. It also adds permanent deletion for staff applications
-  and custom newsroom job titles; built-in titles remain protected. Apply it
+  and custom newsroom roles; built-in roles remain protected. Apply it
   after 0071 and before deploying the matching code. Account deletion requires
   `SUPABASE_SERVICE_ROLE_KEY` on the server; no manual Supabase dashboard delete
   is needed. Migration 0073 updates the organization-scope foreign keys on
@@ -408,10 +407,10 @@ key and authenticated user tokens.
   history with actor snapshots, request context, reasons, before/after field diffs,
   and CSV export of up to 10,000 filtered events per export.
 - People administration is organized around Applications, Directory,
-  Agreements, Credentials, and Coverage. Applications are split by reporter,
-  moderator, and editor; the directory combines active newsroom roles; and
-  Agreements separates role-specific templates from per-person issued and
-  accepted records. Existing role-specific tables and legal history are
+  Agreements, Credentials, and Coverage. Applications separates reporter
+  intake from newsroom-role onboarding; the directory combines active newsroom
+  roles; and Agreements separates role-specific templates from per-person
+  issued and accepted records. Existing role-specific tables and legal history are
   retained rather than destructively merged or reset.
   Reporter Coverage and Credentials are backed by authenticated admin API
   routes for assignment, ending, issue, revoke, and print actions. Configuration
@@ -421,21 +420,30 @@ key and authenticated user tokens.
   HR employee records and their dated assignment histories remain in HR, while
   reporter office and designation changes are managed from the Newsroom
   Directory, separately from Reporter Coverage.
-  Newsroom job titles are managed separately from organization permission roles.
-  Admins can define newsroom titles and duties, map each title to the existing
-  Moderator or Editor legacy account profile, invite staff through the shared
-  onboarding and agreement process, and preserve primary assignment changes as
-  dated history. A custom job title does not add permissions. Organization
-  permission roles bundle scoped application capabilities and include seeded
-  Reporter, Moderator, Editor, and Publisher entries; some older newsroom
-  authorization still checks the fixed account profile, so custom permission
-  roles do not yet replace those profiles across every newsroom operation.
+  Newsroom roles combine title, responsibilities, and scoped system permissions.
+  Admins configure one role, assign it to staff, and preserve changes as dated
+  history through the shared onboarding and agreement process. HR access roles
+  remain separate because they apply to HR employee assignments.
   Migration `0078_newsroom_title_access_mapping.sql` corrects the compatibility
-  bridge: a newsroom job title's fixed account profile, not its custom title
-  key, selects the corresponding organization permission role. It repairs
-  existing active/pending newsroom relationships without removing legacy
-  profile checks. Apply it after migrations through `0077`; it refuses to run
-  if a currently assigned title has no active matching permission role.
+  bridge for existing installations; apply it after migrations through `0077`.
+  Migration `0079_location_state_reporter_codes.sql` makes Locations the source
+  for reporter State codes. It creates any missing top-level State locations
+  from the existing `states` records, then links each legacy row by unambiguous
+  normalized name without changing its ID. State changes in Locations keep
+  the legacy table synchronized for reporter applications, assignments, and ID
+  generation. Direct authenticated writes to the compatibility `states` and
+  `rto_offices` tables are disabled. The migration aborts with a diagnostic
+  rather than guessing if State names or codes cannot be linked one-to-one.
+  Apply it after migrations through `0078` and before deploying the matching UI.
+  Migration `0080_unified_newsroom_roles.sql` moves newsroom permission grants
+  onto the newsroom role itself, backfills existing grants without changing
+  title or assignment IDs, and makes newsroom capability checks read those
+  grants directly. It also clears the mapped organization permission role from
+  newsroom relationships so there is only one admin-managed permission bundle.
+  Some legacy workflows still use the fixed Reporter/Moderator/Editor account
+  profiles internally; profiles are compatibility gates, not configurable
+  permission bundles. Apply migration 0080 after 0079 and before deploying the
+  matching server and UI.
 - Territory leadership adds configurable geographic titles and dated
   appointments for active HR employees or active newsroom contributors.
   Built-in titles cover State, Region, Zone, Range, District, and Coverage Area
@@ -563,8 +571,11 @@ administrative newsroom title that may change based on performance or newsroom
 needs, without by itself changing compensation or other agreement terms.
 Review this clause with counsel and publish an updated template before it takes
 effect; already-issued agreements remain unchanged historical records. Review
-the seeded states and legacy Uttar
-Pradesh RTOs; add RTO/reporting areas for other states as needed. Applicants create and
+Configure each State's two-character reporter ID code and each District's RTO
+code in Locations; the linked `states` and `rto_offices` rows are maintained by
+the database for compatibility with existing reporter records and ID generation.
+Reporter setup no longer provides duplicate State-code or RTO-office catalogs.
+Applicants create and
 verify a subscriber account, then complete the four-step reporter application:
 profile and emergency contact; State, City, and Area Coverage; cropped profile
 photo, masked Aadhaar, PAN and bank proof plus payment details; and final review.

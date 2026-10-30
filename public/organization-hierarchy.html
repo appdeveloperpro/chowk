@@ -524,9 +524,10 @@
         <h1>One organization.<br>Several connected structures.</h1>
         <p>
           This map shows how the current application connects its organization,
-          people, HR assignments, newsroom job titles, geographic locations, and
-          editorial work. The connections matter: a job title, a manager, a
-          permission, and a territory appointment are different things.
+          people, HR assignments, newsroom roles, geographic locations, and
+          editorial work. The connections matter: an HR position, a newsroom
+          role with its responsibilities and permissions, a manager link, and a
+          territory appointment are different things.
         </p>
         <div class="truth-note">
           <span aria-hidden="true">✦</span>
@@ -612,11 +613,11 @@
             <header class="domain-head">
               <div><span class="domain-index">02 · NEWSROOM</span><h2>Editorial roles &amp; work</h2></div>
             </header>
-            <p class="domain-intro">Newsroom job titles map to fixed legacy account profiles; organization permission roles are a separate layer.</p>
+            <p class="domain-intro">A newsroom role is one assignable record that combines the staff title, responsibilities, and system permissions.</p>
             <div class="flow">
               <div class="node primary">
                 <strong>Profile / account</strong>
-                <p>The existing account role gates legacy newsroom features.</p>
+                <p>Existing account profiles remain as a compatibility layer for older workflow checks.</p>
                 <span class="node-tag">reporter · moderator · editor · admin</span>
               </div>
               <div class="connector dashed"><span>onboarding / assignment</span></div>
@@ -626,20 +627,20 @@
                   <p>Application review → reporter profile → dated assignment to reporting office and designation.</p>
                 </div>
                 <div class="node">
-                  <strong>Moderator / editor</strong>
-                  <p>Staff onboarding and agreement acceptance activate the existing access profile.</p>
+                  <strong>Newsroom role</strong>
+                  <p>Title, responsibilities, and explicit permission grants are configured together.</p>
                 </div>
               </div>
-              <div class="connector dashed"><span>custom job title</span></div>
+              <div class="connector dashed"><span>one role assignment</span></div>
               <div class="node">
-                <strong>Newsroom job title</strong>
-                <p>Admin-defined title and duties map to a fixed Reporter, Moderator, or Editor legacy account profile.</p>
-                <span class="node-tag">staff_role_definitions</span>
+                <strong>Newsroom role</strong>
+                <p>Admin-defined title, duties, and the precise system capabilities assigned to staff.</p>
+                <span class="node-tag">staff_role_definitions + staff_role_permissions</span>
               </div>
               <div class="connector dashed"><span>dated role history</span></div>
               <div class="node">
                 <strong>Staff role assignment</strong>
-                <p>Records a person's assigned newsroom title and its active/ended history.</p>
+                <p>Records the assigned role and its active/ended history. That same role supplies responsibilities and permissions.</p>
                 <span class="node-tag">staff_role_assignments</span>
               </div>
               <div class="connector dotted"><span>author / assignee / location</span></div>
@@ -649,7 +650,7 @@
                 <span class="node-tag">articles · revisions · workflow events</span>
               </div>
             </div>
-            <p class="micro-note"><strong>Important:</strong> custom newsroom titles do not create application permissions. A title like “Senior Editor” still maps to a fixed account profile; it is not an organization permission role.</p>
+            <p class="micro-note"><strong>Compatibility note:</strong> newsroom permissions now come from the assigned newsroom role. Reporter/Moderator/Editor account profiles remain internally for older workflow and agreement code; they are not a second admin-configured permission bundle. HR employee assignments continue to use HR access roles.</p>
           </article>
 
           <article class="domain geo">
@@ -692,7 +693,7 @@
                 <p>A territory head title does not automatically grant geographic data access or become an HR manager.</p>
               </div>
             </div>
-            <p class="micro-note"><strong>Parallel geography:</strong> reporter office assignment uses State → RTO office and a reporter designation. That RTO catalog is not the same tree as the location hierarchy above.</p>
+            <p class="micro-note"><strong>Reporter ID compatibility:</strong> State codes and District RTO codes are managed in the Locations hierarchy. Database triggers mirror State records to the legacy <code>states</code> table and Districts to <code>rto_offices</code> because reporter applications, assignments, and ID generation still reference those stable records; neither is a separate admin-managed catalog.</p>
           </article>
         </div>
       </section>
@@ -700,13 +701,13 @@
       <section class="below-grid" aria-label="Cross-cutting organization structures">
         <article class="support-card">
           <h2>Access control runs across the structures</h2>
-          <p>Authority is assigned through access records and checked by application/database rules—not inferred from a job title or a territory appointment.</p>
+          <p>Authority is assigned through role records and checked by application/database rules—not inferred from a territory appointment.</p>
           <div class="flow-list">
-            <div class="flow-step"><span class="step-no">1</span><span><strong>Person relationship</strong> — organization + profile + relationship type/status; may carry an organization permission role and department scope.</span></div>
-            <div class="flow-step"><span class="step-no">2</span><span><strong>Organization permission role</strong> — bundles catalogued permissions and scope: all, department, assigned, or own. Seeded Editor/Moderator permission roles are distinct from identically named legacy account profiles.</span></div>
+            <div class="flow-step"><span class="step-no">1</span><span><strong>Newsroom staff</strong> — one assigned newsroom role contains responsibilities and its scoped system permissions.</span></div>
+            <div class="flow-step"><span class="step-no">2</span><span><strong>HR employees</strong> — dated employee assignments carry an HR access role and department/manager scope.</span></div>
             <div class="flow-step"><span class="step-no">3</span><span><strong>Capability check</strong> — enabled module, active relationship/role, permission, scope, and applicable HR policy readiness are checked.</span></div>
           </div>
-          <p class="micro-note">Employee assignments reference an organization permission role. Some newsroom operations still check fixed legacy account profiles too; therefore these similarly named role records are not yet one unified permission model. Do not treat either role as a job title.</p>
+          <p class="micro-note">Legacy newsroom account profiles remain an internal compatibility dependency for some existing workflows; they are not separately configured as newsroom permissions. HR access roles remain a separate model for employee assignments.</p>
         </article>
 
         <article class="support-card">

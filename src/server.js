@@ -3440,16 +3440,34 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/staff-roles" && request.method === "GET") {
       const roles = await supabaseRequest(
-        "/rest/v1/staff_role_definitions?select=id,role_key,display_name,description,duties,access_profile,is_builtin,is_active,created_at,updated_at&order=is_builtin.desc,display_name.asc",
+        "/rest/v1/staff_role_definitions?select=id,role_key,display_name,description,duties,access_profile,is_builtin,is_active,created_at,updated_at,permissions:staff_role_permissions(permission_key,scope)&order=is_builtin.desc,display_name.asc",
         { token }
       );
       if (!roles.response.ok) {
         sendJson(response, roles.response.status, {
-          error: apiErrorMessage(roles.payload, "Staff job roles could not be loaded.")
+          error: apiErrorMessage(roles.payload, "Newsroom roles could not be loaded.")
         });
         return;
       }
       sendJson(response, 200, { success: true, data: roles.payload || [] });
+      return;
+    }
+
+    if (pathname === "/api/admin/staff-role-permissions" && request.method === "GET") {
+      const permissions = await supabaseRequest(
+        "/rest/v1/organization_permission_catalog?select=permission_key,area,description&is_active=eq.true&order=area.asc,permission_key.asc&limit=1000",
+        { token }
+      );
+      if (!permissions.response.ok) {
+        sendJson(response, permissions.response.status, {
+          error: apiErrorMessage(permissions.payload, "Newsroom permissions could not be loaded.")
+        });
+        return;
+      }
+      const relevantPermissions = (permissions.payload || []).filter((permission) =>
+        /^(newsroom|reporters|people|organization\.workflows)\./.test(permission.permission_key)
+      );
+      sendJson(response, 200, { success: true, data: relevantPermissions });
       return;
     }
 
@@ -3458,7 +3476,7 @@ async function adminRoute(request, response, requestUrl, session) {
       const roleId = typeof body.id === "string" && /^[0-9a-f-]{36}$/i.test(body.id)
         ? body.id
         : null;
-      const saved = await supabaseRequest("/rest/v1/rpc/chowk_admin_save_staff_role_definition", {
+      const saved = await supabaseRequest("/rest/v1/rpc/chowk_admin_save_newsroom_role", {
         method: "POST",
         token,
         body: {
@@ -3467,13 +3485,13 @@ async function adminRoute(request, response, requestUrl, session) {
           target_display_name: typeof body.display_name === "string" ? body.display_name : "",
           target_description: typeof body.description === "string" ? body.description : "",
           target_duties: typeof body.duties === "string" ? body.duties : "",
-          target_access_profile: typeof body.access_profile === "string" ? body.access_profile : "",
-          target_is_active: body.is_active === true
+          target_is_active: body.is_active === true,
+          target_permissions: Array.isArray(body.permissions) ? body.permissions : null
         }
       });
       if (!saved.response.ok) {
         sendJson(response, saved.response.status, {
-          error: apiErrorMessage(saved.payload, "Staff job role could not be saved.")
+          error: apiErrorMessage(saved.payload, "Newsroom role could not be saved.")
         });
         return;
       }
@@ -3486,14 +3504,14 @@ async function adminRoute(request, response, requestUrl, session) {
           target_record_id: saved.payload,
           event_data: {
             display_name: body.display_name,
-            access_profile: body.access_profile,
+            permission_count: Array.isArray(body.permissions) ? body.permissions.length : 0,
             is_active: body.is_active === true
           }
         }
       });
       if (!audit.response.ok) {
         sendJson(response, 502, {
-          error: `The staff job role was saved, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
+          error: `The newsroom role was saved, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
         });
         return;
       }
@@ -3506,7 +3524,7 @@ async function adminRoute(request, response, requestUrl, session) {
     );
     if (staffRoleDelete && request.method === "DELETE") {
       if (identity.role !== "super_admin") {
-        sendJson(response, 403, { error: "Only the super-admin can permanently delete newsroom job titles." });
+        sendJson(response, 403, { error: "Only the super-admin can permanently delete newsroom roles." });
         return;
       }
       const deleted = await supabaseRequest("/rest/v1/rpc/chowk_admin_delete_staff_role_definition", {
@@ -3516,7 +3534,7 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       sendJson(response, deleted.response.status, deleted.response.ok
         ? { success: true }
-        : { error: apiErrorMessage(deleted.payload, "Newsroom job title could not be deleted.") });
+        : { error: apiErrorMessage(deleted.payload, "Newsroom role could not be deleted.") });
       return;
     }
 
@@ -3538,7 +3556,7 @@ async function adminRoute(request, response, requestUrl, session) {
       );
       if (!roleDefinitions.response.ok) {
         sendJson(response, roleDefinitions.response.status, {
-          error: apiErrorMessage(roleDefinitions.payload, "Staff job role details could not be loaded.")
+          error: apiErrorMessage(roleDefinitions.payload, "Newsroom role details could not be loaded.")
         });
         return;
       }
@@ -3695,7 +3713,7 @@ async function adminRoute(request, response, requestUrl, session) {
         ? body.staff_role_id
         : "";
       if (!roleId) {
-        sendJson(response, 400, { error: "Choose an active staff job title." });
+        sendJson(response, 400, { error: "Choose an active newsroom role." });
         return;
       }
       const assigned = await supabaseRequest("/rest/v1/rpc/chowk_admin_reassign_staff_job_role", {
@@ -3705,7 +3723,7 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       if (!assigned.response.ok) {
         sendJson(response, assigned.response.status, {
-          error: apiErrorMessage(assigned.payload, "The staff job title could not be assigned.")
+          error: apiErrorMessage(assigned.payload, "The newsroom role could not be assigned.")
         });
         return;
       }
@@ -3721,7 +3739,7 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       if (!audit.response.ok) {
         sendJson(response, 502, {
-          error: `The staff job title was assigned, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
+          error: `The newsroom role was assigned, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
         });
         return;
       }
@@ -3740,7 +3758,7 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       if (!staffRoleId) {
-        sendJson(response, 400, { error: "Choose an active staff job title." });
+        sendJson(response, 400, { error: "Choose an active newsroom role." });
         return;
       }
       const staffRoleResult = await supabaseRequest(
@@ -3749,16 +3767,22 @@ async function adminRoute(request, response, requestUrl, session) {
       );
       if (!staffRoleResult.response.ok) {
         sendJson(response, staffRoleResult.response.status, {
-          error: apiErrorMessage(staffRoleResult.payload, "The selected staff job title could not be verified.")
+          error: apiErrorMessage(staffRoleResult.payload, "The selected newsroom role could not be verified.")
         });
         return;
       }
       const staffRole = staffRoleResult.payload?.[0];
       if (!staffRole) {
-        sendJson(response, 400, { error: "Choose an active staff job title." });
+        sendJson(response, 400, { error: "Choose an active newsroom role." });
         return;
       }
       const requestedRole = staffRole.access_profile;
+      if (!["moderator", "editor"].includes(requestedRole)) {
+        sendJson(response, 400, {
+          error: "Reporter invitations must use the Reporter Desk application workflow."
+        });
+        return;
+      }
       let invitedUser;
       try {
         invitedUser = await inviteSupabaseUser(
@@ -3843,9 +3867,9 @@ async function adminRoute(request, response, requestUrl, session) {
     const collections = {
       locations: {
         table: "locations",
-        select: "id,name,slug,location_type,rto_code,parent_id,is_active,created_at",
+        select: "id,name,slug,location_type,state_code,rto_code,parent_id,is_active,created_at",
         order: "location_type.asc,name.asc",
-        fields: ["name", "slug", "location_type", "rto_code", "parent_id", "is_active"]
+        fields: ["name", "slug", "location_type", "state_code", "rto_code", "parent_id", "is_active"]
       },
       "reporter-designations": {
         table: "reporter_designations",
@@ -4131,6 +4155,17 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "District RTO codes must contain 2-8 letters or numbers." });
         return;
       }
+      if (collection.table === "locations" && (
+        (record.location_type === "state" && (typeof record.state_code !== "string" || !/^[A-Za-z0-9]{2}$/.test(record.state_code))) ||
+        (record.state_code != null && (
+          record.location_type !== "state" ||
+          typeof record.state_code !== "string" ||
+          !/^[A-Za-z0-9]{2}$/.test(record.state_code)
+        ))
+      )) {
+        sendJson(response, 400, { error: "Reporter ID state codes must be exactly two letters or numbers and can only be set on State locations." });
+        return;
+      }
       if (collection.table === "live_streams") record.created_by = session.identity.id;
       if (collection.table === "media_catalog") {
         record.created_by = session.identity.id;
@@ -4234,6 +4269,18 @@ async function adminRoute(request, response, requestUrl, session) {
           record.rto_code !== null &&
           (typeof record.rto_code !== "string" || !/^[A-Za-z0-9]{2,8}$/.test(record.rto_code))) {
         sendJson(response, 400, { error: "District RTO codes must contain 2-8 letters or numbers." });
+        return;
+      }
+      if (config.table === "locations" && (
+        (record.location_type === "state" && record.state_code !== undefined &&
+          (typeof record.state_code !== "string" || !/^[A-Za-z0-9]{2}$/.test(record.state_code))) ||
+        (record.state_code != null && (
+          (record.location_type !== undefined && record.location_type !== "state") ||
+          typeof record.state_code !== "string" ||
+          !/^[A-Za-z0-9]{2}$/.test(record.state_code)
+        ))
+      )) {
+        sendJson(response, 400, { error: "Reporter ID state codes must be exactly two letters or numbers and can only be set on State locations." });
         return;
       }
       if (config.table === "media_catalog" && record.status === "published" && !record.published_at) {
@@ -4754,23 +4801,24 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Reporter access is granted only after the applicant completes the reporter onboarding steps." });
         return;
       }
-      if (["moderator", "editor"].includes(body.role)) {
-        const currentProfile = await supabaseRequest(
-          `/rest/v1/profiles?select=role&id=eq.${roleItem[1]}&limit=1`,
-          { token }
-        );
-        if (!currentProfile.response.ok) {
-          sendJson(response, currentProfile.response.status, {
-            error: apiErrorMessage(currentProfile.payload, "The current staff role could not be verified.")
-          });
-          return;
-        }
-        if (currentProfile.payload?.[0]?.role !== body.role) {
-          sendJson(response, 400, {
-            error: "Moderator and editor roles can only be assigned by approving a completed staff onboarding profile."
-          });
-          return;
-        }
+      const currentProfile = await supabaseRequest(
+        `/rest/v1/profiles?select=role&id=eq.${roleItem[1]}&limit=1`,
+        { token }
+      );
+      if (!currentProfile.response.ok) {
+        sendJson(response, currentProfile.response.status, {
+          error: apiErrorMessage(currentProfile.payload, "The current account role could not be verified.")
+        });
+        return;
+      }
+      const currentRole = currentProfile.payload?.[0]?.role;
+      const newsroomRoles = ["moderator", "editor"];
+      if ((newsroomRoles.includes(currentRole) || newsroomRoles.includes(body.role))
+          && currentRole !== body.role) {
+        sendJson(response, 400, {
+          error: "Newsroom staff account workflows can only be changed through staff onboarding. Use the assigned newsroom role to change newsroom responsibilities and permissions."
+        });
+        return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_set_user_role", {
         method: "POST", token, body: { target_user: roleItem[1], new_role: body.role }
@@ -5087,7 +5135,7 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
         : { response: { ok: true }, payload: [] };
       if (!staffRoleResult.response.ok) {
         sendJson(response, staffRoleResult.response.status, {
-          error: apiErrorMessage(staffRoleResult.payload, "Your assigned staff job title could not be loaded.")
+          error: apiErrorMessage(staffRoleResult.payload, "Your assigned newsroom role could not be loaded.")
         });
         return;
       }

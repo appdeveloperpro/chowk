@@ -70,7 +70,11 @@ async function request(path, method = "GET", body) {
     window.location.replace("/auth?mode=login&next=%2Fworkspace");
     throw new Error("Sign in to access the newsroom workspace.");
   }
-  if (!response.ok) throw new Error(result.error || "The newsroom request could not be completed.");
+  if (!response.ok) {
+    const error = new Error(result.error || "The newsroom request could not be completed.");
+    error.status = response.status;
+    throw error;
+  }
   return result;
 }
 
@@ -154,6 +158,97 @@ async function loadNotifications() {
   } catch (error) {
     panel.hidden = false;
     list.replaceChildren(makeElement("p", "workspace-empty", error.message));
+  }
+}
+
+function renderTerritoryDashboard(data) {
+  const panel = document.querySelector("#workspace-territory");
+  const scopeList = document.querySelector("#workspace-territory-scopes");
+  const reporters = document.querySelector("#workspace-reporter-list");
+  const applications = document.querySelector("#workspace-application-list");
+  const counts = data.counts || {};
+  const scopes = data.scopes || [];
+  const reporterRows = data.reporters || [];
+  const applicationRows = data.pending_applications || [];
+  document.querySelector("#workspace-territory-nav").hidden = false;
+  panel.hidden = false;
+  document.querySelector("#workspace-reporter-count").textContent =
+    `(${counts.active_reporters || 0})`;
+  document.querySelector("#workspace-application-count").textContent =
+    `(${(counts.pending_applications || 0) + (counts.needs_information || 0)})`;
+  document.querySelector("#workspace-territory-summary").textContent = scopes.length
+    ? `Showing reporters and review work across ${scopes.length} assigned location${scopes.length === 1 ? "" : "s"}, including all connected child locations.`
+    : data.is_admin
+      ? "Administrator access is not limited to assigned locations."
+      : "No active geographic scope is assigned. Reporter data remains unavailable until an administrator assigns your locations.";
+  scopeList.replaceChildren();
+  scopes.forEach((scope) => scopeList.append(makeElement(
+    "span",
+    "workspace-territory-scope",
+    `${scope.name} · ${statusName(scope.location_type)}`
+  )));
+  if (!scopes.length) {
+    scopeList.append(makeElement(
+      "span",
+      "workspace-territory-scope",
+      data.is_admin ? "All locations" : "No locations assigned"
+    ));
+  }
+  reporters.replaceChildren();
+  reporterRows.forEach((reporter) => {
+    const row = makeElement("article", "workspace-territory-row");
+    const identity = makeElement("div", "workspace-territory-identity");
+    identity.append(
+      makeElement("strong", "", reporter.full_name || "Reporter"),
+      makeElement("span", "", [reporter.reporter_code, reporter.email].filter(Boolean).join(" · "))
+    );
+    row.append(
+      identity,
+      makeElement("span", "workspace-territory-meta", [
+        reporter.designation,
+        reporter.reporter_type,
+        reporter.location_name
+      ].filter(Boolean).join(" · "))
+    );
+    reporters.append(row);
+  });
+  if (!reporterRows.length) {
+    reporters.append(makeElement("p", "workspace-empty", "No approved reporters are currently connected to these locations."));
+  }
+  applications.replaceChildren();
+  applicationRows.forEach((application) => {
+    const row = makeElement("article", "workspace-territory-row");
+    const identity = makeElement("div", "workspace-territory-identity");
+    identity.append(
+      makeElement("strong", "", application.full_name || "Applicant"),
+      makeElement("span", "", [application.email, application.location_name].filter(Boolean).join(" · "))
+    );
+    row.append(
+      identity,
+      makeElement("span", `workspace-status ${application.status}`, statusName(application.status))
+    );
+    applications.append(row);
+  });
+  if (!applicationRows.length) {
+    applications.append(makeElement("p", "workspace-empty", "No reporter applications are awaiting review in these locations."));
+  }
+}
+
+async function loadTerritoryDashboard() {
+  const panel = document.querySelector("#workspace-territory");
+  const nav = document.querySelector("#workspace-territory-nav");
+  panel.hidden = true;
+  nav.hidden = true;
+  try {
+    const result = await request("/api/workspace/reporters/territory");
+    renderTerritoryDashboard(result.data || {});
+  } catch (error) {
+    if (error.status === 403) return;
+    panel.hidden = false;
+    document.querySelector("#workspace-application-list").replaceChildren();
+    document.querySelector("#workspace-reporter-list").replaceChildren(
+      makeElement("p", "workspace-empty", error.message)
+    );
   }
 }
 
@@ -493,6 +588,7 @@ document.querySelector("#workspace-notifications-read").addEventListener("click"
   try {
     await request("/api/workspace/notifications/read-all", "POST", {});
     await loadNotifications();
+    await loadTerritoryDashboard();
   } catch (error) {
     showMessage(error.message);
   }
@@ -532,6 +628,8 @@ storyForm.addEventListener("submit", async (event) => {
 
 async function loadWorkspace() {
   queue.replaceChildren(makeElement("p", "workspace-loading", "Loading newsroom stories…"));
+  const notificationRequest = loadNotifications();
+  const territoryRequest = loadTerritoryDashboard();
   try {
     const result = await request("/api/workspace/articles");
     workspaceData = result.data || { articles: [], categories: [], locations: [] };
@@ -554,10 +652,10 @@ async function loadWorkspace() {
         coverageList.append(makeElement("p", "workspace-empty", "No active coverage is assigned. Ask an administrator to assign the correct locations."));
       }
     }
-    await loadNotifications();
   } catch (error) {
     queue.replaceChildren(makeElement("p", "workspace-empty", error.message));
   }
+  await Promise.all([notificationRequest, territoryRequest]);
 }
 
 async function initializeWorkspace() {

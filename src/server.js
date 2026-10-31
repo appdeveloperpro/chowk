@@ -49,7 +49,7 @@ function staffAgreementValues(profile, onboarding) {
     "staff.full_name": profile.full_name || "",
     "staff.email": profile.email || "",
     "staff.phone": profile.phone || "",
-    "staff.role": onboarding.requested_role || "",
+    "staff.role": onboarding.staff_role_name || onboarding.requested_role || "",
     "staff.address": address,
     "staff.address_line1": onboarding.permanent_address_line1 || "",
     "staff.address_line2": onboarding.permanent_address_line2 || "",
@@ -1914,6 +1914,9 @@ async function organizationWorkflowsRoute(request, response, requestUrl, session
 function organizationModuleForAdminPath(pathname) {
   if (pathname.startsWith("/api/admin/hr/")) return "human-resources";
   if (pathname.startsWith("/api/admin/territory-leadership")) return "locations";
+  if (pathname.startsWith("/api/admin/staff-onboarding")
+      || pathname.startsWith("/api/admin/staff-roles")
+      || pathname.startsWith("/api/admin/staff-invitations")) return "newsroom";
   if (pathname.startsWith("/api/admin/role-agreements")
       || pathname.startsWith("/api/admin/agreement-records")
       || pathname.startsWith("/api/admin/reporter-agreement")) return "agreements";
@@ -1970,6 +1973,9 @@ function organizationPermissionForAdminPath(pathname, method) {
   if (pathname === "/api/admin/reporter-review-options" && method === "GET") {
     return "reporters.applications.review";
   }
+  if (pathname === "/api/admin/reporter-review-scopes") {
+    return "reporters.manage";
+  }
   if (pathname.startsWith("/api/admin/reporter")
       || pathname.startsWith("/api/admin/staff")
       || pathname.startsWith("/api/admin/credential")
@@ -1984,6 +1990,7 @@ function organizationPermissionForAdminPath(pathname, method) {
 async function adminRoute(request, response, requestUrl, session) {
   const { token, identity } = session;
   const pathname = requestUrl.pathname;
+  const isLegacyAdmin = ["admin", "super_admin"].includes(identity.role);
   try {
     if (request.method !== "GET" && !isSameOrigin(request)) {
       sendJson(response, 403, { error: "Cross-origin request rejected." });
@@ -1993,10 +2000,6 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 403, { error: "Only a super admin can configure organization-wide settings." });
       return;
     }
-    if (pathname === "/api/admin/reporter-review-scopes" && identity.role !== "super_admin") {
-      sendJson(response, 403, { error: "Only a super admin can assign reporter application review scopes." });
-      return;
-    }
     const moduleForAdminRoute = organizationModuleForAdminPath(pathname);
     if (moduleForAdminRoute
         && !await organizationModuleEnabled(token, moduleForAdminRoute)) {
@@ -2004,7 +2007,15 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
     const routePermission = organizationPermissionForAdminPath(pathname, request.method);
-    const routePermissions = pathname.endsWith("/transition")
+    const routePermissions = pathname === "/api/admin/reporter-review-scopes"
+      ? ["reporters.manage", "newsroom.people.manage"]
+      : pathname.startsWith("/api/admin/staff-onboarding")
+      ? ["reporters.manage", "reporters.applications.review", "newsroom.people.manage"]
+      : request.method === "GET"
+        && (pathname === "/api/admin/role-agreements"
+          || pathname === "/api/admin/agreement-records")
+      ? ["reporters.manage", "newsroom.people.manage"]
+      : pathname.endsWith("/transition")
       ? ["newsroom.articles.create", "newsroom.articles.edit",
         "newsroom.articles.review", "newsroom.articles.publish",
         "newsroom.articles.reopen"]
@@ -3137,7 +3148,19 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, 404, { error: "HR management route not found." });
       return;
     }
-    if (!["admin", "super_admin"].includes(identity.role)) {
+    const delegatedStaffReviewRoute = (
+      pathname === "/api/admin/staff-onboarding" && request.method === "GET"
+    ) || (
+      /^\/api\/admin\/staff-onboarding\/[0-9a-f-]{36}\/review$/i.test(pathname)
+      && request.method === "POST"
+    );
+    const delegatedAgreementRead = request.method === "GET"
+      && (pathname === "/api/admin/role-agreements"
+        || pathname === "/api/admin/agreement-records");
+    if (!isLegacyAdmin
+        && !pathname.startsWith("/api/admin/hr/")
+        && !delegatedStaffReviewRoute
+        && !delegatedAgreementRead) {
       sendJson(response, 403, { error: "Delegated HR access is limited to HR management endpoints." });
       return;
     }
@@ -3184,7 +3207,7 @@ async function adminRoute(request, response, requestUrl, session) {
     if (pathname === "/api/admin/agreement-records" && request.method === "GET") {
       const requestedRole = requestUrl.searchParams.get("role") || "all";
       const roleDefinitions = await supabaseRequest(
-        "/rest/v1/staff_role_definitions?select=id,role_key&is_active=eq.true",
+        "/rest/v1/staff_role_definitions?select=id,role_key,display_name&is_active=eq.true",
         { token }
       );
       if (!roleDefinitions.response.ok) {
@@ -3193,8 +3216,8 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         return;
       }
-      const roleDefinitionsById = new Map((roleDefinitions.payload || []).map((role) => [role.id, role.role_key]));
-      const supportedRoles = new Set(roleDefinitionsById.values());
+      const roleDefinitionsById = new Map((roleDefinitions.payload || []).map((role) => [role.id, role]));
+      const supportedRoles = new Set(Array.from(roleDefinitionsById.values(), (role) => role.role_key));
       if (requestedRole !== "all" && !supportedRoles.has(requestedRole)) {
         sendJson(response, 400, { error: "Choose a supported agreement role." });
         return;
@@ -3287,8 +3310,12 @@ async function adminRoute(request, response, requestUrl, session) {
           staffRoles.includes(item.role)
         );
         const onboarding = (dataByKind.get("staff-onboarding") || []).filter((item) =>
-          staffRoles.includes(roleDefinitionsById.get(item.staff_role_id))
-        );
+          staffRoles.includes(roleDefinitionsById.get(item.staff_role_id)?.role_key)
+        ).map((person) => ({
+          ...person,
+          staff_role_name: roleDefinitionsById.get(person.staff_role_id)?.display_name
+            || person.requested_role
+        }));
         acceptances.forEach((acceptance) => {
           const acceptedVersion = versionsById.get(acceptance.agreement_version_id);
           records.push({
@@ -3307,13 +3334,15 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         onboarding.forEach((person) => {
           const staffRole = roleDefinitionsById.get(person.staff_role_id);
-          const published = publishedByRole.get(staffRole);
+          const roleKey = staffRole?.role_key;
+          const published = publishedByRole.get(roleKey);
           if (!staffRole) return;
-          if (!published || !["submitted", "approved_pending_agreement"].includes(person.status)) return;
+          if (!published
+              || !["submitted", "approved_pending_agreement", "active"].includes(person.status)) return;
           records.push({
             id: `staff-pending-${person.user_id}`,
             user_id: person.user_id,
-            role: staffRole,
+            role: roleKey,
             version: published.version,
             status: "Awaiting acceptance",
             issued_at: published.published_at,
@@ -3348,7 +3377,11 @@ async function adminRoute(request, response, requestUrl, session) {
         record.email = profile?.email || "—";
       });
       const staffOnboardingByUser = new Map(
-        (dataByKind.get("staff-onboarding") || []).map((person) => [person.user_id, person])
+        (dataByKind.get("staff-onboarding") || []).map((person) => [person.user_id, {
+          ...person,
+          staff_role_name: roleDefinitionsById.get(person.staff_role_id)?.display_name
+            || person.requested_role
+        }])
       );
       const staffPublishedByRole = new Map(
         (dataByKind.get("staff-versions") || [])
@@ -3451,6 +3484,16 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const draft = result.payload[0];
+      const roleDefinitionResult = await supabaseRequest(
+        `/rest/v1/staff_role_definitions?select=role_key,display_name&role_key=eq.${encodeURIComponent(draft.role)}&limit=1`,
+        { token }
+      );
+      if (!roleDefinitionResult.response.ok || !roleDefinitionResult.payload?.[0]) {
+        sendJson(response, roleDefinitionResult.response.ok ? 404 : roleDefinitionResult.response.status, {
+          error: apiErrorMessage(roleDefinitionResult.payload, "The newsroom role for this agreement draft could not be loaded.")
+        });
+        return;
+      }
       try {
         const resolvedContent = renderStaffAgreement(
           draft.template_content,
@@ -3462,6 +3505,7 @@ async function adminRoute(request, response, requestUrl, session) {
           },
           {
             requested_role: draft.role,
+            staff_role_name: roleDefinitionResult.payload[0].display_name,
             permanent_address_line1: "100 Sample Road",
             permanent_address_line2: "Sample Locality",
             permanent_address_city: "Sample City",
@@ -3679,6 +3723,19 @@ async function adminRoute(request, response, requestUrl, session) {
         });
         return;
       }
+      const roleChangeBatches = await Promise.all(chunksOf(userIds, 100).map((userIdBatch) =>
+        supabaseRequestAll(
+          `/rest/v1/staff_role_change_requests?select=id,user_id,target_staff_role_id,role_key_snapshot,display_name_snapshot,requested_at&user_id=in.(${userIdBatch.join(",")})&status=eq.pending`,
+          { token }
+        )
+      ));
+      const failedRoleChanges = roleChangeBatches.find((result) => !result.response.ok);
+      if (failedRoleChanges) {
+        sendJson(response, failedRoleChanges.response.status, {
+          error: apiErrorMessage(failedRoleChanges.payload, "Pending staff role changes could not be loaded.")
+        });
+        return;
+      }
       const profilesById = new Map(profileBatches.flatMap((result) => result.payload || [])
         .map((profile) => [profile.id, profile]));
       const assignmentsByUserId = new Map();
@@ -3687,9 +3744,21 @@ async function adminRoute(request, response, requestUrl, session) {
         history.push(assignment);
         assignmentsByUserId.set(assignment.user_id, history);
       });
+      const pendingRoleChangesByUserId = new Map(
+        roleChangeBatches.flatMap((result) => result.payload || [])
+          .map((roleChange) => [roleChange.user_id, {
+            ...roleChange,
+            role: staffRolesById.get(roleChange.target_staff_role_id) || {
+              id: roleChange.target_staff_role_id,
+              role_key: roleChange.role_key_snapshot,
+              display_name: roleChange.display_name_snapshot
+            }
+          }])
+      );
       const data = await Promise.all(rows.map(async (row) => ({
         ...row,
         staff_role: staffRolesById.get(row.staff_role_id) || null,
+        pending_role_change: pendingRoleChangesByUserId.get(row.user_id) || null,
         role_assignment_history: assignmentsByUserId.get(row.user_id) || [],
         profile: profilesById.get(row.user_id) || null,
         profile_photo_url: row.profile_photo_path
@@ -3822,15 +3891,47 @@ async function adminRoute(request, response, requestUrl, session) {
         method: "POST",
         token,
         body: {
-          event_action: "STAFF_JOB_ROLE_REASSIGNED",
-          target_table: "staff_role_assignments",
+          event_action: "STAFF_JOB_ROLE_CHANGE_REQUESTED",
+          target_table: "staff_role_change_requests",
           target_record_id: assigned.payload,
           event_data: { user_id: staffJobRoleAssignment[1], staff_role_id: roleId }
         }
       });
       if (!audit.response.ok) {
         sendJson(response, 502, {
-          error: `The newsroom role was assigned, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
+          error: `The role change request was saved, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
+        });
+        return;
+      }
+      sendJson(response, 200, { success: true, message: "Role change requested. It will take effect after the staff member accepts the new role agreement." });
+      return;
+    }
+
+    if (staffJobRoleAssignment && request.method === "DELETE") {
+      const cancelled = await supabaseRequest("/rest/v1/rpc/chowk_admin_cancel_staff_role_change", {
+        method: "POST",
+        token,
+        body: { target_user: staffJobRoleAssignment[1] }
+      });
+      if (!cancelled.response.ok) {
+        sendJson(response, cancelled.response.status, {
+          error: apiErrorMessage(cancelled.payload, "The pending newsroom role change could not be cancelled.")
+        });
+        return;
+      }
+      const audit = await supabaseRequest("/rest/v1/rpc/chowk_record_admin_event", {
+        method: "POST",
+        token,
+        body: {
+          event_action: "STAFF_JOB_ROLE_CHANGE_CANCELLED",
+          target_table: "staff_role_change_requests",
+          target_record_id: cancelled.payload,
+          event_data: { user_id: staffJobRoleAssignment[1] }
+        }
+      });
+      if (!audit.response.ok) {
+        sendJson(response, 502, {
+          error: `The role change was cancelled, but its audit event could not be recorded: ${apiErrorMessage(audit.payload, "audit logging failed.")}`
         });
         return;
       }
@@ -5218,9 +5319,23 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
         sendJson(response, 404, { error: "There is no staff invitation for this account." });
         return;
       }
-      const staffRoleResult = onboarding.staff_role_id
+      const roleChangeResult = onboarding.status === "active"
         ? await supabaseRequest(
-          `/rest/v1/staff_role_definitions?select=id,display_name,duties&id=eq.${encodeURIComponent(onboarding.staff_role_id)}&limit=1`,
+          `/rest/v1/staff_role_change_requests?select=id,target_staff_role_id,requested_at&user_id=eq.${encodeURIComponent(identity.id)}&status=eq.pending&limit=1`,
+          { token }
+        )
+        : { response: { ok: true }, payload: [] };
+      if (!roleChangeResult.response.ok) {
+        sendJson(response, roleChangeResult.response.status, {
+          error: apiErrorMessage(roleChangeResult.payload, "A pending newsroom role change could not be loaded.")
+        });
+        return;
+      }
+      const pendingRoleChange = roleChangeResult.payload?.[0] || null;
+      const agreementRoleId = pendingRoleChange?.target_staff_role_id || onboarding.staff_role_id;
+      const staffRoleResult = agreementRoleId
+        ? await supabaseRequest(
+          `/rest/v1/staff_role_definitions?select=id,role_key,display_name,duties&id=eq.${encodeURIComponent(agreementRoleId)}&limit=1`,
           { token }
         )
         : { response: { ok: true }, payload: [] };
@@ -5231,10 +5346,14 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
         return;
       }
       const staffRole = staffRoleResult.payload?.[0] || null;
+      if (!staffRole) {
+        sendJson(response, 409, { error: "The assigned newsroom job role could not be verified." });
+        return;
+      }
       onboarding.staff_role_name = staffRole?.display_name || onboarding.requested_role;
       onboarding.staff_role_duties = staffRole?.duties || "";
       const agreementResult = await supabaseRequest(
-        `/rest/v1/staff_role_agreement_versions?select=id,role,version,template_content,terms_snapshot,sha256,published_at&role=eq.${encodeURIComponent(onboarding.requested_role)}&status=eq.published&order=published_at.desc&limit=1`,
+        `/rest/v1/staff_role_agreement_versions?select=id,role,version,template_content,terms_snapshot,sha256,published_at&role=eq.${encodeURIComponent(staffRole.role_key)}&status=eq.published&order=published_at.desc&limit=1`,
         { token }
       );
       if (!agreementResult.response.ok) {
@@ -5246,7 +5365,7 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
       const publishedAgreement = agreementResult.payload?.[0] || null;
       const acceptanceResult = publishedAgreement
         ? await supabaseRequest(
-          `/rest/v1/staff_role_agreement_acceptances?select=id,agreement_version,agreement_sha256,rendered_content,rendered_sha256,accepted_at&user_id=eq.${encodeURIComponent(identity.id)}&role=eq.${encodeURIComponent(onboarding.requested_role)}&agreement_version_id=eq.${encodeURIComponent(publishedAgreement.id)}&limit=1`,
+          `/rest/v1/staff_role_agreement_acceptances?select=id,agreement_version,agreement_sha256,rendered_content,rendered_sha256,accepted_at&user_id=eq.${encodeURIComponent(identity.id)}&role=eq.${encodeURIComponent(staffRole.role_key)}&agreement_version_id=eq.${encodeURIComponent(publishedAgreement.id)}&limit=1`,
           { token }
         )
         : { response: { ok: true }, payload: [] };
@@ -5260,7 +5379,7 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
       let accepted = false;
       let resolvedAgreement = null;
       if (publishedAgreement
-          && ["submitted", "approved_pending_agreement"].includes(onboarding.status)) {
+          && ["submitted", "approved_pending_agreement", "active"].includes(onboarding.status)) {
         const profileResult = await supabaseRequest(
           `/rest/v1/profiles?select=full_name,email,phone&id=eq.${encodeURIComponent(identity.id)}&limit=1`,
           { token }
@@ -5282,7 +5401,7 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
           accepted = Boolean(
             acceptance?.rendered_content === resolvedContent
             && acceptance?.rendered_sha256 === renderedSha256
-          );
+          ) && !pendingRoleChange;
           resolvedAgreement = {
             ...publishedAgreement,
             template_content: undefined,
@@ -5301,6 +5420,8 @@ async function staffOnboardingRoute(request, response, requestUrl, session) {
         success: true,
         data: {
           ...onboarding,
+          role_change_pending: Boolean(pendingRoleChange),
+          pending_role_change_requested_at: pendingRoleChange?.requested_at || null,
           email: identity.email,
           full_name: identity.full_name,
           phone: identity.phone,
@@ -5539,7 +5660,8 @@ async function workspaceRoute(request, response, requestUrl, session) {
     const role = identity.role;
     const pathname = requestUrl.pathname;
     const requiredModule = pathname.startsWith("/api/workspace/media") ? "media"
-      : pathname.startsWith("/api/workspace/articles") ? "newsroom" : null;
+      : pathname.startsWith("/api/workspace/articles") ? "newsroom"
+        : pathname.startsWith("/api/workspace/reporters") ? "reporters" : null;
     if (requiredModule && !await organizationModuleEnabled(token, requiredModule)) {
       sendJson(response, 403, { error: "This organization module is disabled." });
       return;
@@ -5553,7 +5675,9 @@ async function workspaceRoute(request, response, requestUrl, session) {
         : request.method === "POST" && !pathname.endsWith("/transition")
           ? ["newsroom.articles.create"]
           : ["newsroom.articles.edit"]
-      : pathname.startsWith("/api/workspace/media") ? ["newsroom.media.manage"] : [];
+      : pathname.startsWith("/api/workspace/media") ? ["newsroom.media.manage"]
+        : pathname === "/api/workspace/reporters/territory" && request.method === "GET"
+          ? ["reporters.applications.review"] : [];
     const hasOrganizationAdminRole = ["admin", "super_admin"].includes(role);
     if (requiredPermissions.length && !hasOrganizationAdminRole
         && !(await Promise.all(requiredPermissions.map((permission) =>
@@ -5565,6 +5689,16 @@ async function workspaceRoute(request, response, requestUrl, session) {
     if (!hasNativeNewsroomRole && !requiredModule
         && !await hasOrganizationAdminAccess(token)) {
       sendJson(response, 403, { error: "A newsroom role is required to access this workspace." });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workspace/reporters/territory" && request.method === "GET") {
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_reporter_territory_dashboard", {
+        method: "POST", token, body: {}
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Territory reporter data could not be loaded.") });
       return;
     }
 
@@ -5988,9 +6122,9 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname.startsWith("/api/staff/onboarding")) {
     void requireUser(request, response).then((session) => {
       if (!session) return;
-      void organizationModuleEnabled(session.token, "reporters").then((enabled) => {
+      void organizationModuleEnabled(session.token, "newsroom").then((enabled) => {
         if (!enabled) {
-          sendJson(response, 403, { error: "The reporter operations module is disabled." });
+          sendJson(response, 403, { error: "The newsroom module is disabled." });
           return;
         }
         void staffOnboardingRoute(request, response, requestUrl, session);
@@ -6512,7 +6646,7 @@ const server = http.createServer((request, response) => {
                 agreement.template_content,
                 agreement.terms_snapshot || {},
                 profile,
-                { requested_role: "reporter" }
+                { requested_role: "reporter", staff_role_name: "Reporter" }
               );
               const renderedSha256 = createHash("sha256").update(resolvedContent, "utf8").digest("hex");
               const acceptance = (acceptanceResult.payload || []).find((item) =>
@@ -7015,7 +7149,7 @@ const server = http.createServer((request, response) => {
     return;
   }
   if (pathname === "/workspace") {
-    void getSession(request, response, userCookie).then((session) => {
+    void getSession(request, response, userCookie).then(async (session) => {
       if (!session) {
         response.writeHead(302, { Location: "/auth?mode=login&next=%2Fworkspace", "Cache-Control": "no-store" });
         response.end();
@@ -7030,6 +7164,23 @@ const server = http.createServer((request, response) => {
         response.writeHead(302, { Location: "/reporter", "Cache-Control": "no-store" });
         response.end();
         return;
+      }
+      if (["moderator", "editor"].includes(session.identity.role)) {
+        const agreementReview = await supabaseRequest(
+          "/rest/v1/rpc/chowk_staff_must_review_current_agreement",
+          { method: "POST", token: session.token, body: {} }
+        );
+        if (!agreementReview.response.ok) {
+          sendJson(response, 503, {
+            error: apiErrorMessage(agreementReview.payload, "The current staff agreement status could not be verified.")
+          });
+          return;
+        }
+        if (agreementReview.payload === true) {
+          response.writeHead(302, { Location: "/staff-onboarding", "Cache-Control": "no-store" });
+          response.end();
+          return;
+        }
       }
       response.setHeader("Cache-Control", "no-store");
       serveStatic(response, "/workspace.html");

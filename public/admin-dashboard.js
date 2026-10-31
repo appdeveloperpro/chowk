@@ -63,8 +63,8 @@ const configurationSections = [
   {
     key: "reporter-review-access",
     label: "Application reviewer access",
-    description: "Assign reporter application reviewers to a geographic location. Their access is limited to applications in that location and its descendants.",
-    superAdminOnly: true,
+    description: "Assign reporter application reviewers to one or more geographic locations. Their access is limited to those locations and their descendants.",
+    anyPermissions: ["reporters.manage", "newsroom.people.manage"],
     navSection: "reporter-configuration",
     group: "REPORTING"
   },
@@ -357,7 +357,7 @@ function renderReporterReviewAccess(root, data = {}) {
     const reviewerField = makeElement("label", "admin-form-field");
     reviewerField.append(makeElement("span", "", "Reviewer"), reviewerSelect);
     const locationField = makeElement("label", "admin-form-field");
-    locationField.append(makeElement("span", "", "Administrative scope"), locationSelect);
+    locationField.append(makeElement("span", "", "Geographic scope"), locationSelect);
     const submit = makeElement("button", "admin-primary-button", "Assign scope");
     submit.type = "submit";
     form.append(reviewerField, locationField, submit);
@@ -668,23 +668,37 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         const records = (unwrapData(result) || []).filter((row) =>
           ["moderator", "editor"].includes(row.requested_role)
         );
-        const actions = pageActions(root);
-        const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage newsroom roles");
-        manageRoles.type = "button";
-        manageRoles.addEventListener("click", () => void loadSection("staff-roles"));
-        actions.append(manageRoles);
-        const invite = makeElement("button", "admin-primary-button admin-create-button", "Invite newsroom staff");
-        invite.type = "button";
-        invite.addEventListener("click", () => void openStaffInvitationDialog(
-          () => loadWorkflowPage("applications", tabKey)
-        ));
-        actions.append(invite);
+        if (["admin", "super_admin"].includes(sessionIdentity?.role)) {
+          const actions = pageActions(root);
+          const manageRoles = makeElement("button", "admin-secondary-button admin-create-button", "Manage newsroom roles");
+          manageRoles.type = "button";
+          manageRoles.addEventListener("click", () => void loadSection("staff-roles"));
+          actions.append(manageRoles);
+          const invite = makeElement("button", "admin-primary-button admin-create-button", "Invite newsroom staff");
+          invite.type = "button";
+          invite.addEventListener("click", () => void openStaffInvitationDialog(
+            () => loadWorkflowPage("applications", tabKey)
+          ));
+          actions.append(invite);
+        }
         renderStaffOnboarding(root, records, () => loadWorkflowPage("applications", tabKey), false);
       }
     } else if (page === "directory") {
+      const canReadStaffDirectory = [
+        "reporters.manage",
+        "newsroom.people.manage"
+      ].some((permission) => sessionPermissions.includes(permission));
+      const canReadReporterDirectory = [
+        "people.directory.read",
+        "reporters.manage"
+      ].some((permission) => sessionPermissions.includes(permission));
       const [reporterResult, onboardingResult] = await Promise.all([
-        apiRequest(modules["reporter-directory"].path),
-        apiRequest(modules["staff-onboarding"].path)
+        canReadReporterDirectory
+          ? apiRequest(modules["reporter-directory"].path)
+          : Promise.resolve({ success: true, data: [] }),
+        canReadStaffDirectory
+          ? apiRequest(modules["staff-onboarding"].path)
+          : Promise.resolve({ success: true, data: [] })
       ]);
       const reporters = unwrapData(reporterResult) || [];
       const staff = (unwrapData(onboardingResult) || []).filter((row) =>
@@ -696,19 +710,26 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
         staff_role_id: row.staff_role_id,
         access_profile: row.requested_role,
         _role_assignment_history: row.role_assignment_history || [],
+        _pending_role_change: row.pending_role_change || null,
         full_name: row.profile?.full_name || "—",
         email: row.profile?.email || "—",
         phone: row.profile?.phone || "—",
         role: row.staff_role?.display_name || row.requested_role,
-        status: "Active",
+        status: row.pending_role_change?.role
+          ? "Role change awaiting acceptance"
+          : "Active",
         active_since: formatDate(row.reviewed_at),
         location: row.permanent_address_city || "—"
       }));
-      if (tabKey === "all" || tabKey === "reporter") {
+      if (canReadReporterDirectory && (tabKey === "all" || tabKey === "reporter")) {
         renderReporterAdminSection("reporter-directory", root, reporters);
       }
       if (tabKey !== "reporter") {
-        root.append(renderTablePanel("Active newsroom staff", staff, "workflow-directory"));
+        if (!canReadStaffDirectory && tabKey === "newsroom") {
+          root.append(makeElement("p", "admin-empty", "Your access does not include the newsroom staff directory."));
+        } else {
+          root.append(renderTablePanel("Active newsroom staff", staff, "workflow-directory"));
+        }
       }
     } else if (page === "agreements") {
       if (agreementPanelMode === "records") {
@@ -740,6 +761,8 @@ function canAccessConfigurationSection(section) {
   if (config.superAdminOnly) return sessionIdentity?.role === "super_admin";
   if (["admin", "super_admin"].includes(sessionIdentity?.role)) return true;
   if (config.permission && !sessionPermissions.includes(config.permission)) return false;
+  if (config.anyPermissions?.length
+      && !config.anyPermissions.some((permission) => sessionPermissions.includes(permission))) return false;
   return (config.requiredPermissions || []).every((permission) =>
     sessionPermissions.includes(permission));
 }
@@ -2644,10 +2667,12 @@ function renderRoleAgreements(root, data, roleFilter) {
         termSection.append(snapshot);
       }
     }
-    const manageTerms = makeElement("button", "admin-secondary-button", "Manage optional term values");
-    manageTerms.type = "button";
-    manageTerms.addEventListener("click", () => openRoleAgreementTermsDialog(role, agreement.terms || {}));
-    termSection.append(manageTerms);
+    if (["admin", "super_admin"].includes(sessionIdentity?.role)) {
+      const manageTerms = makeElement("button", "admin-secondary-button", "Manage optional term values");
+      manageTerms.type = "button";
+      manageTerms.addEventListener("click", () => openRoleAgreementTermsDialog(role, agreement.terms || {}));
+      termSection.append(manageTerms);
+    }
     card.append(termSection);
 
     if (published) {
@@ -3018,6 +3043,22 @@ function renderStaffOnboarding(root, rows, refresh = () => loadSection("applicat
         "admin-inline-warning",
         "Profile approved. The account remains limited until the invitee accepts the currently published agreement for this role."
       ));
+    } else if (record.status === "active" && record.pending_role_change?.role) {
+      card.append(
+        makeElement("p", "admin-dialog-help", `Active in ${record.staff_role?.display_name || record.requested_role}. Waiting for staff acceptance before changing to ${record.pending_role_change.role.display_name}.`),
+        makeElement("span", "admin-staff-contact", `${profile.phone || "Phone unavailable"} · ${record.permanent_address_city || "Address not submitted"}`)
+      );
+      if (["admin", "super_admin"].includes(sessionIdentity?.role)) {
+        const cancel = makeElement("button", "admin-secondary-button", "Cancel role change request");
+        cancel.type = "button";
+        cancel.addEventListener("click", () => {
+          void runAction(
+            () => apiRequest(`admin/staff-onboarding/${record.user_id}/job-role`, "DELETE"),
+            refresh
+          );
+        });
+        card.append(cancel);
+      }
     } else if (record.status === "active") {
       card.append(
         makeElement("p", "admin-dialog-help", `Approved and active since ${formatDate(record.reviewed_at)}.`),
@@ -4865,7 +4906,7 @@ async function openStaffRoleDialog(role = null, refresh = () => loadSection("sta
       form.append(makeElement(
         "p",
         "admin-dialog-help",
-        "Grant only what this role needs. Reporter application review is limited further by a separate location scope assigned by a super admin."
+        "Grant only what this role needs. Reporter application review is limited further by a separate location scope assigned by a reporter or people manager."
       ));
       permissionCatalog.forEach((permission) => {
         const row = makeElement("div", "admin-hr-permission-row");
@@ -4966,7 +5007,9 @@ async function openStaffNewsroomRoleDialog(user, refresh) {
   }
   openFormDialog(
     "Change staff newsroom role",
-    "This creates a dated role-assignment history entry. The new role's responsibilities and permission grants apply together; the existing account workflow stays unchanged.",
+    user._pending_role_change?.role
+      ? `A change to ${user._pending_role_change.role.display_name} is already waiting for acceptance. Choosing another role replaces that request. The current role and permissions stay active until acceptance.`
+      : "The staff member keeps the current role and permissions until they review and accept the agreement for the new role. Acceptance then switches the role and records the assignment history.",
     (form) => {
       form.append(makeElement("p", "admin-dialog-help", user.full_name || user.email || "Staff member"));
       const label = makeElement("label", "admin-form-field");
@@ -4977,7 +5020,7 @@ async function openStaffNewsroomRoleDialog(user, refresh) {
       roles.forEach((role) => {
         const option = makeElement("option", "", role.display_name);
         option.value = role.id;
-        option.selected = role.id === user.staff_role_id;
+        option.selected = role.id === (user._pending_role_change?.target_staff_role_id || user.staff_role_id);
         select.append(option);
       });
       label.append(select);
@@ -5362,9 +5405,11 @@ function addRowActions(container, row, section) {
   }
 
   if (section === "workflow-directory") {
-    rowButton(container, "Change newsroom role", () => {
-      void openStaffNewsroomRoleDialog(row, refresh);
-    });
+    if (["admin", "super_admin"].includes(sessionIdentity?.role)) {
+      rowButton(container, "Change newsroom role", () => {
+        void openStaffNewsroomRoleDialog(row, refresh);
+      });
+    }
     rowButton(container, "View assignment history", () => openStaffRoleHistoryDialog(row));
     return;
   }
@@ -6517,7 +6562,7 @@ async function loadSession() {
       reports: ["newsroom.reports.manage"],
       applications: ["reporters.manage", "reporters.applications.review", "newsroom.people.manage"],
       directory: ["people.directory.read", "reporters.manage", "newsroom.people.manage"],
-      "staff-roles": ["newsroom.people.manage"],
+      "staff-roles": [],
       "hr-management": ["hr.console.access"],
       agreements: ["reporters.manage", "newsroom.people.manage"],
       credentials: ["reporters.manage", "newsroom.people.manage"],

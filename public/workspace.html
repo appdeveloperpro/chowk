@@ -27,6 +27,7 @@
         <nav class="workspace-nav">
           <a class="workspace-nav-link active" href="#overview"><span class="workspace-nav-icon">◫</span>Overview</a>
           <a class="workspace-nav-link" href="#stories"><span class="workspace-nav-icon">▤</span>Story queue</a>
+          <a id="workspace-territory-nav" class="workspace-nav-link" href="#workspace-territory" hidden><span class="workspace-nav-icon">⌖</span>Territory reporters</a>
           <a class="workspace-nav-link" href="#updates"><span class="workspace-nav-icon">◷</span>Updates</a>
         </nav>
         <div class="workspace-sidebar-bottom">
@@ -60,6 +61,27 @@
           </section>
           <div id="workspace-message" class="workspace-message" role="status" hidden></div>
           <section id="workspace-metrics" class="workspace-metrics" aria-label="Queue summary"></section>
+          <section id="workspace-territory" class="workspace-panel workspace-territory" hidden>
+            <div class="workspace-panel-heading">
+              <div>
+                <h2>Reporters in your assigned territory</h2>
+                <p id="workspace-territory-summary">Reporter and application data for your assigned locations and their child locations.</p>
+              </div>
+              <a class="workspace-button secondary" href="/admin/dashboard">Open application review</a>
+            </div>
+            <div id="workspace-territory-scopes" class="workspace-territory-scopes"></div>
+            <div class="workspace-territory-grid">
+              <section class="workspace-territory-column">
+                <h3>Connected reporters <span id="workspace-reporter-count"></span></h3>
+                <div id="workspace-reporter-list" class="workspace-territory-list"></div>
+              </section>
+              <section class="workspace-territory-column">
+                <h3>Applications awaiting review <span id="workspace-application-count"></span></h3>
+                <p class="workspace-territory-note">Most recent 25 applications. Open the full queue to review or act on every matching application.</p>
+                <div id="workspace-application-list" class="workspace-territory-list"></div>
+              </section>
+            </div>
+          </section>
           <div class="workspace-content-grid">
             <section id="stories" class="workspace-panel workspace-story-panel">
               <div class="workspace-panel-heading">

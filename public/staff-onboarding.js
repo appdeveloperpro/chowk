@@ -25,7 +25,7 @@ function showFormMessage(message) {
   messagePanel.hidden = false;
 }
 
-function renderAgreement(agreement, role, onboardingStatus) {
+function renderAgreement(agreement, role, onboardingStatus, roleChangePending = false) {
   agreementPanel.replaceChildren();
   agreementPanel.hidden = false;
   agreementPanel.append(
@@ -36,7 +36,7 @@ function renderAgreement(agreement, role, onboardingStatus) {
   const description = agreementPanel.children[1];
   heading.textContent = `${role.charAt(0).toUpperCase()}${role.slice(1)} agreement`;
 
-  if (!["submitted", "approved_pending_agreement"].includes(onboardingStatus)) {
+  if (!["submitted", "approved_pending_agreement", "active"].includes(onboardingStatus)) {
     description.textContent =
       "Complete and submit your profile first. You can then review the agreement personalized with your details.";
     return;
@@ -44,7 +44,9 @@ function renderAgreement(agreement, role, onboardingStatus) {
 
   if (!agreement) {
     description.textContent =
-      `No agreement is currently published for the ${role} role. Account activation is unavailable until a super admin publishes one.`;
+      `No agreement is currently published for the ${role} role. ${roleChangePending
+        ? "Your requested role change cannot take effect until a super admin publishes its agreement."
+        : "Account activation is unavailable until a super admin publishes one."}`;
     return;
   }
 
@@ -94,7 +96,7 @@ function renderAgreement(agreement, role, onboardingStatus) {
         rendered_content: agreement.resolved_content,
         rendered_sha256: agreement.rendered_sha256
       });
-      if (onboardingStatus === "approved_pending_agreement") {
+      if (["approved_pending_agreement", "active"].includes(onboardingStatus)) {
         await loadOnboarding();
         return;
       }
@@ -282,6 +284,23 @@ async function loadOnboarding() {
     const requiredPolicies = policyResult.data || [];
     renderHrPolicies(requiredPolicies, data.status);
     if (data.status === "active") {
+      if (data.role_change_pending || (data.agreement && !data.agreement.accepted)) {
+        agreementPanel.hidden = false;
+        renderAgreement(
+          data.agreement,
+          data.staff_role_name || data.requested_role,
+          data.status,
+          data.role_change_pending
+        );
+        if (requiredPolicies.every((policy) => policy.accepted_at)) {
+          showState(data.role_change_pending
+            ? "Review and accept the requested job role agreement before the role and its permissions change."
+            : "Review and accept the current staff agreement to keep your role record up to date.");
+        } else {
+          showState("Review the current staff agreement and accept all required organization policies.");
+        }
+        return;
+      }
       if (requiredPolicies.every((policy) => policy.accepted_at)) {
         window.location.replace("/workspace");
         return;

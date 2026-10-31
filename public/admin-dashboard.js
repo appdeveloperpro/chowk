@@ -47,7 +47,7 @@ const configurationSections = [
   {
     key: "locations",
     label: "Locations",
-    description: "Manage the State, Region, Zone, Range, District, and Coverage area hierarchy.",
+    description: "Manage State, Region, Zone, Range, District, and optional Tehsil/Block levels with Coverage areas.",
     permission: "newsroom.locations.manage",
     navSection: "locations",
     group: "GEOGRAPHY"
@@ -55,8 +55,16 @@ const configurationSections = [
   {
     key: "reporter-configuration",
     label: "Reporter setup",
-    description: "Manage reporter organization details, state codes, designations, and service agreements. District RTO codes are managed in Locations.",
+    description: "Manage reporter organization details, state codes, and designations. Reporter job agreements are managed under Agreements; District RTO codes are managed in Locations.",
     permission: "reporters.manage",
+    navSection: "reporter-configuration",
+    group: "REPORTING"
+  },
+  {
+    key: "reporter-review-access",
+    label: "Application reviewer access",
+    description: "Assign reporter application reviewers to a geographic location. Their access is limited to applications in that location and its descendants.",
+    superAdminOnly: true,
     navSection: "reporter-configuration",
     group: "REPORTING"
   },
@@ -217,7 +225,7 @@ const modules = {
     formFields: [
       { name: "name", label: "Location name", type: "text" },
       { name: "slug", label: "URL slug", type: "text" },
-      { name: "location_type", label: "Location level", type: "select", options: ["state", "region", "zone", "range", "district", "coverage_area"] },
+      { name: "location_type", label: "Location level", type: "select", options: ["state", "region", "zone", "range", "district", "tehsil", "block", "coverage_area"] },
       { name: "state_code", label: "Reporter ID state code (exactly 2 letters or numbers)", type: "text", required: false, maxLength: 2 },
       { name: "rto_code", label: "RTO code (without State prefix; e.g. 80)", type: "text", required: false, maxLength: 8 },
       { name: "parent_id", label: "Parent location", type: "number", required: false },
@@ -272,6 +280,8 @@ function renderLocationModule(root, results) {
     ["range", "Ranges", (row) => row._source_type === "range"],
     ["district", "Districts", (row) =>
       row._source_type === "district" && row._parent_type === "range"],
+    ["tehsil", "Tehsils", (row) => row._source_type === "tehsil"],
+    ["block", "Blocks", (row) => row._source_type === "block"],
     ["unassigned", "Districts needing a range", (row) =>
       row._source_type === "district" && row._parent_type !== "range"],
     ["coverage-area", "Coverage areas", (row) => row._source_type === "coverage_area"]
@@ -301,6 +311,133 @@ function renderLocationModule(root, results) {
   root.append(panel);
 }
 
+function renderReporterReviewAccess(root, data = {}) {
+  const reviewers = Array.isArray(data.reviewers) ? data.reviewers : [];
+  const locations = Array.isArray(data.locations) ? data.locations : [];
+  const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+  const panel = makeElement("section", "admin-panel");
+  panel.append(
+    makeElement("h2", "", "Assign application reviewers"),
+    makeElement(
+      "p",
+      "admin-workflow-scope-note",
+      "First give a staff member the Reporter Application Reviewer permission in their newsroom role. Then assign one or more location scopes here. A scope grants review access only to applications in that location and its descendants; a leadership title alone grants no system access."
+    )
+  );
+  if (!reviewers.length) {
+    panel.append(makeElement(
+      "p",
+      "admin-empty",
+      "No active staff member currently has the Reporter Application Reviewer permission. Configure a newsroom role and assign it to staff first."
+    ));
+  } else {
+    const form = document.createElement("form");
+    form.className = "admin-form-grid";
+    const reviewerSelect = document.createElement("select");
+    reviewerSelect.name = "user_id";
+    reviewerSelect.required = true;
+    reviewerSelect.append(new Option("Choose a reviewer", ""));
+    reviewers.forEach((reviewer) => {
+      reviewerSelect.append(new Option(
+        `${reviewer.full_name || reviewer.email} · ${reviewer.role_name}`,
+        reviewer.user_id
+      ));
+    });
+    const locationSelect = document.createElement("select");
+    locationSelect.name = "location_id";
+    locationSelect.required = true;
+    locationSelect.append(new Option("Choose a location scope", ""));
+    const byId = new Map(locations.map((location) => [String(location.id), location]));
+    locations.forEach((location) => {
+      locationSelect.append(new Option(
+        `${locationPath(location, byId)} · ${location.location_type.replaceAll("_", " ")}`,
+        String(location.id)
+      ));
+    });
+    const reviewerField = makeElement("label", "admin-form-field");
+    reviewerField.append(makeElement("span", "", "Reviewer"), reviewerSelect);
+    const locationField = makeElement("label", "admin-form-field");
+    locationField.append(makeElement("span", "", "Administrative scope"), locationSelect);
+    const submit = makeElement("button", "admin-primary-button", "Assign scope");
+    submit.type = "submit";
+    form.append(reviewerField, locationField, submit);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      try {
+        await apiRequest("admin/reporter-review-scopes", "POST", {
+          user_id: reviewerSelect.value,
+          location_id: Number(locationSelect.value),
+          is_active: true
+        });
+        await loadConfigurationPage("reporter-review-access");
+      } catch (error) {
+        void showAdminMessage(
+          "Reviewer scope could not be saved",
+          error instanceof Error ? error.message : "The request failed."
+        );
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    panel.append(form);
+  }
+
+  panel.append(makeElement("h3", "", "Reviewer scope assignments"));
+  panel.append(makeElement(
+    "p",
+    "admin-dialog-help",
+    "Inactive scopes remain listed. The audit log records changes; this table shows current active/inactive state, not assignment periods."
+  ));
+  if (!assignments.length) {
+    panel.append(makeElement("p", "admin-empty", "No reviewer scopes have been assigned."));
+  } else {
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const header = document.createElement("tr");
+    ["Reviewer", "Access role", "Location scope", "Status", "Action"].forEach((label) =>
+      header.append(makeElement("th", "", label))
+    );
+    head.append(header);
+    table.append(head);
+    const body = document.createElement("tbody");
+    assignments.forEach((assignment) => {
+      const row = document.createElement("tr");
+      [
+        `${assignment.reviewer_name || "—"}${assignment.reviewer_email ? ` · ${assignment.reviewer_email}` : ""}`,
+        assignment.role_name || "Role no longer assigned",
+        `${assignment.location_name} · ${String(assignment.location_type).replaceAll("_", " ")}`,
+        assignment.is_active ? "Active" : "Inactive"
+      ].forEach((value) => row.append(makeElement("td", "", value)));
+      const action = makeElement("td", "admin-row-actions");
+      if (assignment.is_active) {
+        rowButton(action, "Remove scope", async () => {
+          try {
+            await apiRequest("admin/reporter-review-scopes", "POST", {
+              user_id: assignment.user_id,
+              location_id: assignment.location_id,
+              is_active: false
+            });
+            await loadConfigurationPage("reporter-review-access");
+          } catch (error) {
+            void showAdminMessage(
+              "Reviewer scope could not be removed",
+              error instanceof Error ? error.message : "The request failed."
+            );
+          }
+        }, "admin-row-button danger");
+      }
+      row.append(action);
+      body.append(row);
+    });
+    table.append(body);
+    const wrapper = makeElement("div", "admin-table-wrap");
+    wrapper.append(table);
+    panel.append(wrapper);
+  }
+  root.append(panel);
+}
+
 const allowedLocationParents = {
   state: [],
   region: ["state"],
@@ -308,7 +445,9 @@ const allowedLocationParents = {
   range: ["zone"],
   city: ["district"],
   district: ["range"],
-  coverage_area: ["district"]
+  tehsil: ["district"],
+  block: ["district", "tehsil"],
+  coverage_area: ["district", "tehsil", "block"]
 };
 
 let activeSection = "overview";
@@ -513,7 +652,7 @@ async function loadWorkflowPage(page, tabKey = activeWorkflowTabs[page]) {
   addHeading(root, headingGroup, label, {
     applications: "Review reporter applications and newsroom role invitations in one queue.",
     directory: "Browse reporters and newsroom staff by their assigned newsroom role.",
-    agreements: "Manage reporter and newsroom staff agreements, wording, and acceptance records.",
+    agreements: "Manage Reporter and newsroom role agreements, wording, and acceptance records.",
     credentials: "Issue and manage staff ID cards and reporter authority letters."
   }[page]);
   renderWorkflowTabs(root, page, tabKey);
@@ -695,6 +834,9 @@ async function loadConfigurationPage(requestedSection = "configurations") {
     } else if (selected === "reporter-configuration") {
       const result = await apiRequest(modules["reporter-configuration"].path);
       renderReporterAdminSection("reporter-configuration", viewContent, unwrapData(result));
+    } else if (selected === "reporter-review-access") {
+      const result = await apiRequest("admin/reporter-review-scopes");
+      renderReporterReviewAccess(viewContent, unwrapData(result));
     } else if (selected === "organization-models") {
       const result = await apiRequest("admin/hr/configuration");
       hrManagementData = unwrapData(result) || {};
@@ -1390,7 +1532,8 @@ function openLeadershipRoleDialog(role) {
       }).readOnly = Boolean(role?.is_builtin);
       const levels = [
         ["state", "State"], ["region", "Region"], ["zone", "Zone"], ["range", "Range"],
-        ["district", "District"], ["coverage_area", "Coverage area"]
+        ["district", "District"], ["tehsil", "Tehsil"], ["block", "Block"],
+        ["coverage_area", "Coverage area"]
       ];
       const level = appendValueSelect(form, "location_type", "Territory level", levels);
       level.value = role?.location_type || "state";
@@ -1581,8 +1724,7 @@ function renderReporterSetup(root, data) {
   root.querySelectorAll(".reporter-setup-overview, .reporter-setup-detail")
     .forEach((view) => view.remove());
   const designations = data.reporter_designations || [];
-  const serviceAgreements = data.service_agreements || [];
-  const publishedServiceAgreement = serviceAgreements.find((agreement) => agreement.status === "published");
+  const reporterJobAgreement = data.reporter_job_agreement;
   const organizationProfile = data.organization_profile;
   const setupSections = [
     {
@@ -1669,15 +1811,19 @@ function renderReporterSetup(root, data) {
     locationsButton.addEventListener("click", () => void loadSection("locations"));
     locationNote.append(locationsButton);
     overview.append(locationNote);
-    const reporterSetupReady = Boolean(publishedServiceAgreement && organizationProfile?.is_verified);
+    const reporterSetupReady = Boolean(reporterJobAgreement && organizationProfile?.is_verified);
     const setupNote = makeElement("div", `reporter-setup-readiness${reporterSetupReady ? " is-ready" : " is-incomplete"}`);
     setupNote.append(
       makeElement("strong", "", reporterSetupReady && organizationProfile?.is_verified
-        ? "Reporter onboarding staff agreement published"
-        : "Applications open · staff agreement setup needed"),
-      makeElement("span", "", "Applicants submit details for review. After approval, the reporter accepts the published Reporter staff agreement before credentials can be issued.")
+        ? `Reporter job agreement v${reporterJobAgreement.version} published`
+        : "Applications open · Reporter job agreement setup needed"),
+      makeElement("span", "", "After approval, the reporter must accept the current Reporter job agreement before credentials can be issued, then acknowledge the authority letter.")
     );
     overview.append(setupNote);
+    const agreementsButton = makeElement("button", "admin-secondary-button", "Manage Reporter job agreement");
+    agreementsButton.type = "button";
+    agreementsButton.addEventListener("click", () => void loadSection("role-agreements"));
+    overview.append(agreementsButton);
     root.append(overview);
     return;
   }
@@ -1946,7 +2092,7 @@ async function openCredentialDialog(staff) {
   if (!eligibleStaff.length) {
     void showAdminMessage(
       "No eligible staff members",
-      "Credential issuance is available for newsroom staff and approved reporters who have accepted their current staff agreement."
+      "Credential issuance is available for newsroom staff and approved reporters who have accepted the current agreement for their role."
     );
     return;
   }
@@ -1963,7 +2109,7 @@ async function openCredentialDialog(staff) {
   }
   openFormDialog(
     "Issue staff credential",
-    "Approved applicants can receive an ID card and authority letter only after accepting their current staff agreement. Reporter access starts only after they acknowledge a valid authority letter.",
+    "Approved applicants can receive an ID card and authority letter only after accepting the current Reporter job agreement. Reporter access starts only after they acknowledge a valid authority letter.",
     (form) => {
       const userSelect = appendReporterSelect(form, "user_id", "Staff member", eligibleStaff,
         (person) => `${person.full_name || person.email} · ${person.onboarding_status
@@ -2130,10 +2276,10 @@ function renderAuditHistory(root, result) {
     ["media_catalog", "Media catalog"],
     ["states", "States"],
     ["rto_offices", "RTO offices"],
-    ["reporter_agreement_versions", "Reporter agreements"],
-    ["reporter_agreement_acceptances", "Agreement acceptances"],
-    ["reporter_service_agreement_versions", "Reporter service agreements"],
-    ["reporter_service_agreement_acceptances", "Service agreement acceptances"],
+    ["reporter_agreement_versions", "Legacy application agreements"],
+    ["reporter_agreement_acceptances", "Legacy application agreement acceptances"],
+    ["reporter_service_agreement_versions", "Legacy reporter service agreements"],
+    ["reporter_service_agreement_acceptances", "Legacy service agreement acceptances"],
     ["reporter_profiles", "Reporter profiles"],
     ["reporter_assignments", "Reporter assignments"],
     ["user_coverage_assignments", "Coverage assignments"],
@@ -4719,7 +4865,7 @@ async function openStaffRoleDialog(role = null, refresh = () => loadSection("sta
       form.append(makeElement(
         "p",
         "admin-dialog-help",
-        "Grant only what this role needs. Scope controls where each permission applies."
+        "Grant only what this role needs. Reporter application review is limited further by a separate location scope assigned by a super admin."
       ));
       permissionCatalog.forEach((permission) => {
         const row = makeElement("div", "admin-hr-permission-row");
@@ -4744,12 +4890,15 @@ async function openStaffRoleDialog(role = null, refresh = () => loadSection("sta
           "newsroom.media.manage",
           "newsroom.locations.manage",
           "newsroom.people.manage",
-          "reporters.manage"
+          "reporters.manage",
+          "reporters.applications.review"
         ].includes(permission.permission_key);
         const scopes = fixedScope ? ["all"] : ["all", "assigned", "own"];
         scopes.forEach((value) => {
           const option = new Option(value, value);
-          option.selected = value === (currentPermissions.get(permission.permission_key) || "own");
+          option.selected = value === (
+            fixedScope ? "all" : currentPermissions.get(permission.permission_key) || "own"
+          );
           scope.append(option);
         });
         scope.disabled = fixedScope;
@@ -5334,7 +5483,8 @@ function addRowActions(container, row, section) {
     if (["pending", "needs_information"].includes(row.status)) {
       rowButton(container, "Review", () => openReporterReviewDialog(row, refresh));
     }
-    rowButton(container, "Delete application", () => {
+    if (["admin", "super_admin"].includes(sessionIdentity?.role)
+        || sessionPermissions.includes("reporters.manage")) rowButton(container, "Delete application", () => {
       const applicant = row.applicant_name && row.applicant_name !== "—"
         ? row.applicant_name
         : row.email || `application #${id}`;
@@ -5707,7 +5857,7 @@ async function openReporterReviewDialog(application, refresh) {
   try {
     const [result, optionsResult] = await Promise.all([
       apiRequest(`admin/reporter-applications/${application.id}/private-details`),
-      apiRequest("admin/reporter-options")
+      apiRequest("admin/reporter-review-options")
     ]);
     const privateData = result.data || {};
     const options = unwrapData(optionsResult) || {};
@@ -6365,7 +6515,7 @@ async function loadSession() {
       "live-streams": ["newsroom.media.manage"],
       comments: ["newsroom.comments.moderate"],
       reports: ["newsroom.reports.manage"],
-      applications: ["reporters.manage", "newsroom.people.manage"],
+      applications: ["reporters.manage", "reporters.applications.review", "newsroom.people.manage"],
       directory: ["people.directory.read", "reporters.manage", "newsroom.people.manage"],
       "staff-roles": ["newsroom.people.manage"],
       "hr-management": ["hr.console.access"],

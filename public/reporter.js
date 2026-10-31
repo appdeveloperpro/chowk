@@ -9,7 +9,7 @@ const messagePanel = document.querySelector("#reporter-message");
 let identity = null;
 let options = null;
 let reporterData = null;
-let reporterStaffAgreement = null;
+let reporterJobAgreement = null;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -329,7 +329,9 @@ function renderApplicationForm(action, existing = null) {
       ? "Update and resubmit your application"
       : "Apply to become a Chowk reporter"),
     element("p", "reporter-card-copy", resubmitting
-      ? "Update the requested details and resubmit for admin review. Your subscriber account remains available while the application is reviewed."
+      ? existing?.status === "rejected"
+        ? "Review and correct your details, then resubmit the application for admin review. Your account remains a subscriber."
+        : "Update the requested details and resubmit for admin review. Your subscriber account remains available while the application is reviewed."
       : "Complete your reporter application below. An admin reviews the application—not your account—and your account remains a subscriber until reporter onboarding is complete.")
   );
 
@@ -506,12 +508,30 @@ function renderApplicationForm(action, existing = null) {
       "The selected Coverage Area is your requested administrative reporting location. Preferred locations are optional requests, not active assignments."
     );
     areaStep.append(preferredLocationHint);
+    const reporterTypes = (options.types || []).map((type) => ({
+      id: type.id,
+      label: type.description ? `${type.name} · ${type.description}` : type.name
+    }));
+    const reporterTypeSelect = addSelectField(
+      areaStep,
+      "Reporter category",
+      "reporter_type_id",
+      reporterTypes,
+      existing?.reporter_type?.id || (reporterTypes.length === 1 ? reporterTypes[0].id : ""),
+      "Choose a reporter category"
+    );
+    highlightRequestedField("reporter_type_id", reporterTypeSelect);
+    areaStep.append(element(
+      "small",
+      "reporter-field-help reporter-field-full",
+      "This category is used for reporter ID classification. An admin assigns your position/designation during application review."
+    ));
     const refreshCoverageAreas = (rtoOfficeId = "", selectedCoverageAreaId = "") => {
       const selectedDistrict = (options.rtos || []).find((district) =>
         String(district.id) === String(rtoOfficeId)
       );
       const eligibleCoverageAreas = (options.coverage_areas || []).filter((coverageArea) =>
-        String(coverageArea.parent_id) === String(selectedDistrict?.district_id)
+        String(coverageArea.district_id) === String(selectedDistrict?.district_id)
       );
       coverageAreaSelect.replaceChildren();
       const placeholder = element(
@@ -524,7 +544,7 @@ function renderApplicationForm(action, existing = null) {
       placeholder.selected = true;
       coverageAreaSelect.append(placeholder);
       eligibleCoverageAreas.forEach((coverageArea) => {
-        const option = element("option", "", coverageArea.name);
+        const option = element("option", "", coverageArea.path || coverageArea.name);
         option.value = String(coverageArea.id);
         option.selected = String(coverageArea.id) === String(selectedCoverageAreaId);
         coverageAreaSelect.append(option);
@@ -761,6 +781,9 @@ function renderApplicationForm(action, existing = null) {
       const selectedCoverageArea = (options.coverage_areas || []).find((coverageArea) =>
         String(coverageArea.id) === String(values.get("coverage_area_id"))
       );
+      const selectedReporterType = (options.types || []).find((type) =>
+        String(type.id) === String(values.get("reporter_type_id"))
+      );
       const preferredLocationValues = values.getAll("preferred_location")
         .map((location) => String(location).trim())
         .filter(Boolean);
@@ -785,6 +808,7 @@ function renderApplicationForm(action, existing = null) {
             element("span", "", `State: ${selectedState?.state_name || "—"}`),
             element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
             element("span", "", `Coverage Area: ${selectedCoverageArea?.name || "—"}`),
+            element("span", "", `Reporter category: ${selectedReporterType?.name || "—"}`),
             element("span", "", `Preferred locations: ${preferredLocationValues.join(", ") || "None provided"}`),
             element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
             element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
@@ -837,6 +861,8 @@ function renderApplicationForm(action, existing = null) {
         details_confirmed: values.get("details_confirmed") === "on",
         state_id: values.get("state_id"),
         rto_office_id: values.get("rto_office_id"),
+        reporter_type_id: values.get("reporter_type_id"),
+        application_id: existing?.id || null,
         private_details: {
           emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),
           father_first_name: String(values.get("father_first_name") || "").trim(),
@@ -1063,7 +1089,7 @@ function renderTargetedReporterResubmission(application) {
       );
       coverageAreaSelect.replaceChildren();
       const coverageAreas = (options.coverage_areas || [])
-        .filter((area) => String(area.parent_id) === String(selectedDistrict?.district_id));
+        .filter((area) => String(area.district_id) === String(selectedDistrict?.district_id));
       const coveragePlaceholder = element("option", "", "Choose a Coverage Area");
       coveragePlaceholder.value = "";
       coveragePlaceholder.disabled = true;
@@ -1072,7 +1098,7 @@ function renderTargetedReporterResubmission(application) {
       );
       coverageAreaSelect.append(coveragePlaceholder);
       coverageAreas.forEach((area) => {
-        const option = element("option", "", area.name);
+        const option = element("option", "", area.path || area.name);
         option.value = String(area.id);
         option.selected = String(area.id) === String(selectedId);
         coverageAreaSelect.append(option);
@@ -1272,6 +1298,7 @@ function renderTargetedReporterResubmission(application) {
       }
       if (isLocationUpdate) updatedPrivateDetails.coverage_area_id = values.get("coverage_area_id");
       const payload = {
+        application_id: application?.id,
         details_confirmed: true,
         state_id: isLocationUpdate ? values.get("state_id") : application.state?.id,
         rto_office_id: isLocationUpdate ? values.get("rto_office_id") : application.rto?.id,
@@ -1313,20 +1340,20 @@ function dataItem(label, value, code = false) {
   return item;
 }
 
-function renderServiceAgreement(application) {
+function renderReporterJobAgreement(application) {
   if (!["approved", "active"].includes(application.status)) return;
-  const agreement = reporterStaffAgreement;
+  const agreement = reporterJobAgreement;
   const panel = element("section", "reporter-onboarding-step");
   if (!agreement) {
-    panel.append(element("h3", "", "Reporter staff agreement"));
-    panel.append(element("p", "reporter-review-note", "No Reporter staff agreement is published yet. Account activation remains unavailable until an administrator publishes it."));
+    panel.append(element("h3", "", "Reporter job agreement"));
+    panel.append(element("p", "reporter-review-note", "No Reporter job agreement is published yet. Account activation remains unavailable until an administrator publishes it under Agreements."));
     applicationPanel.hidden = false;
     applicationPanel.append(panel);
     return;
   }
   panel.append(element("h3", "", application.status === "active"
-    ? "Reporter staff agreement"
-    : "Step 1 · Reporter staff agreement"));
+    ? "Reporter job agreement"
+    : "Step 1 · Reporter job agreement"));
   panel.append(element("p", "reporter-card-copy", `Review the exact personalized agreement, version ${agreement.version}.`));
   panel.append(element("pre", "staff-agreement-copy", agreement.resolved_content));
   if (agreement.accepted) {
@@ -1338,9 +1365,9 @@ function renderServiceAgreement(application) {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.required = true;
-    acceptance.append(checkbox, element("span", "", "I have reviewed and accept this Reporter staff agreement."));
+    acceptance.append(checkbox, element("span", "", "I have reviewed and accept this Reporter job agreement."));
     form.append(acceptance);
-    const submit = element("button", "reporter-button", "Accept staff agreement");
+    const submit = element("button", "reporter-button", "Accept Reporter job agreement");
     submit.type = "submit";
     form.append(submit);
     form.addEventListener("submit", async (event) => {
@@ -1353,7 +1380,7 @@ function renderServiceAgreement(application) {
           rendered_content: agreement.resolved_content,
           rendered_sha256: agreement.rendered_sha256
         });
-        showMessage("Your Reporter staff agreement acceptance was recorded.", true);
+        showMessage("Your Reporter job agreement acceptance was recorded.", true);
         await loadReporterDesk();
       } catch (error) {
         showMessage(error.message);
@@ -1391,12 +1418,12 @@ function renderStatus() {
         && credential.valid_from <= new Date().toISOString().slice(0, 10)
         && credential.valid_until >= new Date().toISOString().slice(0, 10)
     );
-    const acceptedCurrentServiceAgreement = Boolean(reporterStaffAgreement?.accepted);
+    const acceptedCurrentJobAgreement = Boolean(reporterJobAgreement?.accepted);
     const stages = [
       ["Account", true],
       ["Application", true],
       ["Review", application.status !== "pending"],
-      ["Staff agreement", Boolean(acceptedCurrentServiceAgreement)],
+      ["Reporter job agreement", Boolean(acceptedCurrentJobAgreement)],
       ["Authority letter", Boolean(activeAuthority)],
       ["Reporter access", identity.role === "reporter" && application.status === "active"]
     ];
@@ -1484,7 +1511,7 @@ function renderStatus() {
       statusPanel.append(element(
         "p",
         "reporter-next-step",
-        "Approved does not mean field-authorized yet. Accept the Reporter staff agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."
+        "Approved does not mean field-authorized yet. Accept the current Reporter job agreement, then review and acknowledge the authority letter Chowk issues for your assigned area."
       ));
     } else if (application.status === "active") {
       statusPanel.append(element("p", "reporter-next-step success", "Your valid authority letter was acknowledged and reporter access is active."));
@@ -1516,7 +1543,7 @@ function renderStatus() {
     applicationPanel.replaceChildren();
     applicationPanel.hidden = true;
   }
-  if (["approved", "active"].includes(application?.status)) renderServiceAgreement(application);
+  if (["approved", "active"].includes(application?.status)) renderReporterJobAgreement(application);
 }
 
 function renderCredentials() {
@@ -1644,8 +1671,8 @@ async function loadReporterDesk() {
     ]);
     options = optionResult.data || {};
     reporterData = statusResult.data || {};
-    reporterStaffAgreement = agreementResult.data?.agreement || null;
-    if (agreementResult.error) reporterStaffAgreement = null;
+    reporterJobAgreement = agreementResult.data?.agreement || null;
+    if (agreementResult.error) reporterJobAgreement = null;
     renderStatus();
     renderCredentials();
   } catch (error) {

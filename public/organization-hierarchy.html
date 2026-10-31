@@ -669,6 +669,10 @@
               <div class="connector"><span>parent_id</span></div>
               <div class="node"><strong>District</strong></div>
               <div class="connector"><span>parent_id</span></div>
+              <div class="node"><strong>Tehsil · optional</strong></div>
+              <div class="connector"><span>optional Block level</span></div>
+              <div class="node"><strong>Block · optional</strong></div>
+              <div class="connector"><span>parent_id</span></div>
               <div class="node primary"><strong>Coverage area</strong><p>Leaf territory used for local coverage.</p></div>
               <div class="connector dotted"></div>
               <div class="split">
@@ -680,6 +684,10 @@
                   <strong>Reporter coverage</strong>
                   <p>Assigns a newsroom person to a territory, optionally including descendants.</p>
                 </div>
+                <div class="node">
+                  <strong>Application reviewer scope</strong>
+                  <p>A separate, super-admin-managed access assignment limits application review to one location and its descendants.</p>
+                </div>
               </div>
               <div class="connector dashed"><span>dated person ↔ territory</span></div>
               <div class="node primary">
@@ -690,9 +698,10 @@
               <div class="connector dotted"><span>separate relationship</span></div>
               <div class="node">
                 <strong>Not an access grant</strong>
-                <p>A territory head title does not automatically grant geographic data access or become an HR manager.</p>
+                <p>A leadership title does not grant application access or become an HR manager. Reviewer access requires a separate role permission and location scope.</p>
               </div>
             </div>
+            <p class="micro-note"><strong>Optional local levels:</strong> A Block may be nested directly under a District or under a Tehsil. Coverage areas may be attached to a District, Tehsil, or Block; use the levels that match your reporting structure.</p>
             <p class="micro-note"><strong>Reporter ID compatibility:</strong> State codes and District RTO codes are managed in the Locations hierarchy. Database triggers mirror State records to the legacy <code>states</code> table and Districts to <code>rto_offices</code> because reporter applications, assignments, and ID generation still reference those stable records; neither is a separate admin-managed catalog.</p>
           </article>
         </div>
@@ -725,14 +734,14 @@
 
         <article class="support-card">
           <h2>Reporter lifecycle</h2>
-          <p>The reporter-specific process retains its own application, agreement, identity, and assignment records.</p>
+          <p>The reporter-specific process retains its own application, job-agreement acceptance, identity, and assignment records.</p>
           <div class="flow-list">
-            <div class="flow-step"><span class="step-no">1</span><span>Application &amp; review</span></div>
-            <div class="flow-step"><span class="step-no">2</span><span>Profile + accepted service agreement</span></div>
-            <div class="flow-step"><span class="step-no">3</span><span>Reporter code + office/designation assignment</span></div>
-            <div class="flow-step"><span class="step-no">4</span><span>Coverage territory + credentials/history</span></div>
+            <div class="flow-step"><span class="step-no">1</span><span>Application submitted; admin review may request updates, reject, or approve</span></div>
+            <div class="flow-step"><span class="step-no">2</span><span>Approval creates reporter profile, code, office, and position assignment</span></div>
+            <div class="flow-step"><span class="step-no">3</span><span>Reporter accepts the current Reporter job agreement from Agreements</span></div>
+            <div class="flow-step"><span class="step-no">4</span><span>Authority letter issued and acknowledged; reporter access becomes active</span></div>
           </div>
-          <p class="micro-note">In the admin workflow, manage reporter office and designation assignments from the Newsroom Directory. Reporter coverage is maintained separately under Reporter Coverage.</p>
+          <p class="micro-note">Reporter access requires the current role-based Reporter job agreement and authority-letter acknowledgment. Older reporter service-agreement records are retained for audit/compatibility and are not this activation step. Manage reporter office and designation assignments from the Newsroom Directory; coverage is maintained separately under Reporter Coverage.</p>
         </article>
       </section>
 
@@ -740,7 +749,7 @@
         <article class="truth-panel">
           <h2>What is a real hierarchy?</h2>
           <ul>
-            <li><strong>Geographic locations:</strong> State → Region → Zone → Range → District → Coverage area. The database validates these parent levels; legacy city rows may remain.</li>
+            <li><strong>Geographic locations:</strong> State → Region → Zone → Range → District → optional Tehsil/Block → Coverage area. A Block can be a District or Tehsil child, and Coverage area can attach to District, Tehsil, or Block. Legacy city rows may remain.</li>
             <li><strong>HR departments:</strong> departments can nest under other departments. Positions belong to a department.</li>
             <li><strong>HR reporting:</strong> each employee assignment can identify a manager employee; this is a manager link, not an automatically derived org chart.</li>
             <li><strong>Organization:</strong> a primary organization scopes its configuration and people relationships; the organization root is not the parent of every profile row.</li>
@@ -751,6 +760,7 @@
           <ul>
             <li>A department-head appointment is not inferred from a job title or manager relationship.</li>
             <li>A geographic leadership appointment does not grant application permissions.</li>
+            <li>Reporter application review access requires both the reviewer permission and an explicit administrative location scope; the scope covers that location and its descendants.</li>
             <li>Reporter coverage does not appoint a territory leader.</li>
             <li>A staff title does not create a new account access profile.</li>
             <li>Optional catalog entries such as payroll, recruitment, leave/attendance, and performance are not implemented modules just because they appear in the module catalog.</li>

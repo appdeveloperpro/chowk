@@ -1629,13 +1629,15 @@ async function handleAuth(request, response, registration) {
     }
     if (registration) {
       if (body.accepted_policies !== true) {
-        sendJson(response, 400, { error: "Accept the site policies before creating an account." });
+        sendJson(response, 400, { error: "Review and acknowledge the available policy information before creating an account." });
         return;
       }
     }
 
     const endpoint = registration
-      ? "/auth/v1/signup"
+      ? `/auth/v1/signup?redirect_to=${encodeURIComponent(
+          new URL("/auth?confirmed=1", requestOrigin(request)).toString()
+        )}`
       : "/auth/v1/token?grant_type=password";
     const { response: upstream, payload } = await supabaseRequest(endpoint, {
       method: "POST",

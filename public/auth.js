@@ -10,6 +10,7 @@ const switchButton = document.querySelector("#switch-mode");
 let mode = new URLSearchParams(window.location.search).get("mode") === "register"
   ? "register"
   : "login";
+const emailConfirmed = new URLSearchParams(window.location.search).get("confirmed") === "1";
 
 function showAuthMessage(text, success = false) {
   const kind = success ? "success" : "error";
@@ -153,3 +154,6 @@ form.elements.confirmPassword.addEventListener("input", () => {
 });
 
 setMode(mode);
+if (emailConfirmed) {
+  showAuthMessage("आपके ईमेल की पुष्टि हो गई है। अब लॉगिन करें।", true);
+}

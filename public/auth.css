@@ -120,6 +120,30 @@
   line-height: 1.65;
 }
 
+.policy-intro,
+.policy-status {
+  margin: 0;
+  color: #625b53;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.policy-links {
+  display: grid;
+  gap: 5px;
+  margin: -8px 0 0;
+  padding-left: 18px;
+  color: #625b53;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.policy-links a {
+  color: var(--orange-dark);
+  font-weight: 700;
+  text-underline-offset: 2px;
+}
+
 .policy-label input {
   width: 16px;
   min-width: 16px;

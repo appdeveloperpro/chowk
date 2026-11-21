@@ -24,12 +24,15 @@ Requires Node.js 18 or newer.
    browser code or commit it to Git. Normal database requests continue to use
    the publishable/anon key with PostgreSQL RLS.
 
-3. In the Supabase dashboard for the blank Chowk project, open **SQL Editor**,
-   create a new query, paste `supabase/migrations/0001_chowk_portal.sql`, and
-   run it. This creates the profiles, categories, and articles tables, signup
-   profile trigger, role helper, and RLS policies. The app does not run SQL
-   migrations automatically.
-   Then run the additive migrations in order:
+3. Keep database changes in `supabase/migrations`. The Node.js server never
+   applies schema changes at startup; use the protected GitHub Actions workflow
+   described in [Automated database migrations](#automated-database-migrations).
+   A new empty project can run all migrations through that workflow. Existing
+   projects whose schema was applied manually must have their migration history
+   reconciled first; do not run `db push` against untracked historical
+   migrations.
+   `0001_chowk_portal.sql` establishes the base schema; subsequent migrations
+   are ordered as follows:
    `supabase/migrations/0002_admin_foundation.sql` and
    `supabase/migrations/0003_newsroom_modules.sql`, followed by
    `supabase/migrations/0004_audit_history.sql` and
@@ -224,6 +227,18 @@ Requires Node.js 18 or newer.
    generic workflow runtime is available at `/organization-workflows`; native
    newsroom content still retains its domain-specific editorial states and
    validation.
+   Apply migration `0085_editorial_taxonomy_and_breaking_review.sql` after
+   `0084_reporter_territory_dashboard.sql` and before deploying the matching
+   application code. It adds admin-managed content types with configurable
+   reporting/disclosure requirements and editor-only types; topic categories
+   remain separate. Breaking is a separately reviewed priority with a recorded
+   reason and an approval that expires within 1–24 hours. Submission and
+   publication rules are enforced in the database. Article types used by
+   existing stories cannot be hard-deleted; deactivate them instead.
+   Apply `0086_content_type_minimum_word_count.sql` after migration 0085 and
+   before deploying the matching application code. It adds required
+   admin-configured minimum word counts to content types; configure every
+   existing type before reporters can submit stories with it.
    The module catalog includes optional domains such as payroll and
    recruitment, but catalog entries do not implement those modules. Admin
    newsroom routes and employee HR policy/profile endpoints check their module
@@ -401,6 +416,11 @@ key and authenticated user tokens.
 - Protected admin login, newsroom overview, article/category CRUD, user
   provisioning and role changes through a restricted database function,
   profile editing, and password updates.
+- Admin CRUD for newsroom content types and their submission/editorial rules;
+  reporter drafts capture type, topic, reporting checks, disclosure, and Breaking
+  requests, with database-enforced review and expiring public labels. Published
+  story cards link to full article pages; private reporting notes remain outside
+  the public article APIs.
 - Admin management screens for reporter application review, moderation of
   article reports and comments, media catalog entries, YouTube stream listings,
   locations, reporter configuration, and searchable, paginated, read-only audit
@@ -518,6 +538,20 @@ key and authenticated user tokens.
   Supabase Storage bucket, private staff inbox notifications, a printable
   daily submission report, hierarchical location selection/validation, and
   printable staff credentials with a locally generated QR verification code.
+- The newsroom Asset Library stores reusable images, video, audio, and
+  generated video-frame thumbnails with editable credit, license, alt-text,
+  description, and tags. Staff can search, restore, or archive assets and
+  attach them to stories; thumbnail paths and metadata are retained in story
+  history and public media credits are shown when provided. Eight frames are
+  sampled from local uploads or authenticated Asset Library videos and ranked
+  by exposure, contrast, and detail. Editors choose the final frame and provide
+  alternative text. No server-side FFmpeg installation is required. Apply
+  migrations 0089 and 0090 before using the Asset Library or story thumbnails.
+- Opinion governance includes staff, guest and reader contributor profiles,
+  explicit content-type assignments, Opinion/Editorial review permissions,
+  public Reader Opinion submissions, moderation conversion, publication gates,
+  public contributor profiles and retained Opinion metadata in story revisions.
+  Apply migrations 0089 through 0092 in order before enabling these workflows.
 - RLS policies restrict public reads to published news and media and active
   categories.
   Profile roles are assigned as `subscriber` on signup; users cannot self-promote.
@@ -602,9 +636,9 @@ agreement has already been issued. Previously issued PDFs remain unchanged and
 show the designation recorded when they were issued; designation updates do not
 change account permissions or the stable reporter ID. The recorded
 company approval checkbox is an audit attestation, not a digital signature.
-Coverage and reporter assignments are retained as dated history. Applying the
-SQL migrations is a manual Supabase dashboard step; apply all migrations in
-order, including 0040 (stored application-age snapshot), 0041 (per-reporter
+Coverage and reporter assignments are retained as dated history. Deploy
+migrations through the protected GitHub Actions workflow, in order, including
+0040 (stored application-age snapshot), 0041 (per-reporter
 service-agreement issues), 0042 (single service-agreement workflow), 0043
 (safe admin deletion of unused agreement versions), 0044 (admin-assigned
 reporter designations in service agreements), 0045 (admin updates to reporter
@@ -648,6 +682,41 @@ legacy system and must not be enabled until provider configuration and explicit
 data-processing approval are in place. YouTube stream entries reference videos;
 they do not start a broadcast. Test the migration and workflows in a
 non-production Supabase project first.
+
+## Automated database migrations
+
+The `Supabase migrations` workflow previews pending changes when manually
+dispatched. It applies migrations when manually dispatched with `apply` and the
+confirmation `APPLY`, or after a migration-file push to `main`. Every run uses
+the GitHub `production` environment; configure required reviewers there to
+approve database changes. It connects through Supabase's shared session pooler
+so GitHub Actions can reach the database over IPv4.
+
+In the GitHub `production` environment, configure:
+
+- Variable `SUPABASE_PROJECT_REF`: the Supabase project reference.
+- Secret `SUPABASE_DB_URL`: the database connection string for the shared
+  **Session pooler** (port `5432`), copied from the Supabase project's Connect
+  panel. Keep the full URL, including its password, secret.
+- Variable `SUPABASE_MIGRATION_HISTORY_READY`: set to `true` only after the
+  remote migration history is aligned with the actual schema.
+
+For a new, empty database, verify the target is empty, set
+`SUPABASE_MIGRATION_HISTORY_READY=true`, preview the migrations, and then run
+the workflow with `apply` and type `APPLY`. For an existing project where
+migrations were run through the SQL Editor, verify which migrations are
+already present in the database. Dispatch the workflow with `baseline`, enter
+the latest verified applied version, and type `BASELINE <version>` (for
+example, `BASELINE 0086` only if migrations 0001–0086 are all applied). This
+records migration history only; it does not execute SQL. Do not baseline a
+version whose schema changes have not actually been applied. After
+reconciliation, set
+`SUPABASE_MIGRATION_HISTORY_READY=true`; pushes to `main` can then deploy new
+migrations automatically, subject to environment approval.
+
+The app's runtime environment remains separate: `.env` is ignored by Git.
+`SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` must be set in Hostinger's
+private application environment before deployment.
 
 ## Environment and deployment
 

@@ -2,9 +2,163 @@ const feed = document.querySelector("#news-feed");
 const searchForm = document.querySelector("#search-form");
 const searchInput = document.querySelector("#search-input");
 const chips = document.querySelector(".category-chips");
+const videoDialog = document.querySelector("#video-player-dialog");
+const dialogVideo = document.querySelector("#video-player");
+const dialogVideoTitle = document.querySelector("#video-player-title");
+const dialogVideoStatus = document.querySelector("#video-player-status");
+const videoAutoplayToggle = document.querySelector("#video-autoplay-toggle");
+const reducedMotionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 let selectedCategory = "";
 let articleRequestId = 0;
+let pendingPreviewSeek = null;
+let videoAutoplayEnabled = true;
+let fallbackRefreshRequest = 0;
+const videoPreviewController = window.createVideoPreviewController({
+  activate(video) {
+    if (!video.hasAttribute("src") && video.dataset.src) video.src = video.dataset.src;
+    const playback = video.play();
+    if (playback) {
+      playback.catch((error) => {
+        if (error.name !== "NotAllowedError" && error.name !== "AbortError") {
+          console.warn("Video preview could not autoplay:", error);
+        }
+      });
+    }
+  },
+  deactivate(video, unload) {
+    video.pause();
+    if (unload && video.hasAttribute("src")) {
+      video.removeAttribute("src");
+      video.load();
+    }
+  }
+});
+const videoPreviewObserver = typeof window.IntersectionObserver === "function"
+  ? new IntersectionObserver((entries) => {
+    entries.forEach(({ target, isIntersecting }) => {
+      if (target.isConnected && isIntersecting
+          && target.dataset.poster && !target.hasAttribute("poster")) {
+        target.poster = target.dataset.poster;
+      }
+    });
+    refreshVisibleVideoPreviews();
+  }, { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] })
+  : null;
+
+function updateVideoPreviewBlocking() {
+  videoPreviewController.setBlocked(
+    document.hidden || videoDialog.open || reducedMotionPreference.matches
+  );
+}
+
+function setVideoAutoplayEnabled(enabled) {
+  videoAutoplayEnabled = enabled;
+  videoPreviewController.setAutoplayEnabled(enabled);
+  videoAutoplayToggle.setAttribute("aria-pressed", String(enabled));
+  videoAutoplayToggle.textContent = `वीडियो ऑटोप्ले: ${enabled ? "चालू" : "बंद"}`;
+}
+
+function releaseVideoPreviews() {
+  const previews = feed.querySelectorAll(".article-video-preview video");
+  if (videoPreviewObserver) {
+    previews.forEach((video) => videoPreviewObserver.unobserve(video));
+  }
+  videoPreviewController.clear();
+}
+
+function refreshVisibleVideoPreviews() {
+  const entries = [];
+  feed.querySelectorAll(".article-video-preview video").forEach((video) => {
+    const bounds = video.getBoundingClientRect();
+    const visibleWidth = Math.max(0, Math.min(bounds.right, window.innerWidth) - Math.max(bounds.left, 0));
+    const visibleHeight = Math.max(0, Math.min(bounds.bottom, window.innerHeight) - Math.max(bounds.top, 0));
+    const intersectionRatio = bounds.width && bounds.height
+      ? (visibleWidth * visibleHeight) / (bounds.width * bounds.height)
+      : 0;
+    const isIntersecting = intersectionRatio > 0;
+    if (isIntersecting && video.dataset.poster && !video.hasAttribute("poster")) {
+      video.poster = video.dataset.poster;
+    }
+    entries.push({ target: video, isIntersecting, intersectionRatio });
+  });
+  videoPreviewController.update(entries);
+}
+
+function scheduleVideoPreviewRefresh() {
+  if (fallbackRefreshRequest) return;
+  fallbackRefreshRequest = window.requestAnimationFrame(() => {
+    fallbackRefreshRequest = 0;
+    refreshVisibleVideoPreviews();
+  });
+}
+
+function openVideoPlayer(article, startTime) {
+  videoPreviewController.setBlocked(true);
+  if (pendingPreviewSeek) {
+    dialogVideo.removeEventListener("loadedmetadata", pendingPreviewSeek);
+    pendingPreviewSeek = null;
+  }
+  dialogVideoTitle.textContent = article.title || "Video";
+  dialogVideoStatus.hidden = true;
+  dialogVideo.src = article.video_url;
+  if (article.thumbnail_url || article.image_url) dialogVideo.poster = article.thumbnail_url || article.image_url;
+  else dialogVideo.removeAttribute("poster");
+  dialogVideo.muted = false;
+  videoDialog.showModal();
+  if (startTime > 0) {
+    pendingPreviewSeek = () => {
+      if (Number.isFinite(dialogVideo.duration) && startTime < dialogVideo.duration) {
+        dialogVideo.currentTime = startTime;
+      }
+      pendingPreviewSeek = null;
+    };
+    dialogVideo.addEventListener("loadedmetadata", pendingPreviewSeek, { once: true });
+  }
+  const playback = dialogVideo.play();
+  if (playback) {
+    playback.catch((error) => {
+      if (!videoDialog.open || error.name === "AbortError") return;
+      dialogVideoStatus.textContent = "Playback could not start automatically. Press Play to start the video.";
+      dialogVideoStatus.hidden = false;
+    });
+  }
+}
+
+document.querySelector("#video-player-close").addEventListener("click", () => videoDialog.close());
+videoDialog.addEventListener("click", (event) => {
+  if (event.target === videoDialog) videoDialog.close();
+});
+videoDialog.addEventListener("close", () => {
+  if (pendingPreviewSeek) {
+    dialogVideo.removeEventListener("loadedmetadata", pendingPreviewSeek);
+    pendingPreviewSeek = null;
+  }
+  dialogVideo.pause();
+  dialogVideo.removeAttribute("src");
+  dialogVideo.removeAttribute("poster");
+  dialogVideo.load();
+  dialogVideoStatus.hidden = true;
+  refreshVisibleVideoPreviews();
+  updateVideoPreviewBlocking();
+});
+document.addEventListener("visibilitychange", () => {
+  updateVideoPreviewBlocking();
+  if (!document.hidden) refreshVisibleVideoPreviews();
+});
+if (typeof reducedMotionPreference.addEventListener === "function") {
+  reducedMotionPreference.addEventListener("change", updateVideoPreviewBlocking);
+} else if (typeof reducedMotionPreference.addListener === "function") {
+  reducedMotionPreference.addListener(updateVideoPreviewBlocking);
+}
+videoAutoplayToggle.addEventListener("click", () => {
+  setVideoAutoplayEnabled(!videoAutoplayEnabled);
+});
+updateVideoPreviewBlocking();
+if (!videoPreviewObserver) {
+  window.addEventListener("scroll", scheduleVideoPreviewRefresh, { passive: true });
+  window.addEventListener("resize", scheduleVideoPreviewRefresh);
+}
 
 feed.addEventListener("click", (event) => {
   if (event.target.closest("#retry-button")) void loadArticles();
@@ -30,6 +184,8 @@ chips.addEventListener("click", (event) => {
 });
 
 function showFeedMessage(title, description, retryLabel) {
+  releaseVideoPreviews();
+  videoAutoplayToggle.hidden = true;
   feed.classList.remove("has-articles");
   const empty = document.createElement("div");
   empty.className = "empty-state";
@@ -54,12 +210,34 @@ function renderArticle(article, index) {
   item.className = `article-item${index === 0 ? " is-featured" : ""}`;
   const visual = document.createElement("div");
   visual.className = "article-visual";
-  if (article.image_url) {
+  let previewVideo = null;
+  if (article.video_url) {
+    const previewButton = document.createElement("button");
+    previewButton.className = "article-video-preview";
+    previewButton.type = "button";
+    previewButton.setAttribute("aria-label", `Play video with sound: ${article.title || "Video"}`);
+    previewVideo = document.createElement("video");
+    previewVideo.muted = true;
+    previewVideo.defaultMuted = true;
+    previewVideo.loop = true;
+    previewVideo.playsInline = true;
+    previewVideo.preload = "none";
+    previewVideo.dataset.src = article.video_url;
+    if (article.thumbnail_url || article.image_url) previewVideo.dataset.poster = article.thumbnail_url || article.image_url;
+    const previewLabel = document.createElement("span");
+    previewLabel.className = "article-video-preview-label";
+    previewLabel.textContent = "आवाज़ के साथ देखें";
+    previewButton.append(previewVideo, previewLabel);
+    previewButton.addEventListener("click", () => openVideoPlayer(article, previewVideo.currentTime));
+    visual.append(previewButton);
+  } else if (article.thumbnail_url || article.image_url) {
     const image = document.createElement("img");
     image.className = "article-image";
     image.loading = "lazy";
-    image.alt = article.image_alt || "";
-    image.src = article.image_url;
+    image.alt = article.thumbnail_url
+      ? article.thumbnail_alt_text || article.title || ""
+      : article.image_alt || article.title || "";
+    image.src = article.thumbnail_url || article.image_url;
     image.addEventListener("error", () => {
       visual.classList.add("is-placeholder");
       image.remove();
@@ -80,10 +258,32 @@ function renderArticle(article, index) {
   copy.className = "article-copy";
   const meta = document.createElement("div");
   meta.className = "article-meta";
+  if (article.content_type === "opinion") {
+    const opinionLabel = document.createElement("span");
+    opinionLabel.className = "article-type-label";
+    opinionLabel.textContent = "Opinion";
+    meta.append(opinionLabel);
+  }
   const category = document.createElement("span");
   category.className = "eyebrow";
   category.textContent = article.category || article.category_name || "खबर";
   meta.append(category);
+  const contentTypeName = article.article_type?.name;
+  if (contentTypeName) {
+    const type = document.createElement("span");
+    type.className = "article-type-label";
+    type.textContent = contentTypeName;
+    meta.append(type);
+  }
+  if (article.news_priority === "breaking"
+      && article.breaking_review_status === "approved"
+      && article.breaking_expires_at
+      && new Date(article.breaking_expires_at) > new Date()) {
+    const breaking = document.createElement("span");
+    breaking.className = "article-breaking-label";
+    breaking.textContent = "ब्रेकिंग";
+    meta.append(breaking);
+  }
   const dateValue = article.published_at || article.created_at;
   if (dateValue) {
     const date = new Date(dateValue);
@@ -99,18 +299,49 @@ function renderArticle(article, index) {
     }
   }
   const title = document.createElement("h3");
-  title.textContent = article.title || "शीर्षक उपलब्ध नहीं";
+  if (typeof article.slug === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(article.slug)) {
+    const link = document.createElement("a");
+    link.className = "article-title-link";
+    link.href = `/article/${encodeURIComponent(article.slug)}`;
+    link.textContent = article.title || "शीर्षक उपलब्ध नहीं";
+    title.append(link);
+  } else {
+    title.textContent = article.title || "शीर्षक उपलब्ध नहीं";
+  }
   const summary = document.createElement("p");
   summary.className = "article-summary";
   summary.textContent = article.description || article.excerpt || "";
   copy.append(meta, title, summary);
-  if (article.video_url) {
-    const video = document.createElement("video");
-    video.className = "article-media-player";
-    video.src = article.video_url;
-    video.controls = true;
-    video.preload = "metadata";
-    copy.append(video);
+  if (article.content_type === "opinion") {
+    const byline = document.createElement("p");
+    byline.className = "article-opinion-byline";
+    const contributor = article.opinion_contributor;
+    if (contributor?.display_name) {
+      const label = document.createTextNode("Opinion by ");
+      if (contributor.slug) {
+        const link = document.createElement("a");
+        link.href = `/contributor/${encodeURIComponent(contributor.slug)}`;
+        link.textContent = contributor.display_name;
+        byline.append(label, link);
+      } else {
+        byline.append(label, document.createTextNode(contributor.display_name));
+      }
+      byline.append(document.createTextNode(
+        `${article.opinion_column_name ? ` · ${article.opinion_column_name}` : ""} — personal viewpoint`
+      ));
+    } else {
+      byline.textContent = "Opinion · personal viewpoint";
+    }
+    copy.append(byline);
+  }
+  const attribution = [];
+  if (article.thumbnail_credit_line) attribution.push(`चित्र श्रेय: ${article.thumbnail_credit_line}`);
+  if (article.thumbnail_license_name) attribution.push(`लाइसेंस: ${article.thumbnail_license_name}`);
+  if (attribution.length) {
+    const credit = document.createElement("p");
+    credit.className = "article-media-attribution";
+    credit.textContent = attribution.join(" · ");
+    copy.append(credit);
   }
   if (article.audio_url) {
     const audio = document.createElement("audio");
@@ -121,6 +352,7 @@ function renderArticle(article, index) {
     copy.append(audio);
   }
   item.append(visual, copy);
+  if (previewVideo) videoPreviewController.register(previewVideo);
   return item;
 }
 
@@ -158,7 +390,14 @@ async function loadArticles() {
       return;
     }
     feed.classList.add("has-articles");
+    releaseVideoPreviews();
     feed.replaceChildren(...articles.map(renderArticle));
+    const videoPreviews = feed.querySelectorAll(".article-video-preview video");
+    videoAutoplayToggle.hidden = videoPreviews.length === 0;
+    videoAutoplayToggle.setAttribute("aria-pressed", String(videoAutoplayEnabled));
+    videoAutoplayToggle.textContent = `वीडियो ऑटोप्ले: ${videoAutoplayEnabled ? "चालू" : "बंद"}`;
+    if (videoPreviewObserver) videoPreviews.forEach((video) => videoPreviewObserver.observe(video));
+    refreshVisibleVideoPreviews();
   } catch (error) {
     if (requestId !== articleRequestId) return;
     console.error("Unable to load news:", error);

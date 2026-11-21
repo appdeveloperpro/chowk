@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Submit an Opinion — CHOWK NEWS</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="opinion-submit-page">
+      <section class="opinion-submit-shell">
+        <a class="opinion-submit-back" href="/">← Back to Chowk News</a>
+        <span class="eyebrow">READER CONTRIBUTION</span>
+        <h1>Submit an opinion</h1>
+        <p>Submission does not guarantee publication. Staff will verify identity, review conflicts and edit the piece for editorial standards.</p>
+        <form id="opinion-submission-form" class="opinion-submit-form">
+          <div class="opinion-honeypot" aria-hidden="true" hidden>
+            <label>Leave this field empty<input name="website" type="text" tabindex="-1" autocomplete="off"></label>
+          </div>
+          <label><span>Full name</span><input name="display_name" maxlength="160" minlength="2" required></label>
+          <label><span>Email</span><input name="email" type="email" maxlength="254" required></label>
+          <label><span>Phone (optional)</span><input name="phone" maxlength="40"></label>
+          <label><span>Headline</span><input name="headline" maxlength="240" minlength="8" required></label>
+          <label><span>Topic / beat</span><input name="topic" maxlength="160" placeholder="Politics, health, city, culture…"></label>
+          <label><span>Pitch</span><textarea name="pitch" maxlength="5000" minlength="20" rows="5" required></textarea></label>
+          <label><span>Full text (optional)</span><textarea name="full_text" maxlength="100000" rows="10"></textarea></label>
+          <label><span>Conflict or institutional disclosure</span><textarea name="conflict_disclosure" maxlength="5000" rows="3" placeholder="Name any role, employer, financial interest or relationship relevant to this opinion"></textarea></label>
+          <label class="opinion-submit-consent"><input name="consent" type="checkbox" required><span>I confirm that this submission is mine, and consent to staff using these details to review and contact me. Read the <a href="/legal/privacy-policy">Privacy Policy</a>.</span></label>
+          <p id="opinion-submit-status" class="opinion-submit-status" role="status"></p>
+          <button type="submit">Send for editorial review</button>
+        </form>
+      </section>
+    </main>
+    <script src="/opinion-submit.js" defer></script>
+  </body>
+</html>

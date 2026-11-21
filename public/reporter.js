@@ -1568,6 +1568,11 @@ function renderStatus() {
     return;
   }
   statusPanel.append(element("h2", "", reporter ? "Reporter profile" : "Reporter application progress"));
+  if (reporter && identity.role === "reporter") {
+    const deskLink = element("a", "reporter-button", "Open story submission desk");
+    deskLink.href = "/workspace";
+    statusPanel.append(deskLink);
+  }
   if (application) {
     const activeAuthority = reporterData.credentials?.some((credential) =>
       credential.credential_type === "authority_letter" && credential.status === "active"

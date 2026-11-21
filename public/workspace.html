@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="/workspace.css">
     <link rel="stylesheet" href="/inline-feedback.css">
     <script src="/inline-feedback.js" defer></script>
+    <script src="/headline-validation.js" defer></script>
+    <script src="/video-thumbnail-quality.js" defer></script>
     <script src="/workspace.js" defer></script>
   </head>
   <body class="workspace-body">
@@ -27,6 +29,7 @@
         <nav class="workspace-nav">
           <a class="workspace-nav-link active" href="#overview"><span class="workspace-nav-icon">◫</span>Overview</a>
           <a class="workspace-nav-link" href="#stories"><span class="workspace-nav-icon">▤</span>Story queue</a>
+          <button id="workspace-assets-nav" class="workspace-nav-link" type="button" hidden><span class="workspace-nav-icon">▧</span>Asset Library</button>
           <a id="workspace-territory-nav" class="workspace-nav-link" href="#workspace-territory" hidden><span class="workspace-nav-icon">⌖</span>Territory reporters</a>
           <a class="workspace-nav-link" href="#updates"><span class="workspace-nav-icon">◷</span>Updates</a>
         </nav>
@@ -126,15 +129,49 @@
         <span class="workspace-eyebrow">STORY EDITOR</span>
         <h2 id="story-dialog-title">New story draft</h2>
         <p id="story-dialog-help">Save a private draft. It will not appear in public news until editorial approval.</p>
-        <label class="workspace-field"><span>Headline</span><input name="title" minlength="8" maxlength="240" required></label>
+        <label class="workspace-field"><span>Headline</span><input name="title" aria-describedby="headline-help" minlength="8" maxlength="240" required></label>
+        <p id="headline-help" class="workspace-field-help">Do not use emoji or repeat the same symbol or punctuation more than three times in a row.</p>
         <label class="workspace-field"><span>URL slug</span><input name="slug" minlength="3" maxlength="240" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required></label>
         <label class="workspace-field"><span>Summary</span><textarea name="excerpt" maxlength="1000" rows="3"></textarea></label>
         <label class="workspace-field"><span>Story content (minimum 50 characters)</span><textarea name="content" minlength="50" rows="9" required></textarea></label>
-        <label class="workspace-field"><span>Category</span><select name="category_id"><option value="">No category</option></select></label>
+        <p id="content-word-count" class="workspace-field-help"></p>
+        <label class="workspace-field"><span>Content type</span><select name="content_type" required><option value="">Choose a type</option></select></label>
+        <p id="content-type-guidance" class="workspace-field-help" aria-live="polite"></p>
+        <label class="workspace-field"><span>Primary topic category</span><select name="category_id"><option value="">Choose a topic before submitting</option></select></label>
+        <label class="workspace-field"><span>Priority</span><select name="news_priority"><option value="routine">Routine</option><option value="breaking">Request Breaking approval</option></select></label>
+        <label class="workspace-field" id="breaking-request-note-field"><span>Why should this be treated as Breaking? (minimum 10 characters)</span><textarea name="breaking_review_note" maxlength="1000" rows="2"></textarea></label>
+        <label class="workspace-field" id="reporting-sources-field"><span>Sources (private to newsroom; do not enter confidential source identities)</span><textarea name="reporting_sources" maxlength="5000" rows="3"></textarea></label>
+        <label class="workspace-field" id="reporting-evidence-field"><span>Evidence and verification notes (private)</span><textarea name="reporting_evidence" maxlength="5000" rows="3"></textarea></label>
+        <label class="workspace-field" id="contact-status-field"><span>Response / contact status</span><select name="contact_status"><option value="">Choose status</option><option value="contacted">Contacted; response received</option><option value="no_response">Contacted; no response yet</option><option value="unable_to_reach">Unable to reach</option><option value="not_applicable">Not applicable</option></select></label>
+        <label class="workspace-field" id="contact-notes-field"><span>Response notes (private; avoid unnecessary personal data)</span><textarea name="contact_notes" maxlength="2000" rows="2"></textarea></label>
+        <label class="workspace-field" id="author-disclosure-field"><span>Author / institutional disclosure</span><textarea name="author_disclosure" maxlength="2000" rows="2"></textarea></label>
+        <section id="opinion-fields" class="workspace-opinion-fields" hidden>
+          <label class="workspace-field"><span>Opinion contributor</span><select name="opinion_contributor_id"><option value="">Choose contributor</option></select></label>
+          <label class="workspace-field"><span>Named column (optional)</span><input name="opinion_column_name" maxlength="160" placeholder="For example, Senior Generalist View"></label>
+          <label class="workspace-field"><span>Conflict of interest / institutional disclosure</span><textarea name="conflict_of_interest_disclosure" maxlength="5000" rows="3"></textarea></label>
+          <label class="workspace-field"><span>Fact sources (private)</span><textarea name="fact_sources" maxlength="5000" rows="3"></textarea></label>
+          <label class="workspace-field"><span>AI use disclosure (optional)</span><textarea name="ai_use_disclosure" maxlength="2000" rows="2"></textarea></label>
+        </section>
         <label class="workspace-field"><span>Reporting location / coverage area</span><select name="reporting_location_id" required><option value="">Choose a reporting location</option></select></label>
         <label class="workspace-field"><span>Image URL or uploaded file</span><input name="image_url" type="text" maxlength="2000"></label>
         <label class="workspace-field"><span>Video URL or uploaded file</span><input name="video_url" type="text" maxlength="2000"></label>
         <label class="workspace-field"><span>Audio URL or uploaded file</span><input name="audio_url" type="text" maxlength="2000"></label>
+        <div class="workspace-thumbnail-field">
+          <label class="workspace-field"><span>Story thumbnail</span><input name="thumbnail_url" type="text" maxlength="2000" readonly placeholder="Choose an image or generate one from a video"></label>
+          <label class="workspace-field"><span>Thumbnail alternative text (required when selected)</span><input name="thumbnail_alt_text" type="text" maxlength="500" placeholder="Describe the thumbnail for readers using assistive technology"></label>
+          <label class="workspace-field"><span>Credit / source (optional)</span><input name="thumbnail_credit_line" type="text" maxlength="200" placeholder="Photographer, agency, or source"></label>
+          <label class="workspace-field"><span>License (optional)</span><input name="thumbnail_license_name" type="text" maxlength="160" placeholder="For example, CC BY 4.0"></label>
+          <div id="story-thumbnail-preview" class="story-thumbnail-preview" hidden><img id="story-thumbnail-preview-image" alt=""><span>Selected thumbnail</span></div>
+          <button class="workspace-button secondary asset-picker-button" type="button" data-asset-target="image_url">Choose image</button>
+          <button class="workspace-button secondary asset-picker-button" type="button" data-asset-target="video_url">Choose video</button>
+          <button class="workspace-button secondary asset-picker-button" type="button" data-asset-target="audio_url">Choose audio</button>
+          <button class="workspace-button secondary asset-picker-button" type="button" data-asset-target="thumbnail_url">Choose thumbnail</button>
+        </div>
+        <section id="video-thumbnail-candidates" class="video-thumbnail-candidates" aria-label="Generated video thumbnail suggestions" hidden>
+          <h3>Choose a video frame</h3>
+          <p>These suggestions are generated from your uploaded video. The selected frame is saved with the story.</p>
+          <div id="video-thumbnail-options" class="video-thumbnail-options"></div>
+        </section>
         <label class="workspace-field"><span>Upload image, video, or audio (max 25 MB)</span><input id="story-media-file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav"></label>
         <p id="story-media-status" class="workspace-form-error" role="status" hidden></p>
         <label id="change-reason-field" class="workspace-field" hidden><span>Editorial change note</span><input name="change_reason" maxlength="500"></label>
@@ -144,6 +181,23 @@
           <button class="workspace-button" type="submit">Save draft</button>
         </div>
       </form>
+    </dialog>
+    <dialog id="asset-library-dialog" class="workspace-dialog asset-library-dialog">
+      <section class="asset-library-shell" aria-labelledby="asset-library-title">
+        <div class="asset-library-heading">
+          <div><span class="workspace-eyebrow">NEWSROOM MEDIA</span><h2 id="asset-library-title">Asset Library</h2></div>
+          <button id="asset-library-close" class="workspace-button secondary" type="button">Close</button>
+        </div>
+        <p class="asset-library-description">Search reusable newsroom images, videos, and audio. Edit source and licensing details or archive assets that should no longer be reused.</p>
+        <div class="asset-library-tools">
+          <label class="workspace-field"><span>Search assets</span><input id="asset-library-search" type="search" maxlength="80" placeholder="Search title, description, credit, or license"></label>
+          <label class="workspace-field"><span>Media type</span><select id="asset-library-type"><option value="">All media</option><option value="image">Images</option><option value="video">Videos</option><option value="thumbnail">Video thumbnails</option><option value="audio">Audio</option></select></label>
+          <label class="workspace-field"><span>Asset status</span><select id="asset-library-status-filter"><option value="active">Active</option><option value="archived">Archived</option></select></label>
+          <label class="workspace-field"><span>Upload reusable media (max 25 MB)</span><input id="asset-library-upload" type="file" accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav"></label>
+        </div>
+        <p id="asset-library-status" class="asset-library-status" role="status"></p>
+        <div id="asset-library-grid" class="asset-library-grid"></div>
+      </section>
     </dialog>
   </body>
 </html>

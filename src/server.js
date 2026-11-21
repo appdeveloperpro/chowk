@@ -13,6 +13,8 @@ const {
   reporterAgreementTemplateFields,
   unknownTemplateTokens
 } = require("./reporter-agreement");
+const validateHeadline = require("../public/headline-validation");
+const { validateAssetRegistration, validateAssetMetadataChanges } = require("./newsroom-assets");
 
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT) || 3000;
@@ -835,7 +837,7 @@ async function signedMediaUrl(value, token) {
 }
 
 async function signArticleMedia(article, token, publicResponse = false) {
-  const fields = ["image_url", "video_url", "audio_url"];
+  const fields = ["image_url", "video_url", "audio_url", "thumbnail_url"];
   const values = await Promise.all(fields.map((field) => signedMediaUrl(article[field], token)));
   fields.forEach((field, index) => {
     article[`${field}_display_url`] = values[index];
@@ -1026,6 +1028,23 @@ async function userHasOrganizationCapability(token, permission) {
     throw new Error(apiErrorMessage(result.payload, "Organization permissions could not be verified."));
   }
   return result.payload === true;
+}
+
+async function requireWorkspaceSession(request, response) {
+  try {
+    const session = await getSession(request, response, userCookie)
+      || await getSession(request, response, adminCookie);
+    if (!session) {
+      clearSessionCookies(response, userCookie);
+      sendJson(response, 401, { error: "Sign in to access the newsroom workspace." });
+      return null;
+    }
+    return session;
+  } catch (error) {
+    console.error("Could not verify newsroom workspace session:", error.message);
+    sendJson(response, 503, { error: "Newsroom workspace access is temporarily unavailable." });
+    return null;
+  }
 }
 
 async function requireAdmin(request, response) {
@@ -1698,6 +1717,10 @@ async function handleAuth(request, response, registration) {
   }
   try {
     const body = await readJsonBody(request);
+    if (typeof body.website === "string" && body.website.trim()) {
+      sendJson(response, 400, { error: "Invalid submission." });
+      return;
+    }
     if (typeof body.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim())) {
       sendJson(response, 400, { error: "Enter a valid email address." });
       return;
@@ -1798,7 +1821,7 @@ async function publicArticles(response, requestUrl) {
       return;
     }
     const query = new URLSearchParams({
-      select: "id,title,slug,excerpt,content,category_id,category:categories(name,slug),image_url,video_url,audio_url,published_at,created_at",
+      select: "id,title,slug,excerpt,content_type,article_type:article_types(name,key),news_priority,breaking_review_status,breaking_expires_at,category_id,category:categories(name,slug),image_url,video_url,audio_url,thumbnail_url,thumbnail_asset_id,thumbnail_alt_text,thumbnail_credit_line,thumbnail_license_name,opinion_contributor_id,opinion_column_name,conflict_of_interest_disclosure,ai_use_disclosure,opinion_contributor:newsroom_contributors(display_name,slug,public_bio,institutional_affiliation,photo_url),published_at,created_at",
       status: "eq.published",
       published_at: `lte.${new Date().toISOString()}`,
       order: "published_at.desc",
@@ -1838,6 +1861,104 @@ async function publicArticles(response, requestUrl) {
   } catch (error) {
     console.error("Supabase news request failed:", error.message);
     sendJson(response, 503, { error: "News service is unavailable. Check Supabase configuration and schema." });
+  }
+}
+
+async function publicReaderOpinionSubmission(response, request) {
+  try {
+    const body = await readJsonBody(request);
+    if (typeof body.website === "string" && body.website.trim()) {
+      sendJson(response, 400, { error: "Invalid submission." });
+      return;
+    }
+    if (body.consent !== true) {
+      sendJson(response, 400, { error: "Consent is required before submitting a reader opinion." });
+      return;
+    }
+    const ip = String(request.headers["x-forwarded-for"] || request.headers["x-real-ip"] || request.socket.remoteAddress || "unknown").split(",")[0].trim();
+    const ipHash = createHash("sha256").update(ip).digest("hex");
+    const result = await supabaseRequest("/rest/v1/rpc/chowk_submit_reader_opinion_v2", {
+      method: "POST",
+      body: {
+        submitted_name: body.display_name,
+        submitted_email: body.email,
+        submitted_phone: body.phone || "",
+        submitted_headline: body.headline,
+        submitted_pitch: body.pitch,
+        submitted_full_text: body.full_text || "",
+        submitted_conflict_disclosure: body.conflict_disclosure || "",
+        submitted_topic: body.topic || "",
+        submitted_consent: true,
+        submitted_ip_hash: ipHash,
+        submitted_user_agent: String(request.headers["user-agent"] || "").slice(0, 500)
+      }
+    });
+    sendJson(response, result.response.ok ? 201 : result.response.status,
+      result.response.ok
+        ? { success: true, data: { reference: result.payload, status: "submitted" } }
+        : { error: apiErrorMessage(result.payload, "Your opinion submission could not be received.") });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message });
+  }
+}
+
+async function publicArticle(response, slug) {
+  try {
+    if (!await organizationModuleEnabled(null, "newsroom")) {
+      sendJson(response, 404, { error: "The newsroom module is currently disabled." });
+      return;
+    }
+
+    const query = new URLSearchParams({
+      select: "id,title,slug,excerpt,content,content_type,article_type:article_types(name,key),news_priority,breaking_review_status,breaking_expires_at,category_id,category:categories(name,slug),image_url,video_url,audio_url,thumbnail_url,thumbnail_asset_id,thumbnail_alt_text,thumbnail_credit_line,thumbnail_license_name,opinion_contributor_id,opinion_column_name,conflict_of_interest_disclosure,ai_use_disclosure,opinion_contributor:newsroom_contributors(display_name,slug,public_bio,institutional_affiliation,photo_url),published_at,created_at",
+      slug: `eq.${slug}`,
+      status: "eq.published",
+      published_at: `lte.${new Date().toISOString()}`,
+      limit: "1"
+    });
+    const result = await supabaseRequest(`/rest/v1/articles?${query}`);
+    if (!result.response.ok) {
+      sendJson(response, result.response.status, { error: apiErrorMessage(result.payload, "The story could not be loaded.") });
+      return;
+    }
+    if (!Array.isArray(result.payload) || result.payload.length === 0) {
+      sendJson(response, 404, { error: "Story not found." });
+      return;
+    }
+    const [article] = await signArticlesMedia(result.payload, null, true);
+    article.category_name = article.category?.name || null;
+    sendJson(response, 200, { success: true, data: article });
+  } catch (error) {
+    console.error("Supabase article detail request failed:", error.message);
+    sendJson(response, 503, { error: "Story service is unavailable. Check Supabase configuration and schema." });
+  }
+}
+
+async function publicContributor(response, slug) {
+  try {
+    const contributorResult = await supabaseRequest(
+      `/rest/v1/newsroom_contributors?select=id,display_name,slug,contributor_type,public_bio,institutional_affiliation,photo_url,is_active&slug=eq.${encodeURIComponent(slug)}&is_active=eq.true&limit=1`
+    );
+    if (!contributorResult.response.ok) {
+      sendJson(response, contributorResult.response.status, { error: apiErrorMessage(contributorResult.payload, "Contributor could not be loaded.") });
+      return;
+    }
+    const contributor = contributorResult.payload?.[0];
+    if (!contributor) {
+      sendJson(response, 404, { error: "Contributor not found." });
+      return;
+    }
+    const articlesResult = await supabaseRequest(
+      `/rest/v1/articles?select=id,title,slug,excerpt,content_type,published_at,thumbnail_url&opinion_contributor_id=eq.${contributor.id}&status=eq.published&published_at=lte.${new Date().toISOString()}&order=published_at.desc&limit=50`
+    );
+    if (!articlesResult.response.ok) {
+      sendJson(response, articlesResult.response.status, { error: apiErrorMessage(articlesResult.payload, "Contributor opinions could not be loaded.") });
+      return;
+    }
+    const articles = await signArticlesMedia(articlesResult.payload || [], null, true);
+    sendJson(response, 200, { success: true, data: { contributor, articles } });
+  } catch (error) {
+    sendJson(response, 503, { error: "Contributor profile is temporarily unavailable." });
   }
 }
 
@@ -2011,6 +2132,11 @@ function organizationModuleForAdminPath(pathname) {
       || pathname.startsWith("/api/admin/reporter-agreement")) return "agreements";
   if (pathname.startsWith("/api/admin/articles")
       || pathname.startsWith("/api/admin/categories")
+      || pathname.startsWith("/api/admin/article-types")
+      || pathname === "/api/admin/opinion-options"
+      || pathname.startsWith("/api/admin/contributors")
+      || pathname.startsWith("/api/admin/content-assignments")
+      || pathname.startsWith("/api/admin/opinion-submissions")
       || pathname.startsWith("/api/admin/daily-submission-report")) return "newsroom";
   if (pathname.startsWith("/api/admin/media")
       || pathname.startsWith("/api/admin/live-streams")) return "media";
@@ -2036,6 +2162,7 @@ function organizationPermissionForAdminPath(pathname, method) {
   if (pathname.startsWith("/api/admin/daily-submission-report")) return "newsroom.articles.read";
   if (pathname.startsWith("/api/admin/hr/")) return "hr.console.access";
   if (pathname.startsWith("/api/admin/articles")) {
+    if (pathname.endsWith("/breaking-review")) return "newsroom.articles.publish";
     if (pathname.endsWith("/publish")) return "newsroom.articles.publish";
     if (pathname.endsWith("/transition")) return "newsroom.articles.review";
     if (method === "GET") return "newsroom.articles.read";
@@ -2044,6 +2171,15 @@ function organizationPermissionForAdminPath(pathname, method) {
     return "newsroom.articles.edit";
   }
   if (pathname.startsWith("/api/admin/categories")) return "newsroom.categories.manage";
+  if (pathname.startsWith("/api/admin/article-types")) return "newsroom.article_types.manage";
+  if (pathname === "/api/admin/opinion-options") return "newsroom.contributors.manage";
+  if (pathname.startsWith("/api/admin/contributors")
+      || pathname.startsWith("/api/admin/content-assignments")) {
+    return "newsroom.contributors.manage";
+  }
+  if (pathname.startsWith("/api/admin/opinion-submissions")) {
+    return "newsroom.opinion.review";
+  }
   if (pathname.startsWith("/api/admin/comments")) return "newsroom.comments.moderate";
   if (pathname.startsWith("/api/admin/reports")) return "newsroom.reports.manage";
   if (pathname.startsWith("/api/admin/media")
@@ -4163,7 +4299,50 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (pathname === "/api/admin/opinion-options" && request.method === "GET") {
+      const [profiles, contributors, categories] = await Promise.all([
+        supabaseRequest("/rest/v1/profiles?select=id,full_name,email,role&role=in.(reporter,moderator,editor,publisher,admin,super_admin)&order=full_name.asc&limit=500", { token }),
+        supabaseRequest("/rest/v1/newsroom_contributors?select=id,profile_id,display_name,slug,contributor_type,is_active&is_active=eq.true&order=display_name.asc&limit=500", { token }),
+        supabaseRequest("/rest/v1/categories?select=id,name&is_active=eq.true&order=name.asc&limit=500", { token })
+      ]);
+      for (const result of [profiles, contributors, categories]) {
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "Opinion management options could not be loaded.")
+          });
+          return;
+        }
+      }
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          staff: profiles.payload || [],
+          contributors: contributors.payload || [],
+          categories: categories.payload || []
+        }
+      });
+      return;
+    }
+
     const collections = {
+      contributors: {
+        table: "newsroom_contributors",
+        select: "id,profile_id,display_name,slug,contributor_type,public_bio,institutional_affiliation,photo_url,contact_email,is_active,created_at",
+        order: "display_name.asc",
+        fields: ["profile_id", "display_name", "slug", "contributor_type", "public_bio", "institutional_affiliation", "photo_url", "contact_email", "is_active"]
+      },
+      "content-assignments": {
+        table: "newsroom_content_assignments",
+        select: "id,profile_id,contributor_id,article_type_key,column_name,beat,effective_from,effective_to,is_active,created_at",
+        order: "effective_from.desc",
+        fields: ["profile_id", "contributor_id", "article_type_key", "column_name", "beat", "effective_from", "effective_to", "is_active"]
+      },
+      "opinion-submissions": {
+        table: "opinion_submissions",
+        select: "id,display_name,email,phone,headline,pitch,full_text,conflict_disclosure,status,reviewer_id,review_note,created_article_id,created_at",
+        order: "created_at.desc",
+        fields: ["status", "review_note"]
+      },
       locations: {
         table: "locations",
         select: "id,name,slug,location_type,state_code,rto_code,parent_id,is_active,created_at",
@@ -4369,7 +4548,7 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
-    const collectionMatch = pathname.match(/^\/api\/admin\/(locations|reporter-designations|reporter-applications|live-streams|reports|comments|media|audit-logs)$/);
+    const collectionMatch = pathname.match(/^\/api\/admin\/(locations|reporter-designations|reporter-applications|live-streams|reports|comments|media|audit-logs|contributors|content-assignments|opinion-submissions)$/);
     const collection = collectionMatch && collections[collectionMatch[1]];
     if (collection && request.method === "GET") {
       const query = new URLSearchParams({
@@ -4466,6 +4645,8 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       if (collection.table === "live_streams") record.created_by = session.identity.id;
+      if (collection.table === "newsroom_contributors") record.created_by = session.identity.id;
+      if (collection.table === "newsroom_content_assignments") record.created_by = session.identity.id;
       if (collection.table === "media_catalog") {
         record.created_by = session.identity.id;
         if (record.status === "published" && !record.published_at) record.published_at = new Date().toISOString();
@@ -4478,6 +4659,69 @@ async function adminRoute(request, response, requestUrl, session) {
         : { error: collection.table === "reporter_designations" && result.payload?.code === "23505"
           ? "That designation name or code is already in use."
           : apiErrorMessage(result.payload, `The ${collection.table} record could not be created.`) });
+      return;
+    }
+
+    const opinionConvert = pathname.match(/^\/api\/admin\/opinion-submissions\/(\d+)\/convert$/);
+    if (opinionConvert && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_convert_reader_opinion_submission", {
+        method: "POST",
+        token,
+        body: {
+          target_submission: Number(opinionConvert[1]),
+          contributor_id: body.contributor_id ? Number(body.contributor_id) : null,
+          article_category_id: body.category_id ? Number(body.category_id) : null,
+          article_title: body.title || null,
+          article_slug: body.slug || null,
+          article_excerpt: body.excerpt || "",
+          article_content: body.content || null
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: { article_id: result.payload } }
+        : { error: apiErrorMessage(result.payload, "The reader opinion could not be converted.") });
+      return;
+    }
+
+    const collectionItem = pathname.match(/^\/api\/admin\/(contributors|content-assignments|opinion-submissions)\/(\d+)$/);
+    if (collectionItem && ["PATCH", "DELETE"].includes(request.method)) {
+      const collectionKey = collectionItem[1];
+      const itemId = Number(collectionItem[2]);
+      const table = collectionKey === "contributors"
+        ? "newsroom_contributors"
+        : collectionKey === "content-assignments"
+          ? "newsroom_content_assignments"
+          : "opinion_submissions";
+      const fields = collectionKey === "contributors"
+        ? ["profile_id", "display_name", "slug", "contributor_type", "public_bio", "institutional_affiliation", "photo_url", "contact_email", "is_active"]
+        : collectionKey === "content-assignments"
+          ? ["profile_id", "contributor_id", "article_type_key", "column_name", "beat", "effective_from", "effective_to", "is_active"]
+          : ["status", "review_note"];
+      if (request.method === "DELETE" && collectionKey === "opinion-submissions") {
+        sendJson(response, 405, { error: "Opinion submissions must be retained for moderation history." });
+        return;
+      }
+      if (request.method === "DELETE") {
+        const result = await supabaseRequest(`/rest/v1/${table}?id=eq.${itemId}`, {
+          method: "DELETE", token, prefer: "return=representation"
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "The record could not be removed.") });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const record = Object.fromEntries(fields
+        .filter((field) => body[field] !== undefined)
+        .map((field) => [field, body[field]]));
+      if (table === "opinion_submissions") record.reviewer_id = session.identity.id;
+      const result = await supabaseRequest(`/rest/v1/${table}?id=eq.${itemId}&select=*`, {
+        method: "PATCH", token, body: record, prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload?.[0] }
+        : { error: apiErrorMessage(result.payload, "The record could not be updated.") });
       return;
     }
 
@@ -4791,14 +5035,14 @@ async function adminRoute(request, response, requestUrl, session) {
 
     if (pathname === "/api/admin/articles" && request.method === "GET") {
       const query = new URLSearchParams({
-        select: "id,title,slug,excerpt,content,category_id,image_url,video_url,audio_url,reporting_location_id,status,workflow_status,published_at,created_at",
+        select: "id,title,slug,excerpt,content,content_type,news_priority,reporting_sources,reporting_evidence,contact_status,contact_notes,author_disclosure,breaking_review_status,breaking_review_note,breaking_reviewed_at,breaking_expires_at,category_id,image_url,video_url,audio_url,thumbnail_url,thumbnail_asset_id,thumbnail_alt_text,thumbnail_credit_line,thumbnail_license_name,reporting_location_id,status,workflow_status,published_at,created_at",
         order: "created_at.desc",
         limit: "100"
       });
       const result = await supabaseRequest(`/rest/v1/articles?${query}`, { token });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: await signArticlesMedia(result.payload || [], token) }
-        : { error: apiErrorMessage(result.payload, "Articles could not be loaded.") });
+        : { error: apiErrorMessage(result.payload, "Stories could not be loaded.") });
       return;
     }
 
@@ -4833,15 +5077,15 @@ async function adminRoute(request, response, requestUrl, session) {
     const articleDetail = pathname.match(/^\/api\/admin\/articles\/(\d+)$/);
     if (articleDetail && request.method === "GET") {
       const result = await supabaseRequest(
-        `/rest/v1/articles?select=id,title,slug,excerpt,content,category_id,image_url,video_url,audio_url,reporting_location_id,status,workflow_status,published_at,created_at&id=eq.${articleDetail[1]}&limit=1`,
+        `/rest/v1/articles?select=id,title,slug,excerpt,content,content_type,news_priority,reporting_sources,reporting_evidence,contact_status,contact_notes,author_disclosure,breaking_review_status,breaking_review_note,breaking_reviewed_at,breaking_expires_at,category_id,image_url,video_url,audio_url,thumbnail_url,thumbnail_asset_id,thumbnail_alt_text,thumbnail_credit_line,thumbnail_license_name,reporting_location_id,status,workflow_status,published_at,created_at&id=eq.${articleDetail[1]}&limit=1`,
         { token }
       );
       if (!result.response.ok) {
-        sendJson(response, result.response.status, { error: apiErrorMessage(result.payload, "Article could not be loaded.") });
+        sendJson(response, result.response.status, { error: apiErrorMessage(result.payload, "Story could not be loaded.") });
       } else if (!result.payload?.[0]) {
-        sendJson(response, 404, { error: "Article not found." });
+        sendJson(response, 404, { error: "Story not found." });
       } else {
-        sendJson(response, 200, { success: true, data: result.payload[0] });
+        sendJson(response, 200, { success: true, data: await signArticleMedia(result.payload[0], token) });
       }
       return;
     }
@@ -4851,6 +5095,17 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
         : { error: apiErrorMessage(result.payload, "Categories could not be loaded.") });
+      return;
+    }
+
+    if (pathname === "/api/admin/article-types" && request.method === "GET") {
+      const result = await supabaseRequest(
+        "/rest/v1/article_types?select=id,key,name,description,minimum_word_count,requires_reporting_checklist,requires_author_disclosure,editorial_only,is_active,created_at,updated_at&order=name.asc",
+        { token }
+      );
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload || [] }
+        : { error: apiErrorMessage(result.payload, "Content types could not be loaded.") });
       return;
     }
 
@@ -4953,11 +5208,54 @@ async function adminRoute(request, response, requestUrl, session) {
       return;
     }
 
+    if (request.method === "POST" && pathname === "/api/admin/article-types") {
+      const body = await readJsonBody(request);
+      if (typeof body.key !== "string" || !/^[a-z][a-z0-9_-]{1,39}$/.test(body.key)
+          || typeof body.name !== "string" || body.name.trim().length < 2 || body.name.trim().length > 80) {
+        sendJson(response, 400, { error: "Enter a unique type key (2–40 lowercase letters, numbers, hyphens, or underscores) and a display name." });
+        return;
+      }
+      if (!Number.isInteger(body.minimum_word_count)
+          || body.minimum_word_count < 1 || body.minimum_word_count > 100000) {
+        sendJson(response, 400, { error: "Set a minimum word count between 1 and 100000." });
+        return;
+      }
+      const booleanFields = [
+        "requires_reporting_checklist", "requires_author_disclosure", "editorial_only", "is_active"
+      ];
+      if (booleanFields.some((field) => body[field] !== undefined && typeof body[field] !== "boolean")
+          || (body.description !== undefined
+            && (typeof body.description !== "string" || body.description.length > 500))) {
+        sendJson(response, 400, { error: "Content type rules must be boolean values and the description cannot exceed 500 characters." });
+        return;
+      }
+      const record = Object.fromEntries(
+        ["key", "name", "description", "minimum_word_count", "requires_reporting_checklist", "requires_author_disclosure", "editorial_only", "is_active"]
+          .filter((key) => body[key] !== undefined)
+          .map((key) => [key, body[key]])
+      );
+      record.key = body.key;
+      record.name = body.name.trim();
+      record.description = typeof body.description === "string" ? body.description.trim() : "";
+      const result = await supabaseRequest("/rest/v1/article_types", {
+        method: "POST", token, body: record, prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload?.[0] }
+        : { error: apiErrorMessage(result.payload, "Content type could not be created.") });
+      return;
+    }
+
     if (request.method === "POST" && ["/api/admin/articles", "/api/admin/categories"].includes(pathname)) {
       const body = await readJsonBody(request);
       const isArticle = pathname.endsWith("/articles");
       if (isArticle) {
-        const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_create_article", {
+        const headlineError = validateHeadline(body.title);
+        if (headlineError) {
+          sendJson(response, 400, { error: headlineError });
+          return;
+        }
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_create_opinion_story", {
           method: "POST",
           token,
           body: {
@@ -4969,12 +5267,29 @@ async function adminRoute(request, response, requestUrl, session) {
             article_image_url: body.image_url || null,
             article_video_url: body.video_url || null,
             article_audio_url: body.audio_url || null,
-            article_reporting_location_id: null
+            article_reporting_location_id: null,
+            article_content_type: body.content_type || "news",
+            article_news_priority: body.news_priority || "routine",
+            article_reporting_sources: body.reporting_sources || "",
+            article_reporting_evidence: body.reporting_evidence || "",
+            article_contact_status: body.contact_status || null,
+            article_contact_notes: body.contact_notes || "",
+            article_author_disclosure: body.author_disclosure || "",
+            article_breaking_review_note: body.breaking_review_note || "",
+            article_thumbnail_url: body.thumbnail_url || null,
+            article_thumbnail_alt_text: body.thumbnail_alt_text || "",
+            article_thumbnail_credit_line: body.thumbnail_credit_line || "",
+            article_thumbnail_license_name: body.thumbnail_license_name || "",
+            article_opinion_contributor_id: body.opinion_contributor_id ? Number(body.opinion_contributor_id) : null,
+            article_opinion_column_name: body.opinion_column_name || "",
+            article_conflict_disclosure: body.conflict_of_interest_disclosure || "",
+            article_fact_sources: body.fact_sources || "",
+            article_ai_use_disclosure: body.ai_use_disclosure || ""
           }
         });
         sendJson(response, result.response.status, result.response.ok
           ? { success: true, data: { id: result.payload } }
-          : { error: apiErrorMessage(result.payload, "Article draft could not be created.") });
+          : { error: apiErrorMessage(result.payload, "Story draft could not be created.") });
         return;
       }
       const iconKey = body.icon_key === undefined ? "newspaper" : body.icon_key;
@@ -4994,14 +5309,39 @@ async function adminRoute(request, response, requestUrl, session) {
 
     const adminArticleTransition = pathname.match(/^\/api\/admin\/articles\/(\d+)\/transition$/);
     const articlePublish = pathname.match(/^\/api\/admin\/articles\/(\d+)\/publish$/);
+    const articleBreakingReview = pathname.match(/^\/api\/admin\/articles\/(\d+)\/breaking-review$/);
     const articleItem = pathname.match(/^\/api\/admin\/articles\/(\d+)$/);
     const categoryItem = pathname.match(/^\/api\/admin\/categories\/(\d+)$/);
+    const articleTypeItem = pathname.match(/^\/api\/admin\/article-types\/(\d+)$/);
+    if (articleBreakingReview && request.method === "POST") {
+      const body = await readJsonBody(request);
+      if (typeof body.approve !== "boolean"
+          || !Number.isInteger(body.validity_hours)
+          || typeof body.review_note !== "string") {
+        sendJson(response, 400, { error: "Provide a Breaking approval decision, validity hours, and review note." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_review_breaking_request", {
+        method: "POST",
+        token,
+        body: {
+          target_article: Number(articleBreakingReview[1]),
+          approve_request: body.approve,
+          validity_hours: body.validity_hours,
+          review_note: body.review_note
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Breaking request could not be reviewed.") });
+      return;
+    }
     const roleItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/role$/i);
     const reporterAssignmentItem = pathname.match(/^\/api\/admin\/users\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/reporter-assignment$/i);
     if (adminArticleTransition && request.method === "POST") {
       const body = await readJsonBody(request);
       if (body.action !== "reopen_rejected" || typeof body.note !== "string") {
-        sendJson(response, 400, { error: "Choose a valid admin article workflow action and provide an audit reason." });
+        sendJson(response, 400, { error: "Choose a valid admin story workflow action and provide an audit reason." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_transition_article", {
@@ -5016,7 +5356,7 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
-        : { error: apiErrorMessage(result.payload, "Article could not be returned to review.") });
+        : { error: apiErrorMessage(result.payload, "Story could not be returned to review.") });
       return;
     }
     if (articlePublish && request.method === "POST") {
@@ -5033,24 +5373,28 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
-        : { error: apiErrorMessage(result.payload, "Article could not be published.") });
+        : { error: apiErrorMessage(result.payload, "Story could not be published.") });
       return;
     }
-
     if (articleItem && ["PATCH", "DELETE"].includes(request.method)) {
       if (request.method === "PATCH") {
         const body = await readJsonBody(request);
+        const headlineError = validateHeadline(body.title);
+        if (headlineError) {
+          sendJson(response, 400, { error: headlineError });
+          return;
+        }
         const existing = await supabaseRequest(
           `/rest/v1/articles?select=reporting_location_id&id=eq.${articleItem[1]}&limit=1`,
           { token }
         );
         if (!existing.response.ok || !existing.payload?.[0]) {
           sendJson(response, existing.response.ok ? 404 : existing.response.status, {
-            error: apiErrorMessage(existing.payload, "Article could not be loaded for editing.")
+            error: apiErrorMessage(existing.payload, "Story could not be loaded for editing.")
           });
           return;
         }
-        const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_update_article", {
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_update_opinion_story", {
           method: "POST",
           token,
           body: {
@@ -5064,12 +5408,29 @@ async function adminRoute(request, response, requestUrl, session) {
             article_video_url: body.video_url || null,
             article_audio_url: body.audio_url || null,
             article_reporting_location_id: existing.payload[0].reporting_location_id,
-            change_reason: typeof body.change_reason === "string" ? body.change_reason : ""
+            change_reason: typeof body.change_reason === "string" ? body.change_reason : "",
+            article_content_type: body.content_type || "news",
+            article_news_priority: body.news_priority || "routine",
+            article_reporting_sources: body.reporting_sources || "",
+            article_reporting_evidence: body.reporting_evidence || "",
+            article_contact_status: body.contact_status || null,
+            article_contact_notes: body.contact_notes || "",
+            article_author_disclosure: body.author_disclosure || "",
+            article_breaking_review_note: body.breaking_review_note || "",
+            article_thumbnail_url: body.thumbnail_url || null,
+            article_thumbnail_alt_text: body.thumbnail_alt_text || "",
+            article_thumbnail_credit_line: body.thumbnail_credit_line || "",
+            article_thumbnail_license_name: body.thumbnail_license_name || "",
+            article_opinion_contributor_id: body.opinion_contributor_id ? Number(body.opinion_contributor_id) : null,
+            article_opinion_column_name: body.opinion_column_name || "",
+            article_conflict_disclosure: body.conflict_of_interest_disclosure || "",
+            article_fact_sources: body.fact_sources || "",
+            article_ai_use_disclosure: body.ai_use_disclosure || ""
           }
         });
         sendJson(response, result.response.status, result.response.ok
           ? { success: true }
-          : { error: apiErrorMessage(result.payload, "Article could not be updated.") });
+          : { error: apiErrorMessage(result.payload, "Story could not be updated.") });
         return;
       }
       const endpoint = `/rest/v1/articles?id=eq.${articleItem[1]}`;
@@ -5078,7 +5439,7 @@ async function adminRoute(request, response, requestUrl, session) {
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
-        : { error: apiErrorMessage(result.payload, "Article could not be updated.") });
+        : { error: apiErrorMessage(result.payload, "Story could not be updated.") });
       return;
     }
 
@@ -5089,6 +5450,7 @@ async function adminRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Choose a valid category icon." });
         return;
       }
+
       const safeBody = body && Object.fromEntries(
         ["name", "slug", "icon_key", "is_active"].filter((key) => body[key] !== undefined).map((key) => [key, body[key]])
       );
@@ -5098,6 +5460,52 @@ async function adminRoute(request, response, requestUrl, session) {
       sendJson(response, result.response.status, result.response.ok
         ? { success: true, data: result.payload }
         : { error: apiErrorMessage(result.payload, "Category could not be updated.") });
+      return;
+    }
+
+    if (articleTypeItem && ["PATCH", "DELETE"].includes(request.method)) {
+      const endpoint = `/rest/v1/article_types?id=eq.${articleTypeItem[1]}`;
+      const body = request.method === "PATCH" ? await readJsonBody(request) : undefined;
+      if (body && body.key !== undefined
+          && (typeof body.key !== "string" || !/^[a-z][a-z0-9_-]{1,39}$/.test(body.key))) {
+        sendJson(response, 400, { error: "Use a unique type key with 2–40 lowercase letters, numbers, hyphens, or underscores." });
+        return;
+      }
+      if (body && body.name !== undefined
+          && (typeof body.name !== "string" || body.name.trim().length < 2 || body.name.trim().length > 80)) {
+        sendJson(response, 400, { error: "Enter a display name between 2 and 80 characters." });
+        return;
+      }
+      if (body && body.minimum_word_count !== undefined
+          && (!Number.isInteger(body.minimum_word_count)
+            || body.minimum_word_count < 1 || body.minimum_word_count > 100000)) {
+        sendJson(response, 400, { error: "Set a minimum word count between 1 and 100000." });
+        return;
+      }
+      const booleanFields = [
+        "requires_reporting_checklist", "requires_author_disclosure", "editorial_only", "is_active"
+      ];
+      if (body && (booleanFields.some((field) => body[field] !== undefined && typeof body[field] !== "boolean")
+          || (body.description !== undefined
+            && (typeof body.description !== "string" || body.description.length > 500)))) {
+        sendJson(response, 400, { error: "Content type rules must be boolean values and the description cannot exceed 500 characters." });
+        return;
+      }
+      const allowed = [
+        "key", "name", "description", "minimum_word_count", "requires_reporting_checklist",
+        "requires_author_disclosure", "editorial_only", "is_active"
+      ];
+      const safeBody = body && Object.fromEntries(
+        allowed.filter((key) => body[key] !== undefined).map((key) => [key, body[key]])
+      );
+      if (safeBody?.name) safeBody.name = safeBody.name.trim();
+      if (typeof safeBody?.description === "string") safeBody.description = safeBody.description.trim();
+      const result = await supabaseRequest(endpoint, {
+        method: request.method, token, body: safeBody, prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload }
+        : { error: apiErrorMessage(result.payload, "Content type could not be updated or deleted.") });
       return;
     }
 
@@ -5773,7 +6181,8 @@ async function workspaceRoute(request, response, requestUrl, session) {
     }
     const role = identity.role;
     const pathname = requestUrl.pathname;
-    const requiredModule = pathname.startsWith("/api/workspace/media") ? "media"
+    const requiredModule = pathname.startsWith("/api/workspace/media")
+      || pathname.startsWith("/api/workspace/assets") ? "media"
       : pathname.startsWith("/api/workspace/articles") ? "newsroom"
         : pathname.startsWith("/api/workspace/reporters") ? "reporters" : null;
     if (requiredModule && !await organizationModuleEnabled(token, requiredModule)) {
@@ -5781,7 +6190,11 @@ async function workspaceRoute(request, response, requestUrl, session) {
       return;
     }
     const requiredPermissions = pathname.startsWith("/api/workspace/articles")
-      ? pathname.endsWith("/transition")
+      ? pathname.endsWith("/opinion-review")
+        ? ["newsroom.opinion.review", "newsroom.opinion.publish", "newsroom.editorial.publish"]
+        : pathname.endsWith("/breaking-review")
+        ? ["newsroom.articles.publish"]
+        : pathname.endsWith("/transition")
         ? ["newsroom.articles.create", "newsroom.articles.edit",
           "newsroom.articles.review", "newsroom.articles.publish",
           "newsroom.articles.reopen"]
@@ -5789,7 +6202,8 @@ async function workspaceRoute(request, response, requestUrl, session) {
         : request.method === "POST" && !pathname.endsWith("/transition")
           ? ["newsroom.articles.create"]
           : ["newsroom.articles.edit"]
-      : pathname.startsWith("/api/workspace/media") ? ["newsroom.media.manage"]
+      : pathname.startsWith("/api/workspace/media")
+        || pathname.startsWith("/api/workspace/assets") ? ["newsroom.media.manage"]
         : pathname === "/api/workspace/reporters/territory" && request.method === "GET"
           ? ["reporters.applications.review"] : [];
     const hasOrganizationAdminRole = ["admin", "super_admin"].includes(role);
@@ -5884,6 +6298,22 @@ async function workspaceRoute(request, response, requestUrl, session) {
         sendJson(response, 400, { error: "Choose a media file uploaded by your own account." });
         return;
       }
+      const registeredQuery = new URLSearchParams({
+        select: "id",
+        storage_path: `eq.${objectPath}`,
+        limit: "1"
+      });
+      const registered = await supabaseRequest(`/rest/v1/newsroom_assets?${registeredQuery}`, { token });
+      if (!registered.response.ok) {
+        sendJson(response, registered.response.status, {
+          error: apiErrorMessage(registered.payload, "The media file could not be checked against the Asset Library.")
+        });
+        return;
+      }
+      if (registered.payload?.length) {
+        sendJson(response, 409, { error: "This file is in the Asset Library and cannot be deleted. Archive it instead." });
+        return;
+      }
       const { url, key } = supabaseConfig();
       const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
       const deletion = await fetch(`${url}/storage/v1/object/chowk-newsroom/${encodedPath}`, {
@@ -5895,6 +6325,173 @@ async function workspaceRoute(request, response, requestUrl, session) {
       sendJson(response, deletion.ok ? 200 : deletion.status, deletion.ok
         ? { success: true }
         : { error: apiErrorMessage(payload, "Uploaded media could not be removed.") });
+      return;
+    }
+
+    const assetVideoItem = pathname.match(/^\/api\/workspace\/assets\/([0-9a-f-]{36})\/video$/i);
+    if (assetVideoItem && request.method === "GET") {
+      const assetResult = await supabaseRequest(
+        `/rest/v1/newsroom_assets?select=id,storage_path,mime_type,file_size&asset_type=eq.video&status=eq.active&id=eq.${assetVideoItem[1]}&limit=1`,
+        { token }
+      );
+      if (!assetResult.response.ok) {
+        sendJson(response, assetResult.response.status, {
+          error: apiErrorMessage(assetResult.payload, "The library video could not be loaded.")
+        });
+        return;
+      }
+      const asset = assetResult.payload?.[0];
+      if (!asset) {
+        sendJson(response, 404, { error: "Active library video not found." });
+        return;
+      }
+      if (!Number.isInteger(asset.file_size) || asset.file_size < 1 || asset.file_size > 25 * 1024 * 1024) {
+        sendJson(response, 413, { error: "The library video exceeds the thumbnail processing limit." });
+        return;
+      }
+      const signedUrl = await signedMediaUrl(asset.storage_path, token);
+      const mediaResponse = await fetch(signedUrl, {
+        signal: AbortSignal.timeout(Math.max(apiTimeoutMs, 60000)),
+        cache: "no-store"
+      });
+      if (!mediaResponse.ok) {
+        sendJson(response, mediaResponse.status, { error: "The library video could not be downloaded for thumbnail generation." });
+        return;
+      }
+      const maxVideoSize = 25 * 1024 * 1024;
+      const declaredSize = Number(mediaResponse.headers.get("content-length"));
+      if (Number.isFinite(declaredSize) && declaredSize > maxVideoSize) {
+        sendJson(response, 502, { error: "The library video is empty or exceeds the thumbnail processing limit." });
+        return;
+      }
+      const reader = mediaResponse.body?.getReader();
+      if (!reader) {
+        sendJson(response, 502, { error: "The library video could not be read for thumbnail generation." });
+        return;
+      }
+      const chunks = [];
+      let totalSize = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalSize += value.byteLength;
+        if (totalSize > maxVideoSize) {
+          await reader.cancel();
+          sendJson(response, 502, { error: "The library video exceeds the thumbnail processing limit." });
+          return;
+        }
+        chunks.push(Buffer.from(value));
+      }
+      if (!totalSize) {
+        sendJson(response, 502, { error: "The library video is empty." });
+        return;
+      }
+      const bytes = Buffer.concat(chunks, totalSize);
+      response.writeHead(200, {
+        "Content-Type": asset.mime_type,
+        "Content-Length": bytes.length,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end(bytes);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workspace/assets" && request.method === "GET") {
+      const requestedType = requestUrl.searchParams.get("type") || "";
+      const requestedStatus = requestUrl.searchParams.get("status") || "active";
+      if (!["", "image", "video", "audio", "thumbnail"].includes(requestedType)) {
+        sendJson(response, 400, { error: "Choose a valid Asset Library media type." });
+        return;
+      }
+      if (!["active", "archived"].includes(requestedStatus)) {
+        sendJson(response, 400, { error: "Choose active or archived assets." });
+        return;
+      }
+      const query = new URLSearchParams({
+        select: "id,storage_path,asset_type,title,alt_text,description,tags,credit_line,license_name,mime_type,file_size,image_width,image_height,source_video_asset_id,status,created_at",
+        status: `eq.${requestedStatus}`,
+        order: "created_at.desc",
+        limit: "100"
+      });
+      if (requestedType === "image") query.set("asset_type", "in.(image,video_thumbnail)");
+      else if (requestedType === "thumbnail") query.set("asset_type", "eq.video_thumbnail");
+      else if (requestedType) query.set("asset_type", `eq.${requestedType}`);
+      const search = (requestUrl.searchParams.get("q") || "").trim().slice(0, 80)
+        .replace(/[^\p{L}\p{N}\s._-]/gu, " ").trim();
+      if (search) {
+        const pattern = `*${search}*`;
+        const conditions = [
+          `title.ilike.${pattern}`, `description.ilike.${pattern}`,
+          `credit_line.ilike.${pattern}`, `license_name.ilike.${pattern}`
+        ];
+        if (/^[\p{L}\p{N}_-]+$/u.test(search)) conditions.push(`tags.cs.{${search}}`);
+        query.set("or", `(${conditions.join(",")})`);
+      }
+      const result = await supabaseRequest(`/rest/v1/newsroom_assets?${query}`, { token });
+      if (!result.response.ok) {
+        sendJson(response, result.response.status, {
+          error: apiErrorMessage(result.payload, "The Asset Library could not be loaded.")
+        });
+        return;
+      }
+      const assets = await Promise.all((result.payload || []).map(async (asset) => ({
+        ...asset,
+        preview_url: await signedMediaUrl(asset.storage_path, token)
+      })));
+      sendJson(response, 200, { success: true, data: assets });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workspace/assets" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const { record, error } = validateAssetRegistration(body, identity.id);
+      if (error) {
+        sendJson(response, 400, { error });
+        return;
+      }
+      if (record.source_video_asset_id) {
+        const source = await supabaseRequest(
+          `/rest/v1/newsroom_assets?select=id&asset_type=eq.video&id=eq.${record.source_video_asset_id}&limit=1`,
+          { token }
+        );
+        if (!source.response.ok || !source.payload?.length) {
+          sendJson(response, source.response.ok ? 400 : source.response.status, {
+            error: apiErrorMessage(source.payload, "The source video could not be verified.")
+          });
+          return;
+        }
+      }
+      const result = await supabaseRequest("/rest/v1/newsroom_assets?select=id,storage_path,asset_type,title,alt_text,credit_line,license_name,mime_type,created_at", {
+        method: "POST", token, body: record, prefer: "return=representation"
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true, data: result.payload?.[0] }
+        : { error: apiErrorMessage(result.payload, "The media file could not be added to the Asset Library.") });
+      return;
+    }
+
+    const assetItem = requestUrl.pathname.match(/^\/api\/workspace\/assets\/([0-9a-f-]{36})$/i);
+    if (assetItem && request.method === "PATCH") {
+      const body = await readJsonBody(request);
+      const { changes, error } = validateAssetMetadataChanges(body);
+      if (error) {
+        sendJson(response, 400, { error });
+        return;
+      }
+      const result = await supabaseRequest(
+        `/rest/v1/newsroom_assets?id=eq.${assetItem[1]}&select=id,status,title,alt_text,description,tags,credit_line,license_name`,
+        { method: "PATCH", token, body: changes, prefer: "return=representation" }
+      );
+      if (!result.response.ok) {
+        sendJson(response, result.response.status, {
+          error: apiErrorMessage(result.payload, "Asset details could not be updated.")
+        });
+      } else if (!result.payload?.length) {
+        sendJson(response, 404, { error: "Asset not found." });
+      } else {
+        sendJson(response, 200, { success: true, data: result.payload[0] });
+      }
       return;
     }
 
@@ -5938,7 +6535,7 @@ async function workspaceRoute(request, response, requestUrl, session) {
 
     if (requestUrl.pathname === "/api/workspace/articles" && request.method === "GET") {
       const query = new URLSearchParams({
-        select: "id,title,slug,excerpt,content,category_id,image_url,video_url,audio_url,reporting_location_id,author_id,status,workflow_status,submitted_at,workflow_updated_at,review_note,published_at,created_at,updated_at,category:categories(name),author:profiles!articles_author_id_fkey(full_name,email),reporting_location:locations!articles_reporting_location_id_fkey(name,location_type)",
+        select: "id,title,slug,excerpt,content,content_type,news_priority,reporting_sources,reporting_evidence,contact_status,contact_notes,author_disclosure,breaking_review_status,breaking_review_note,breaking_reviewed_at,breaking_expires_at,category_id,image_url,video_url,audio_url,thumbnail_url,thumbnail_asset_id,thumbnail_alt_text,thumbnail_credit_line,thumbnail_license_name,opinion_contributor_id,opinion_column_name,conflict_of_interest_disclosure,fact_sources,ai_use_disclosure,opinion_review_status,opinion_reviewer_id,reporting_location_id,author_id,status,workflow_status,submitted_at,workflow_updated_at,review_note,published_at,created_at,updated_at,category:categories(name),author:profiles!articles_author_id_fkey(full_name,email),reporting_location:locations!articles_reporting_location_id_fkey(name,location_type)",
         order: "workflow_updated_at.desc,created_at.desc",
         limit: "200"
       });
@@ -5950,12 +6547,16 @@ async function workspaceRoute(request, response, requestUrl, session) {
       if (role === "editor" || role === "publisher") {
         query.set("or", `(author_id.eq.${identity.id},workflow_status.in.(editor_review,scheduled,published,archived))`);
       }
-      const [articles, categories, locations] = await Promise.all([
+      const [articles, categories, locations, articleTypes, permissions, contributors, assignments] = await Promise.all([
         supabaseRequest(`/rest/v1/articles?${query}`, { token }),
         supabaseRequest("/rest/v1/categories?select=id,name&is_active=eq.true&order=name.asc", { token }),
-        supabaseRequest("/rest/v1/rpc/chowk_workspace_locations", { method: "POST", token })
+        supabaseRequest("/rest/v1/rpc/chowk_workspace_locations", { method: "POST", token }),
+        supabaseRequest("/rest/v1/article_types?select=key,name,description,minimum_word_count,requires_reporting_checklist,requires_author_disclosure,editorial_only,is_active&order=name.asc", { token }),
+        supabaseRequest("/rest/v1/rpc/chowk_org_my_permissions", { method: "POST", token, body: {} }),
+        supabaseRequest("/rest/v1/newsroom_contributors?select=id,profile_id,display_name,slug,contributor_type,public_bio,institutional_affiliation,is_active&is_active=eq.true&order=display_name.asc", { token }),
+        supabaseRequest(`/rest/v1/newsroom_content_assignments?select=profile_id,contributor_id,article_type_key,column_name,beat,effective_from,effective_to,is_active&profile_id=eq.${identity.id}&is_active=eq.true&order=effective_from.desc`, { token })
       ]);
-      for (const result of [articles, categories, locations]) {
+      for (const result of [articles, categories, locations, articleTypes, permissions, contributors, assignments]) {
         if (!result.response.ok) {
           sendJson(response, result.response.status, {
             error: apiErrorMessage(result.payload, "Newsroom workspace data could not be loaded.")
@@ -5966,14 +6567,48 @@ async function workspaceRoute(request, response, requestUrl, session) {
       sendJson(response, 200, { success: true, data: {
         articles: await signArticlesMedia(articles.payload || [], token),
         categories: categories.payload || [],
-        locations: locations.payload || []
+        locations: locations.payload || [],
+        articleTypes: (articleTypes.payload || []).filter((type) => {
+          if (!type.is_active) return false;
+          const permissionKeys = permissions.payload || [];
+          if (type.key === "editorial") {
+            return permissionKeys.includes("newsroom.editorial.submit")
+              || permissionKeys.includes("newsroom.articles.editorial");
+          }
+          if (type.key === "opinion") {
+            return permissionKeys.includes("newsroom.opinion.submit")
+              || permissionKeys.includes("newsroom.opinion.review")
+              || (assignments.payload || []).some((assignment) =>
+                assignment.article_type_key === "opinion" && assignment.is_active
+              );
+          }
+          return !type.editorial_only
+            || permissionKeys.includes("newsroom.articles.editorial");
+        }),
+        contributors: ((permissions.payload || []).some((permission) =>
+          ["newsroom.opinion.review", "newsroom.opinion.publish", "newsroom.contributors.manage"].includes(permission)
+        )
+          ? contributors.payload || []
+          : (contributors.payload || []).filter((contributor) =>
+            contributor.profile_id === identity.id
+            || (assignments.payload || []).some((assignment) =>
+              assignment.contributor_id === contributor.id
+            )
+          )),
+        contentAssignments: assignments.payload || [],
+        canManageMedia: (permissions.payload || []).includes("newsroom.media.manage")
       } });
       return;
     }
 
     if (request.method === "POST" && requestUrl.pathname === "/api/workspace/articles") {
       const body = await readJsonBody(request);
-      const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_create_article", {
+      const headlineError = validateHeadline(body.title);
+      if (headlineError) {
+        sendJson(response, 400, { error: headlineError });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_create_opinion_story", {
         method: "POST",
         token,
         body: {
@@ -5985,7 +6620,24 @@ async function workspaceRoute(request, response, requestUrl, session) {
           article_image_url: body.image_url || null,
           article_video_url: body.video_url || null,
           article_audio_url: body.audio_url || null,
-          article_reporting_location_id: body.reporting_location_id ? Number(body.reporting_location_id) : null
+          article_reporting_location_id: body.reporting_location_id ? Number(body.reporting_location_id) : null,
+          article_content_type: body.content_type || "news",
+          article_news_priority: body.news_priority || "routine",
+          article_reporting_sources: body.reporting_sources || "",
+          article_reporting_evidence: body.reporting_evidence || "",
+          article_contact_status: body.contact_status || null,
+          article_contact_notes: body.contact_notes || "",
+          article_author_disclosure: body.author_disclosure || "",
+          article_breaking_review_note: body.breaking_review_note || "",
+          article_thumbnail_url: body.thumbnail_url || null,
+          article_thumbnail_alt_text: body.thumbnail_alt_text || "",
+          article_thumbnail_credit_line: body.thumbnail_credit_line || "",
+          article_thumbnail_license_name: body.thumbnail_license_name || "",
+          article_opinion_contributor_id: body.opinion_contributor_id ? Number(body.opinion_contributor_id) : null,
+          article_opinion_column_name: body.opinion_column_name || "",
+          article_conflict_disclosure: body.conflict_of_interest_disclosure || "",
+          article_fact_sources: body.fact_sources || "",
+          article_ai_use_disclosure: body.ai_use_disclosure || ""
         }
       });
       sendJson(response, result.response.status, result.response.ok
@@ -6009,7 +6661,7 @@ async function workspaceRoute(request, response, requestUrl, session) {
       }
       const [events, revisions] = await Promise.all([
         supabaseRequest(`/rest/v1/article_workflow_events?select=id,actor_name,actor_role,action,from_status,to_status,note,created_at&article_id=eq.${articleId}&order=created_at.desc&limit=100`, { token }),
-        supabaseRequest(`/rest/v1/article_revisions?select=id,changed_by,title,slug,excerpt,content,category_id,image_url,video_url,audio_url,reporting_location_id,workflow_status,change_reason,created_at&article_id=eq.${articleId}&order=created_at.desc&limit=50`, { token })
+        supabaseRequest(`/rest/v1/article_revisions?select=id,changed_by,title,slug,excerpt,content,category_id,image_url,video_url,audio_url,thumbnail_url,thumbnail_asset_id,thumbnail_alt_text,thumbnail_credit_line,thumbnail_license_name,opinion_contributor_id,opinion_column_name,conflict_of_interest_disclosure,fact_sources,ai_use_disclosure,opinion_review_status,opinion_reviewer_id,reporting_location_id,workflow_status,change_reason,created_at&article_id=eq.${articleId}&order=created_at.desc&limit=50`, { token })
       ]);
       for (const result of [events, revisions]) {
         if (!result.response.ok) {
@@ -6029,7 +6681,34 @@ async function workspaceRoute(request, response, requestUrl, session) {
     const articleMatch = requestUrl.pathname.match(/^\/api\/workspace\/articles\/(\d+)$/);
     if (articleMatch && request.method === "PATCH") {
       const body = await readJsonBody(request);
-      const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_update_article", {
+      const headlineError = validateHeadline(body.title);
+      if (headlineError) {
+        sendJson(response, 400, { error: headlineError });
+        return;
+      }
+
+      const opinionReviewMatch = requestUrl.pathname.match(/^\/api\/workspace\/articles\/(\d+)\/opinion-review$/);
+      if (opinionReviewMatch && request.method === "POST") {
+        const body = await readJsonBody(request);
+        if (!["approve", "request_changes", "reject"].includes(body.decision)) {
+          sendJson(response, 400, { error: "Choose approve, request_changes, or reject." });
+          return;
+        }
+        const result = await supabaseRequest("/rest/v1/rpc/chowk_review_opinion_story", {
+          method: "POST",
+          token,
+          body: {
+            target_article: Number(opinionReviewMatch[1]),
+            decision: body.decision,
+            action_note: typeof body.note === "string" ? body.note : ""
+          }
+        });
+        sendJson(response, result.response.status, result.response.ok
+          ? { success: true }
+          : { error: apiErrorMessage(result.payload, "Opinion review could not be saved.") });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_update_opinion_story", {
         method: "POST",
         token,
         body: {
@@ -6043,12 +6722,54 @@ async function workspaceRoute(request, response, requestUrl, session) {
           article_video_url: body.video_url || null,
           article_audio_url: body.audio_url || null,
           article_reporting_location_id: body.reporting_location_id ? Number(body.reporting_location_id) : null,
-          change_reason: typeof body.change_reason === "string" ? body.change_reason : ""
+          change_reason: typeof body.change_reason === "string" ? body.change_reason : "",
+          article_content_type: body.content_type || "news",
+          article_news_priority: body.news_priority || "routine",
+          article_reporting_sources: body.reporting_sources || "",
+          article_reporting_evidence: body.reporting_evidence || "",
+          article_contact_status: body.contact_status || null,
+          article_contact_notes: body.contact_notes || "",
+          article_author_disclosure: body.author_disclosure || "",
+          article_breaking_review_note: body.breaking_review_note || "",
+          article_thumbnail_url: body.thumbnail_url || null,
+          article_thumbnail_alt_text: body.thumbnail_alt_text || "",
+          article_thumbnail_credit_line: body.thumbnail_credit_line || "",
+          article_thumbnail_license_name: body.thumbnail_license_name || "",
+          article_opinion_contributor_id: body.opinion_contributor_id ? Number(body.opinion_contributor_id) : null,
+          article_opinion_column_name: body.opinion_column_name || "",
+          article_conflict_disclosure: body.conflict_of_interest_disclosure || "",
+          article_fact_sources: body.fact_sources || "",
+          article_ai_use_disclosure: body.ai_use_disclosure || ""
         }
       });
       sendJson(response, result.response.status, result.response.ok
         ? { success: true }
         : { error: apiErrorMessage(result.payload, "Story could not be saved.") });
+      return;
+    }
+
+    const breakingReviewMatch = requestUrl.pathname.match(/^\/api\/workspace\/articles\/(\d+)\/breaking-review$/);
+    if (breakingReviewMatch && request.method === "POST") {
+      const body = await readJsonBody(request);
+      if (typeof body.approve !== "boolean"
+          || !Number.isInteger(body.validity_hours)
+          || typeof body.review_note !== "string") {
+        sendJson(response, 400, { error: "Provide a Breaking approval decision, validity hours, and review note." });
+        return;
+      }
+      const result = await supabaseRequest("/rest/v1/rpc/chowk_workspace_review_breaking_request", {
+        method: "POST",
+        token,
+        body: {
+          target_article: Number(breakingReviewMatch[1]),
+          approve_request: body.approve,
+          validity_hours: body.validity_hours,
+          review_note: body.review_note
+        }
+      });
+      sendJson(response, result.response.status, result.response.ok
+        ? { success: true }
+        : { error: apiErrorMessage(result.payload, "Breaking request could not be reviewed.") });
       return;
     }
 
@@ -6123,6 +6844,34 @@ const server = http.createServer((request, response) => {
 
   if (requestUrl.pathname === "/api/articles" && request.method === "GET") {
     void publicArticles(response, requestUrl);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/opinion-submissions" && request.method === "POST") {
+    void publicReaderOpinionSubmission(response, request);
+    return;
+  }
+
+  const publicContributorMatch = requestUrl.pathname.match(/^\/api\/contributors\/([a-z0-9]+(?:-[a-z0-9]+)*)$/);
+  if (publicContributorMatch && request.method === "GET") {
+    void publicContributor(response, publicContributorMatch[1]);
+    return;
+  }
+
+  const publicArticleMatch = requestUrl.pathname.match(/^\/api\/articles\/([^/]+)$/);
+  if (publicArticleMatch && request.method === "GET") {
+    let slug;
+    try {
+      slug = decodeURIComponent(publicArticleMatch[1]);
+    } catch {
+      sendJson(response, 400, { error: "Invalid article slug." });
+      return;
+    }
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      sendJson(response, 400, { error: "Invalid article slug." });
+      return;
+    }
+    void publicArticle(response, slug);
     return;
   }
 
@@ -6850,8 +7599,23 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (requestUrl.pathname === "/api/workspace/session" && request.method === "GET") {
+    void requireWorkspaceSession(request, response).then((session) => {
+      if (session) sendJson(response, 200, { identity: session.identity });
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/workspace/session" && request.method === "DELETE") {
+    void (async () => {
+      const userSession = await getSession(request, response, userCookie);
+      await handleLogout(request, response, userSession ? userCookie : adminCookie);
+    })();
+    return;
+  }
+
   if (requestUrl.pathname.startsWith("/api/workspace/")) {
-    void requireUser(request, response, userCookie).then((session) => {
+    void requireWorkspaceSession(request, response).then((session) => {
       if (session) void workspaceRoute(request, response, requestUrl, session);
     });
     return;
@@ -7269,18 +8033,16 @@ const server = http.createServer((request, response) => {
     return;
   }
   if (pathname === "/workspace") {
-    void getSession(request, response, userCookie).then(async (session) => {
+    void (async () => {
+      const userSession = await getSession(request, response, userCookie);
+      return userSession || await getSession(request, response, adminCookie);
+    })().then(async (session) => {
       if (!session) {
         response.writeHead(302, { Location: "/auth?mode=login&next=%2Fworkspace", "Cache-Control": "no-store" });
         response.end();
         return;
       }
-      if (["admin", "super_admin"].includes(session.identity.role)) {
-        response.writeHead(302, { Location: "/admin/dashboard", "Cache-Control": "no-store" });
-        response.end();
-        return;
-      }
-      if (!["reporter", "moderator", "editor", "publisher"].includes(session.identity.role)) {
+      if (!["reporter", "moderator", "editor", "publisher", "admin", "super_admin"].includes(session.identity.role)) {
         response.writeHead(302, { Location: "/reporter", "Cache-Control": "no-store" });
         response.end();
         return;
@@ -7315,6 +8077,14 @@ const server = http.createServer((request, response) => {
     serveStatic(response, "/staff-onboarding.html");
     return;
   }
+  if (/^\/article\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pathname)) {
+    serveStatic(response, "/article.html");
+    return;
+  }
+  if (/^\/contributor\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pathname)) {
+    serveStatic(response, "/contributor.html");
+    return;
+  }
   const staticPath = {
     "/auth": "/auth.html",
     "/reporter": "/reporter.html",
@@ -7326,6 +8096,7 @@ const server = http.createServer((request, response) => {
     "/legal/terms-of-use": "/legal.html",
     "/legal/privacy-policy": "/legal.html",
     "/legal/corrections-takedown-grievance": "/legal.html"
+    ,"/opinion-submit": "/opinion-submit.html"
   }[pathname] || pathname;
   serveStatic(response, staticPath);
 });

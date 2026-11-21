@@ -1,5 +1,5 @@
 const content = document.querySelector("#admin-content");
-const navItems = [...document.querySelectorAll(".admin-nav-item")];
+const navItems = [...document.querySelectorAll(".admin-nav-item[data-section]")];
 const agreementPreviewUrls = new Set();
 const sectionLabels = Object.fromEntries(
   navItems.map((item) => [
@@ -120,16 +120,78 @@ window.addEventListener("beforeunload", () => {
 const modules = {
   articles: {
     path: "admin/articles",
-    description: "Create, publish, edit, and remove articles stored in Supabase.",
+    description: "Create, publish, edit, and remove newsroom stories.",
     createPath: "admin/articles",
     formFields: [
       { name: "title", label: "Headline", type: "text" },
-      { name: "slug", label: "URL slug", type: "text" },
+      { name: "slug", label: "URL slug", type: "text", minLength: 3, maxLength: 240, pattern: "[a-z0-9]+(?:-[a-z0-9]+)*" },
       { name: "excerpt", label: "Summary", type: "textarea", required: false },
-      { name: "content", label: "Article content", type: "textarea" },
-      { name: "category_id", label: "Category ID (optional)", type: "number", required: false },
+      { name: "content", label: "Story content", type: "textarea" },
+      { name: "content_type", label: "Content type", type: "select", options: [], required: true },
+      { name: "news_priority", label: "Priority", type: "select", options: ["routine", "breaking"], required: false },
+      { name: "category_id", label: "Primary topic category", type: "select", options: [], required: false },
+      { name: "breaking_review_note", label: "Reason for requesting Breaking review (minimum 10 characters)", type: "textarea", required: false, maxLength: 1000 },
+      { name: "reporting_sources", label: "Reporting sources (private)", type: "textarea", required: false, maxLength: 5000 },
+      { name: "reporting_evidence", label: "Evidence notes (private)", type: "textarea", required: false, maxLength: 5000 },
+      { name: "contact_status", label: "Response / contact status", type: "select", options: ["", "contacted", "no_response", "unable_to_reach", "not_applicable"], required: false },
+      { name: "contact_notes", label: "Response notes (private)", type: "textarea", required: false, maxLength: 2000 },
+      { name: "author_disclosure", label: "Author / institutional disclosure", type: "textarea", required: false, maxLength: 2000 },
       { name: "image_url", label: "Image URL (optional)", type: "url", required: false },
+      { name: "thumbnail_url", label: "Asset Library thumbnail path (optional)", type: "text", required: false, maxLength: 2000 },
+      { name: "thumbnail_alt_text", label: "Thumbnail alternative text", type: "text", required: false, maxLength: 500 },
+      { name: "thumbnail_credit_line", label: "Thumbnail credit / source", type: "text", required: false, maxLength: 200 },
+      { name: "thumbnail_license_name", label: "Thumbnail license", type: "text", required: false, maxLength: 160 },
     ]
+  },
+  "article-types": {
+    path: "admin/article-types",
+    description: "Configure newsroom post types and their submission requirements, including a required minimum story word count. Set the word limit for each type before reporters can submit stories using it. Types used by existing stories cannot be permanently deleted; deactivate them instead.",
+    createPath: "admin/article-types",
+    formFields: [
+      { name: "key", label: "Type key (lowercase, unique)", type: "text", pattern: "[a-z][a-z0-9_-]{1,39}", maxLength: 40 },
+      { name: "name", label: "Display name", type: "text", maxLength: 80 },
+      { name: "description", label: "Description", type: "textarea", required: false, maxLength: 500 },
+      { name: "minimum_word_count", label: "Minimum story words", type: "number", min: 1, max: 100000, step: 1 },
+      { name: "requires_reporting_checklist", label: "Require sources, evidence, and response status", type: "checkbox" },
+      { name: "requires_author_disclosure", label: "Require author / institutional disclosure", type: "checkbox" },
+      { name: "editorial_only", label: "Only users with editorial permission can use this type", type: "checkbox" },
+      { name: "is_active", label: "Active for new stories", type: "checkbox" }
+    ]
+  },
+  contributors: {
+    path: "admin/contributors",
+    description: "Manage staff, guest, and reader contributor profiles and public bylines.",
+    createPath: "admin/contributors",
+    formFields: [
+      { name: "profile_id", label: "Linked staff profile UUID (optional)", type: "text", required: false, maxLength: 36 },
+      { name: "display_name", label: "Public display name", type: "text", maxLength: 160 },
+      { name: "slug", label: "Public profile slug", type: "text", minLength: 3, maxLength: 240, pattern: "[a-z0-9]+(?:-[a-z0-9]+)*" },
+      { name: "contributor_type", label: "Contributor type", type: "select", options: ["staff", "guest", "reader"], required: true },
+      { name: "public_bio", label: "Public biography", type: "textarea", required: false, maxLength: 2000 },
+      { name: "institutional_affiliation", label: "Institutional affiliation", type: "text", required: false, maxLength: 300 },
+      { name: "photo_url", label: "Public profile photo URL", type: "url", required: false, maxLength: 2000 },
+      { name: "contact_email", label: "Private contact email", type: "email", required: false, maxLength: 254 },
+      { name: "is_active", label: "Active contributor", type: "checkbox" }
+    ]
+  },
+  "content-assignments": {
+    path: "admin/content-assignments",
+    description: "Assign selected staff to restricted content types and optional named columns or beats.",
+    createPath: "admin/content-assignments",
+    formFields: [
+      { name: "profile_id", label: "Staff profile UUID", type: "text", maxLength: 36 },
+      { name: "contributor_id", label: "Contributor record ID (optional)", type: "number", required: false, min: 1 },
+      { name: "article_type_key", label: "Content type key", type: "text", minLength: 2, maxLength: 40, pattern: "[a-z][a-z0-9_-]*" },
+      { name: "column_name", label: "Named column (optional)", type: "text", required: false, maxLength: 160 },
+      { name: "beat", label: "Beat or subject area (optional)", type: "text", required: false, maxLength: 160 },
+      { name: "effective_from", label: "Effective from", type: "datetime-local", required: true },
+      { name: "effective_to", label: "Effective until (optional)", type: "datetime-local", required: false },
+      { name: "is_active", label: "Assignment active", type: "checkbox" }
+    ]
+  },
+  "opinion-submissions": {
+    path: "admin/opinion-submissions",
+    description: "Review reader pitches and accepted texts. A submission remains private until staff creates a story."
   },
   accounts: {
     path: "admin/users",
@@ -212,7 +274,7 @@ const modules = {
   },
   reports: {
     path: "admin/reports",
-    description: "Review open reports submitted against published articles."
+    description: "Review open reports submitted against published stories."
   },
   comments: {
     path: "admin/comments",
@@ -994,7 +1056,7 @@ function renderOverview() {
   const data = overviewData || {};
   const cards = [
     ["Users", data.total_users],
-    ["Articles", data.total_articles],
+    ["Stories", data.total_articles],
     ["Categories", data.total_categories],
     ["Published", data.published_articles]
   ];
@@ -1015,7 +1077,7 @@ function renderOverview() {
 
   const recentArticles = Array.isArray(data.recent_articles) ? data.recent_articles : [];
   const recentUsers = Array.isArray(data.recent_users) ? data.recent_users : [];
-  root.append(renderTablePanel("Latest articles", rowsFromData(recentArticles), "articles"));
+  root.append(renderTablePanel("Latest stories", rowsFromData(recentArticles), "articles"));
   root.append(renderTablePanel("Recently joined users", rowsFromData(recentUsers), "users"));
   content.replaceChildren(root);
 }
@@ -2289,13 +2351,13 @@ function renderAuditHistory(root, result) {
   appendAuditSelect(filters, "table", "Table", [
     ["", "All tables"],
     ["profiles", "Users and profiles"],
-    ["articles", "Articles"],
+    ["articles", "Stories"],
     ["categories", "Categories"],
     ["locations", "Locations"],
     ["reporter_designations", "Reporter designations"],
     ["reporter_applications", "Reporter applications"],
     ["live_streams", "Live streams"],
-    ["article_reports", "Article reports"],
+    ["article_reports", "Story reports"],
     ["comments", "Comments"],
     ["media_catalog", "Media catalog"],
     ["states", "States"],
@@ -5332,10 +5394,147 @@ function recordId(row) {
     : "";
 }
 
+async function openOpinionConversionDialog(row, refresh) {
+  let options;
+  try {
+    options = unwrapData(await apiRequest("admin/opinion-options")) || {};
+  } catch (error) {
+    showAdminMessage("Opinion conversion unavailable", error.message);
+    return;
+  }
+  openFormDialog(
+    "Convert reader opinion",
+    "Create a newsroom draft while retaining the reader-submission moderation record.",
+    (form) => {
+      addField(form, "Opinion headline", "title", "text", row.headline || "", { minLength: 8, maxLength: 240 });
+      addField(form, "URL slug", "slug", "text",
+        String(row.headline || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        { minLength: 3, maxLength: 240 });
+      const slugInput = form.elements.slug;
+      form.elements.title.addEventListener("input", () => {
+        if (!slugInput.dataset.touched) {
+          slugInput.value = form.elements.title.value.toLowerCase().normalize("NFKD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        }
+      });
+      slugInput.addEventListener("input", () => { slugInput.dataset.touched = "true"; });
+      const categoryLabel = makeElement("label", "admin-form-field");
+      categoryLabel.append(makeElement("span", "", "Primary topic category"));
+      const category = document.createElement("select");
+      category.name = "category_id";
+      category.append(new Option("Choose topic category", ""));
+      (options.categories || []).forEach((item) =>
+        category.append(new Option(item.name, String(item.id)))
+      );
+      categoryLabel.append(category);
+      form.append(categoryLabel);
+      const contributorLabel = makeElement("label", "admin-form-field");
+      contributorLabel.append(makeElement("span", "", "Contributor"));
+      const contributor = document.createElement("select");
+      contributor.name = "contributor_id";
+      contributor.append(new Option("Create a reader contributor automatically", ""));
+      (options.contributors || []).forEach((item) =>
+        contributor.append(new Option(`${item.display_name} · ${item.contributor_type}`, String(item.id)))
+      );
+      contributorLabel.append(contributor);
+      form.append(contributorLabel);
+      const excerptLabel = makeElement("label", "admin-form-field");
+      excerptLabel.append(makeElement("span", "", "Summary"));
+      const excerpt = document.createElement("textarea");
+      excerpt.name = "excerpt";
+      excerpt.maxLength = 1000;
+      excerpt.rows = 3;
+      excerpt.value = row.pitch?.slice(0, 240) || "";
+      excerptLabel.append(excerpt);
+      form.append(excerptLabel);
+      const contentLabel = makeElement("label", "admin-form-field");
+      contentLabel.append(makeElement("span", "", "Opinion text"));
+      const content = document.createElement("textarea");
+      content.name = "content";
+      content.minLength = 50;
+      content.rows = 12;
+      content.required = true;
+      content.value = row.full_text || row.pitch || "";
+      contentLabel.append(content);
+      form.append(contentLabel);
+    },
+    async (formData) => {
+      const payload = Object.fromEntries(formData.entries());
+      payload.category_id = payload.category_id ? Number(payload.category_id) : null;
+      payload.contributor_id = payload.contributor_id ? Number(payload.contributor_id) : null;
+      await apiRequest(`admin/opinion-submissions/${row.id}/convert`, "POST", payload);
+      await refresh();
+      showAdminMessage("Reader opinion converted", "A private opinion draft was created for editorial review.");
+    },
+    "Convert to story"
+  );
+}
+
 function addRowActions(container, row, section) {
   const id = recordId(row);
   if (!id) return;
   const refresh = () => loadSection(section === "workflow-directory" ? "directory" : section);
+
+  if (section === "contributors") {
+    rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
+    rowButton(container, row.is_active ? "Deactivate" : "Activate", () =>
+      void runAction(
+        () => apiRequest(`admin/contributors/${id}`, "PATCH", { is_active: !row.is_active }),
+        refresh
+      )
+    );
+    return;
+  }
+
+  if (section === "content-assignments") {
+    rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
+    rowButton(container, row.is_active ? "End assignment" : "Activate", () =>
+      void runAction(
+        () => apiRequest(`admin/content-assignments/${id}`, "PATCH", {
+          is_active: !row.is_active,
+          effective_to: row.is_active ? new Date().toISOString() : null
+        }),
+        refresh
+      )
+    );
+    return;
+  }
+
+  if (section === "opinion-submissions") {
+    rowButton(container, "Mark needs information", () =>
+      void runAction(
+        () => apiRequest(`admin/opinion-submissions/${id}`, "PATCH", {
+          status: "needs_information",
+          review_note: "Editorial review requested more information from the contributor."
+        }),
+        refresh
+      )
+    );
+    rowButton(container, "Accept pitch", () =>
+      void runAction(
+        () => apiRequest(`admin/opinion-submissions/${id}`, "PATCH", {
+          status: "accepted",
+          review_note: "Pitch accepted for editorial development."
+        }),
+        refresh
+      )
+    );
+    rowButton(container, "Convert to story", () => {
+      void openOpinionConversionDialog(row, refresh);
+    });
+    rowButton(container, "Reject", () =>
+      void runAction(
+        () => apiRequest(`admin/opinion-submissions/${id}`, "PATCH", {
+          status: "rejected",
+          review_note: "Submission rejected after editorial review."
+        }),
+        refresh
+      )
+    , "admin-row-button danger");
+    return;
+  }
 
   if (section === "users" || section === "accounts") {
     if (row.role === "super_admin") {
@@ -5385,7 +5584,7 @@ function addRowActions(container, row, section) {
           : row.email || id;
         void confirmAdminAction(
           "Permanently delete user account?",
-          `Permanently delete ${displayName}'s Supabase login and Chowk profile? HR and reporter account records, private application files, staff photos, and custom organization records owned by this account will be removed. Shared articles and comments remain without the account link where supported; audit/security history is retained. The single super-admin account and your own account cannot be deleted. This cannot be undone.`
+          `Permanently delete ${displayName}'s Supabase login and Chowk profile? HR and reporter account records, private application files, staff photos, and custom organization records owned by this account will be removed. Shared stories and comments remain without the account link where supported; audit/security history is retained. The single super-admin account and your own account cannot be deleted. This cannot be undone.`
         ).then((confirmed) => {
           if (!confirmed) return;
           void runAction(() => apiRequest(`admin/users/${id}`, "DELETE"), refresh);
@@ -5435,10 +5634,24 @@ function addRowActions(container, row, section) {
         }), refresh);
       });
     }
+    if (row.news_priority === "breaking" && row.breaking_review_status === "requested") {
+      rowButton(container, "Review Breaking request", () => {
+        const approve = window.confirm("Approve this Breaking label for the next 6 hours?\nChoose Cancel to reject it with a reason.");
+        const reviewNote = approve
+          ? window.prompt("Reason for approving this Breaking request")
+          : window.prompt("Reason for rejecting this Breaking request");
+        if (!reviewNote || reviewNote.trim().length < 2) return;
+        void runAction(() => apiRequest(`admin/articles/${id}/breaking-review`, "POST", {
+          approve,
+          validity_hours: 6,
+          review_note: reviewNote || ""
+        }), refresh);
+      });
+    }
     rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
     rowButton(container, "Delete", () => {
       void confirmAdminAction(
-        "Delete article?",
+        "Delete story?",
         `Delete "${row.title || id}"? This cannot be undone.`
       ).then((confirmed) => {
         if (!confirmed) return;
@@ -5455,6 +5668,21 @@ function addRowActions(container, row, section) {
       void confirmAdminAction(
         `Delete ${singular(sectionLabels[section]).toLowerCase()}?`,
         "This action cannot be undone."
+      ).then((confirmed) => {
+        if (!confirmed) return;
+        void runAction(() => apiRequest(route, "DELETE"), refresh);
+      });
+    }, "admin-row-button danger");
+    return;
+  }
+
+  if (section === "article-types") {
+    const route = `admin/article-types/${id}`;
+    rowButton(container, "Edit", () => openConfiguredRecordDialog(section, row));
+    rowButton(container, "Delete", () => {
+      void confirmAdminAction(
+        "Delete content type?",
+        "A type linked to existing stories cannot be deleted. Deactivate it in Edit instead."
       ).then((confirmed) => {
         if (!confirmed) return;
         void runAction(() => apiRequest(route, "DELETE"), refresh);
@@ -5580,16 +5808,120 @@ function addRowActions(container, row, section) {
   }
 }
 
-function openConfiguredRecordDialog(section, existing) {
+async function openConfiguredRecordDialog(section, existing) {
   const config = modules[section];
   if (!config?.formFields) return;
   const isEditing = Boolean(existing);
+  let articleTypeOptions = [];
+  let categoryOptions = [];
+  let opinionOptions = null;
+  if (["contributors", "content-assignments"].includes(section)) {
+    try {
+      opinionOptions = unwrapData(await apiRequest("admin/opinion-options")) || {};
+    } catch (error) {
+      showAdminMessage("Opinion options unavailable", error.message);
+      return;
+    }
+  }
+  if (section === "articles") {
+    try {
+      const [typeResult, categoryResult] = await Promise.all([
+        apiRequest("admin/article-types"),
+        apiRequest("admin/categories")
+      ]);
+      articleTypeOptions = (unwrapData(typeResult) || [])
+        .filter((type) => type.is_active || type.key === existing?.content_type);
+      if (existing?.content_type
+          && !articleTypeOptions.some((type) => type.key === existing.content_type)) {
+        articleTypeOptions.push({ key: existing.content_type, name: existing.content_type });
+      }
+      categoryOptions = (unwrapData(categoryResult) || [])
+        .filter((category) => category.is_active || String(category.id) === String(existing?.category_id));
+    } catch (error) {
+      showAdminMessage("Content types unavailable", error.message);
+      return;
+    }
+  }
   openFormDialog(
     `${isEditing ? "Edit" : "Add"} ${singular(sectionLabels[section])}`,
     config.description,
     (form) => {
       config.formFields.forEach((field) => {
         const value = existing?.[field.name];
+        if (section === "contributors" && field.name === "profile_id") {
+          const label = makeElement("label", "admin-form-field");
+          label.append(makeElement("span", "", "Linked staff member"));
+          const select = document.createElement("select");
+          select.name = field.name;
+          select.append(new Option("No linked staff account", ""));
+          (opinionOptions?.staff || []).forEach((staff) => {
+            const option = new Option(
+              `${staff.full_name || "Unnamed staff"}${staff.email ? ` · ${staff.email}` : ""} · ${staff.role}`,
+              staff.id
+            );
+            option.selected = String(staff.id) === String(value);
+            select.append(option);
+          });
+          select.required = false;
+          label.append(select);
+          form.append(label);
+          return;
+        }
+        if (section === "content-assignments" && field.name === "profile_id") {
+          const label = makeElement("label", "admin-form-field");
+          label.append(makeElement("span", "", "Staff member"));
+          const select = document.createElement("select");
+          select.name = field.name;
+          select.required = true;
+          select.append(new Option("Choose staff member", ""));
+          (opinionOptions?.staff || []).forEach((staff) => {
+            const option = new Option(
+              `${staff.full_name || "Unnamed staff"}${staff.email ? ` · ${staff.email}` : ""}`,
+              staff.id
+            );
+            option.selected = String(staff.id) === String(value);
+            select.append(option);
+          });
+          label.append(select);
+          form.append(label);
+          return;
+        }
+        if (section === "content-assignments" && field.name === "contributor_id") {
+          const label = makeElement("label", "admin-form-field");
+          label.append(makeElement("span", "", "Contributor (optional)"));
+          const select = document.createElement("select");
+          select.name = field.name;
+          select.append(new Option("All assigned contributor types", ""));
+          (opinionOptions?.contributors || []).forEach((contributor) => {
+            const option = new Option(
+              `${contributor.display_name} · ${contributor.contributor_type}`,
+              String(contributor.id)
+            );
+            option.selected = String(contributor.id) === String(value);
+            select.append(option);
+          });
+          label.append(select);
+          form.append(label);
+          return;
+        }
+        if (section === "content-assignments" && field.name === "article_type_key") {
+          const label = makeElement("label", "admin-form-field");
+          label.append(makeElement("span", "", "Restricted content type"));
+          const select = document.createElement("select");
+          select.name = field.name;
+          select.required = true;
+          ["opinion", "editorial"].forEach((key) => {
+            const option = new Option(key === "opinion" ? "Opinion" : "Editorial", key);
+            option.selected = key === value;
+            select.append(option);
+          });
+          if (value && !["opinion", "editorial"].includes(value)) {
+            select.append(new Option(value, value, true, true));
+          }
+          label.append(select);
+          form.append(label);
+          return;
+        }
         if (section === "locations" && field.name === "state_code") {
           const locationTypeSelect = form.elements.location_type;
           const label = makeElement("label", "admin-form-field");
@@ -5689,7 +6021,7 @@ function openConfiguredRecordDialog(section, existing) {
           const input = document.createElement("input");
           input.type = "checkbox";
           input.name = field.name;
-          input.checked = value === undefined ? true : Boolean(value);
+          input.checked = value === undefined ? field.name === "is_active" : Boolean(value);
           label.append(input, makeElement("span", "", field.label));
           form.append(label);
           return;
@@ -5708,8 +6040,15 @@ function openConfiguredRecordDialog(section, existing) {
         if (field.minLength) input.minLength = field.minLength;
         if (field.pattern) input.pattern = field.pattern;
         if (field.maxLength) input.maxLength = field.maxLength;
+        if (field.min !== undefined) input.min = field.min;
+        if (field.max !== undefined) input.max = field.max;
+        if (field.step !== undefined) input.step = field.step;
         if (field.type === "select") {
-          const options = section === "locations"
+          const options = section === "articles" && field.name === "content_type"
+            ? articleTypeOptions.map((type) => type.key)
+            : section === "articles" && field.name === "category_id"
+              ? categoryOptions.map((category) => String(category.id))
+            : section === "locations"
             && field.name === "location_type"
             && existing?.location_type === "state"
             ? ["state"]
@@ -5719,11 +6058,27 @@ function openConfiguredRecordDialog(section, existing) {
             ? [...field.options, "city"]
             : field.options;
           options.forEach((optionValue, index) => {
-            const option = makeElement("option", "", optionValue);
+            const optionLabel = section === "articles" && field.name === "content_type"
+              ? articleTypeOptions.find((type) => type.key === optionValue)?.name || optionValue
+              : section === "articles" && field.name === "category_id"
+                ? categoryOptions.find((category) => String(category.id) === optionValue)?.name || optionValue
+                : section === "articles" && field.name === "category_id" && !optionValue
+                  ? "Choose a topic category"
+              : section === "articles" && field.name === "contact_status" && !optionValue
+                ? "Choose status"
+                : optionValue;
+            const option = makeElement("option", "", optionLabel);
             option.value = optionValue;
-            option.selected = value === optionValue || (value === undefined && index === 0);
+            option.selected = (field.name === "category_id" ? String(value ?? "") : value) === optionValue
+              || (value === undefined && field.name === "content_type" && optionValue === "news")
+              || (value === undefined && field.name !== "content_type" && field.name !== "category_id" && index === 0);
             input.append(option);
           });
+          if (section === "articles" && field.name === "category_id") {
+            const placeholder = new Option("Choose a topic category", "");
+            placeholder.selected = value === null || value === undefined;
+            input.prepend(placeholder);
+          }
         } else if (value !== null && value !== undefined) {
           input.value = field.type === "datetime-local"
             ? String(value).slice(0, 16)
@@ -5732,18 +6087,42 @@ function openConfiguredRecordDialog(section, existing) {
         label.append(input);
         form.append(label);
       });
+      if (section === "articles") {
+        const priority = form.elements.news_priority;
+        const requestNote = form.elements.breaking_review_note;
+        const updateBreakingRequestRequirement = () => {
+          const isBreaking = priority.value === "breaking";
+          const needsRequestReason = isBreaking && (
+            !existing
+            || existing.news_priority !== "breaking"
+            || ["none", "rejected"].includes(existing.breaking_review_status)
+          );
+          requestNote.closest("label").hidden = !isBreaking;
+          requestNote.required = needsRequestReason;
+          requestNote.minLength = needsRequestReason ? 10 : 0;
+        };
+        priority.addEventListener("change", updateBreakingRequestRequirement);
+        updateBreakingRequestRequirement();
+      }
     },
     async (formData) => {
       const payload = Object.fromEntries(formData.entries());
       if (section === "reporter-designations") {
         payload.is_active = form.elements.is_active.checked;
       }
+      if (section === "article-types") {
+        ["requires_reporting_checklist", "requires_author_disclosure", "editorial_only", "is_active"]
+          .forEach((field) => { payload[field] = formData.has(field); });
+      }
       if (section === "articles" && isEditing) {
-        const reason = window.prompt("Reason for this admin article edit (required for audit history)");
+        const reason = window.prompt("Reason for this admin story edit (required for audit history)");
         if (!reason || reason.trim().length < 2) {
           throw new Error("A reason is required to record this admin edit.");
         }
         payload.change_reason = reason.trim();
+      }
+      if (section === "articles" && payload.thumbnail_url && !payload.thumbnail_alt_text?.trim()) {
+        throw new Error("Add alternative text for the selected story thumbnail.");
       }
       config.formFields.forEach((field) => {
         if (field.type === "checkbox") payload[field.name] = formData.has(field.name);
@@ -5754,6 +6133,9 @@ function openConfiguredRecordDialog(section, existing) {
           payload[field.name] = new Date(payload[field.name]).toISOString();
         }
       });
+      if (section === "articles" && payload.category_id !== undefined) {
+        payload.category_id = payload.category_id ? Number(payload.category_id) : null;
+      }
       if (section === "locations") {
         payload.parent_id = payload.parent_id ? Number(payload.parent_id) : null;
         payload.state_code = payload.location_type === "state" && payload.state_code
@@ -5761,6 +6143,21 @@ function openConfiguredRecordDialog(section, existing) {
           : null;
         payload.rto_code = payload.location_type === "district" && payload.rto_code
           ? payload.rto_code.trim().toUpperCase()
+          : null;
+      }
+      if (section === "contributors") {
+        payload.profile_id = payload.profile_id?.trim() || null;
+        payload.is_active = formData.has("is_active");
+      }
+      if (section === "content-assignments") {
+        payload.profile_id = payload.profile_id?.trim() || null;
+        payload.contributor_id = payload.contributor_id ? Number(payload.contributor_id) : null;
+        payload.is_active = formData.has("is_active");
+        payload.effective_from = payload.effective_from
+          ? new Date(payload.effective_from).toISOString()
+          : new Date().toISOString();
+        payload.effective_to = payload.effective_to
+          ? new Date(payload.effective_to).toISOString()
           : null;
       }
       const path = isEditing ? `admin/${section}/${recordId(existing)}` : config.createPath;
@@ -6080,6 +6477,8 @@ async function openReporterReviewDialog(application, refresh) {
         const updateRequirements = () => {
           const approval = decision.value === "approve";
           const requestEnabled = decision.value === "needs_information";
+          categoryField.hidden = !approval;
+          categorySelect.required = approval;
           designationField.hidden = !approval;
           designationSelect.required = approval;
           form.elements.note.required = !approval;
@@ -6546,7 +6945,9 @@ document.querySelector("#admin-sign-out").addEventListener("click", async () => 
 });
 
 navItems.forEach((item) => {
-  item.addEventListener("click", () => void loadSection(item.dataset.section));
+  if (item.dataset.section) {
+    item.addEventListener("click", () => void loadSection(item.dataset.section));
+  }
 });
 
 async function loadSession() {
@@ -6574,6 +6975,10 @@ async function loadSession() {
     const sectionPermissions = {
       articles: ["newsroom.articles.read"],
       categories: ["newsroom.categories.manage"],
+      "article-types": ["newsroom.article_types.manage"],
+      contributors: ["newsroom.contributors.manage"],
+      "content-assignments": ["newsroom.contributors.manage"],
+      "opinion-submissions": ["newsroom.opinion.review"],
       media: ["newsroom.media.manage"],
       "live-streams": ["newsroom.media.manage"],
       comments: ["newsroom.comments.moderate"],

@@ -1587,6 +1587,93 @@ function isSameOrigin(request) {
   }
 }
 
+function indiaTodayParts() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  return Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+}
+
+function isAdultOnReporterApplicationDate(dateValue) {
+  if (typeof dateValue !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return false;
+  const parsed = new Date(`${dateValue}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dateValue) return false;
+
+  const today = indiaTodayParts();
+  const cutoffYear = Number(today.year) - 18;
+  const todayMonth = Number(today.month);
+  let cutoffDay = Number(today.day);
+  if (todayMonth === 2 && cutoffDay === 29
+      && !(cutoffYear % 4 === 0 && (cutoffYear % 100 !== 0 || cutoffYear % 400 === 0))) {
+    cutoffDay = 28;
+  }
+  const cutoff = `${cutoffYear}-${String(todayMonth).padStart(2, "0")}-${String(cutoffDay).padStart(2, "0")}`;
+  return dateValue <= cutoff;
+}
+
+function reporterApplicationDetailsError(details, partial = false) {
+  const hasField = (field) => Object.hasOwn(details, field);
+  const validWhenRequired = (field, validator) => {
+    if (partial && !hasField(field)) return true;
+    return validator(details[field]);
+  };
+  const personName = (value, minimum, maximum) => typeof value === "string"
+    && value.trim().length >= minimum
+    && value.trim().length <= maximum
+    && /^\p{L}[\p{L}\p{M}]*(?: +\p{L}[\p{L}\p{M}]*)*$/u.test(value.trim());
+
+  if (!validWhenRequired("mobile_number", (value) => typeof value === "string" && /^[0-9]{10}$/.test(value))) {
+    return "Enter a primary mobile number using exactly 10 digits.";
+  }
+  if (!validWhenRequired("date_of_birth", isAdultOnReporterApplicationDate)) {
+    return "Enter a valid date of birth. Applicants must be at least 18 years old.";
+  }
+  if (!validWhenRequired("emergency_contact_name", (value) => personName(value, 2, 120))) {
+    return "Enter the emergency contact’s name using letters and spaces only.";
+  }
+  if (!validWhenRequired("emergency_contact_relationship", (value) => personName(value, 2, 80))) {
+    return "Enter your relationship to the emergency contact.";
+  }
+  if (!validWhenRequired("emergency_contact_phone", (value) =>
+    typeof value === "string" && /^[0-9]{10}$/.test(value))) {
+    return "Enter the emergency contact’s mobile number using exactly 10 digits.";
+  }
+  if (!validWhenRequired("father_first_name", (value) => personName(value, 1, 80))
+      || !validWhenRequired("father_last_name", (value) => personName(value, 1, 80))) {
+    return "Enter your father’s first and last name using letters and spaces only.";
+  }
+  for (const [field, label, maximum] of [
+    ["permanent_address_line1", "building and street", 160],
+    ["permanent_address_line2", "area or locality", 160],
+    ["permanent_address_city", "city, town or village", 100],
+    ["permanent_address_district", "district", 100],
+    ["permanent_address_state", "state", 100]
+  ]) {
+    if (!validWhenRequired(field, (value) => typeof value === "string"
+        && value.trim().length >= 2 && value.trim().length <= maximum)) {
+      return `Enter your permanent address ${label}.`;
+    }
+  }
+  if (!validWhenRequired("permanent_address_postal_code", (value) =>
+    typeof value === "string" && /^[0-9]{6}$/.test(value))) {
+    return "Enter a valid 6-digit PIN code.";
+  }
+  if (!validWhenRequired("experience_years", (value) => {
+    if ((typeof value !== "string" && typeof value !== "number") || String(value).trim() === "") return false;
+    const years = Number(value);
+    return Number.isFinite(years) && years >= 0 && years <= 80;
+  })) {
+    return "Enter your relevant experience in years (0 to 80).";
+  }
+  if (!validWhenRequired("bank_account_holder", (value) => personName(value, 2, 120))) {
+    return "Enter the bank account holder’s name using letters and spaces only.";
+  }
+  return "";
+}
+
 function matchesMediaSignature(mimeType, bytes) {
   const startsWith = (...values) => values.every((value, index) => bytes[index] === value);
   if (mimeType === "image/jpeg") return startsWith(0xff, 0xd8, 0xff);
@@ -6417,6 +6504,14 @@ const server = http.createServer((request, response) => {
                 || !Array.isArray(body.application_documents)
                 || body.details_confirmed !== true) {
               sendJson(response, 400, { error: "Complete the required application details and document confirmations." });
+              return;
+            }
+            const detailsError = reporterApplicationDetailsError(
+              body.private_details,
+              currentApplication?.status === "needs_information"
+            );
+            if (detailsError) {
+              sendJson(response, 400, { error: detailsError });
               return;
             }
             const allowedDocumentTypes = new Set([

@@ -404,6 +404,36 @@
   line-height: 1.4;
 }
 
+.reporter-section-title {
+  padding-top: 10px;
+  border-top: 1px solid #edf0f4;
+}
+
+.reporter-field-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.reporter-required-marker {
+  color: #c4423b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reporter-optional-marker {
+  color: #8993a4;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.reporter-required-hint {
+  margin: 0;
+  color: #8993a4;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .reporter-field.full-width {
   grid-column: 1 / -1;
 }
@@ -553,6 +583,10 @@
   margin: 1px 0 0;
   accent-color: var(--orange);
   cursor: pointer;
+}
+
+.reporter-check > .inline-field-feedback {
+  flex-basis: 100%;
 }
 
 .reporter-button {

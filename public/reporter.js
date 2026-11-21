@@ -5,6 +5,14 @@ const applicationPanel = document.querySelector("#reporter-application");
 const statusPanel = document.querySelector("#reporter-status");
 const credentialsPanel = document.querySelector("#reporter-credentials");
 const messagePanel = document.querySelector("#reporter-message");
+const personNameFields = new Map([
+  ["emergency_contact_name", { minimum: 2, maximum: 120 }],
+  ["emergency_contact_relationship", { minimum: 2, maximum: 80 }],
+  ["father_first_name", { minimum: 1, maximum: 80 }],
+  ["father_last_name", { minimum: 1, maximum: 80 }],
+  ["bank_account_holder", { minimum: 2, maximum: 120 }]
+]);
+const tenDigitPhoneFields = new Set(["mobile_number", "emergency_contact_phone"]);
 
 let identity = null;
 let options = null;
@@ -38,6 +46,154 @@ function showMessage(text, success = false) {
   messagePanel.hidden = false;
 }
 
+function fieldHeading(text, required = true) {
+  const heading = element("span", "reporter-field-label");
+  heading.dataset.label = text;
+  heading.append(document.createTextNode(text));
+  if (required) {
+    const marker = element("span", "reporter-required-marker", "*");
+    marker.setAttribute("aria-hidden", "true");
+    heading.append(" ", marker);
+  } else {
+    heading.append(" ", element("span", "reporter-optional-marker", "Optional"));
+  }
+  return heading;
+}
+
+function updateFieldHeading(control, text = control.closest(".reporter-field")?.querySelector(".reporter-field-label")?.dataset.label || "") {
+  const heading = control.closest(".reporter-field")?.querySelector(".reporter-field-label");
+  if (heading) heading.replaceWith(fieldHeading(text, control.required));
+}
+
+function reporterTodayParts() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  return Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]));
+}
+
+function reporterTodayValue() {
+  const today = reporterTodayParts();
+  return `${today.year}-${String(today.month).padStart(2, "0")}-${String(today.day).padStart(2, "0")}`;
+}
+
+function reporterControlError(control) {
+  const rawValue = control.value;
+  const value = rawValue.trim();
+  const personNameRules = personNameFields.get(control.name);
+  if (personNameRules && rawValue) {
+    if (!/^\p{L}[\p{L}\p{M}]*(?: +\p{L}[\p{L}\p{M}]*)*$/u.test(value)) {
+      return "Use letters and spaces only.";
+    }
+    if (value.length < personNameRules.minimum || value.length > personNameRules.maximum) {
+      return `Enter between ${personNameRules.minimum} and ${personNameRules.maximum} characters.`;
+    }
+  }
+  if (tenDigitPhoneFields.has(control.name) && rawValue && !/^[0-9]{10}$/.test(rawValue)) {
+    return "Enter exactly 10 digits.";
+  }
+  if (control.name === "date_of_birth" && value) {
+    const [year, month, day] = value.split("-").map(Number);
+    const today = reporterTodayParts();
+    let age = today.year - year;
+    if (today.month < month || (today.month === month && today.day < day)) age -= 1;
+    if (age < 18) return "Applicants must be at least 18 years old.";
+  }
+  if (control.name === "experience_years" && value) {
+    const years = Number(value);
+    if (!Number.isFinite(years) || years < 0 || years > 80) {
+      return "Enter experience between 0 and 80 years.";
+    }
+  }
+  if (control.name === "bank_account_number_confirm" && value) {
+    const accountNumber = control.form?.elements.bank_account_number;
+    if (accountNumber
+        && accountNumber.value.replace(/\s/g, "") !== rawValue.replace(/\s/g, "")) {
+      return "Bank account numbers do not match.";
+    }
+  }
+  return [
+    "emergency_contact_name", "father_first_name", "father_last_name",
+    "bank_account_holder", "mobile_number", "emergency_contact_phone",
+    "emergency_contact_relationship", "date_of_birth", "experience_years",
+    "bank_account_number_confirm"
+  ].includes(control.name) ? "" : null;
+}
+
+function clearInlineFieldError(control) {
+  const describedBy = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+  const feedbackIds = describedBy.filter((id) => id.startsWith("inline-field-feedback-"));
+  control.removeAttribute("aria-invalid");
+  control.setAttribute("aria-describedby", describedBy.filter((id) => !feedbackIds.includes(id)).join(" "));
+  if (!control.getAttribute("aria-describedby")) control.removeAttribute("aria-describedby");
+  feedbackIds.forEach((id) => document.getElementById(id)?.remove());
+}
+
+function renderInlineFieldError(control, message) {
+  const container = control.closest(".reporter-field") || control.closest(".reporter-check") || control.parentElement;
+  if (!container) return;
+  const describedBy = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+  let feedback = container.querySelector(":scope > .inline-field-feedback");
+  if (!message) {
+    clearInlineFieldError(control);
+    return;
+  }
+  if (!feedback) {
+    feedback = element("span", "inline-field-feedback");
+    feedback.id = `inline-field-feedback-${crypto.randomUUID()}`;
+    feedback.setAttribute("role", "alert");
+    container.append(feedback);
+  }
+  feedback.textContent = message;
+  control.setAttribute("aria-invalid", "true");
+  control.setAttribute("aria-describedby", [...new Set([...describedBy, feedback.id])].join(" "));
+}
+
+function attachReporterLiveValidation(form) {
+  form.querySelectorAll("input, select, textarea").forEach((control) => {
+    let touched = false;
+    if (personNameFields.has(control.name) || tenDigitPhoneFields.has(control.name)) {
+      control.addEventListener("input", (event) => {
+        if (event.isComposing) return;
+        const cursor = control.selectionStart;
+        const prefix = cursor === null ? "" : control.value.slice(0, cursor);
+        const normalize = personNameFields.has(control.name)
+          ? (value) => value.replace(/[^\p{L}\p{M} ]/gu, "")
+          : (value) => value.replace(/\D/g, "").slice(0, 10);
+        const cleaned = normalize(control.value);
+        if (cleaned !== control.value) {
+          control.value = cleaned;
+          if (cursor !== null) {
+            const nextCursor = normalize(prefix).length;
+            control.setSelectionRange(nextCursor, nextCursor);
+          }
+        }
+      });
+    }
+    const update = () => {
+      const customError = reporterControlError(control);
+      if (customError !== null) control.setCustomValidity(customError);
+      const valid = control.checkValidity();
+      if (valid) clearInlineFieldError(control);
+      else if (touched) renderInlineFieldError(control, control.validationMessage || "Check this field.");
+    };
+    ["input", "change"].forEach((eventName) => {
+      control.addEventListener(eventName, () => {
+        touched = true;
+        update();
+      });
+    });
+    control.addEventListener("blur", () => {
+      touched = true;
+      update();
+    });
+    update();
+  });
+}
+
 async function request(path, method = "GET", body) {
   const response = await fetch(path, {
     method,
@@ -58,12 +214,12 @@ async function request(path, method = "GET", body) {
 
 function addField(form, labelText, name, type, value = "", fieldOptions = true) {
   const label = element("label", "reporter-field");
-  label.append(element("span", "", labelText));
   const input = document.createElement("input");
   input.type = type;
   input.name = name;
   const config = typeof fieldOptions === "boolean" ? { required: fieldOptions } : fieldOptions;
   input.required = config.required !== false;
+  label.append(fieldHeading(labelText, input.required));
   ["minLength", "maxLength", "min", "max", "step", "pattern", "autocomplete", "inputMode"].forEach((key) => {
     if (config[key] !== undefined) input[key] = config[key];
   });
@@ -75,10 +231,10 @@ function addField(form, labelText, name, type, value = "", fieldOptions = true) 
 
 function addSelect(form, name, labelText, values, selected, placeholder) {
   const label = element("label", "reporter-field");
-  label.append(element("span", "", labelText));
   const select = document.createElement("select");
   select.name = name;
   select.required = true;
+  label.append(fieldHeading(labelText, true));
   const first = element("option", "", placeholder);
   first.value = "";
   first.disabled = true;
@@ -97,10 +253,10 @@ function addSelect(form, name, labelText, values, selected, placeholder) {
 
 function addSelectField(form, labelText, name, values, selected = "", placeholder = "Choose an option", required = true) {
   const label = element("label", "reporter-field");
-  label.append(element("span", "", labelText));
   const select = document.createElement("select");
   select.name = name;
   select.required = required;
+  label.append(fieldHeading(labelText, required));
   const first = element("option", "", placeholder);
   first.value = "";
   first.disabled = true;
@@ -119,7 +275,7 @@ function addSelectField(form, labelText, name, values, selected = "", placeholde
 
 function addTextareaField(form, labelText, name, { required = false, minLength = 0, maxLength = 1000, rows = 3, value = "", placeholder = "" } = {}) {
   const label = element("label", "reporter-field reporter-field-full");
-  label.append(element("span", "", labelText));
+  label.append(fieldHeading(labelText, required));
   const textarea = document.createElement("textarea");
   textarea.name = name;
   textarea.required = required;
@@ -140,7 +296,7 @@ function createReporterPhotoCropper(container) {
   input.required = true;
   input.setAttribute("aria-label", "Upload passport-size reporter photo");
   const label = element("label", "reporter-field reporter-field-full");
-  label.append(element("span", "", "Passport-size photo (JPG or PNG)"));
+  label.append(fieldHeading("Profile photo (JPG or PNG)", true));
   label.append(input);
   container.append(label);
 
@@ -326,13 +482,13 @@ function renderApplicationForm(action, existing = null) {
   applicationPanel.hidden = false;
   applicationPanel.append(
     element("h2", "", resubmitting
-      ? "Update and resubmit your application"
-      : "Apply to become a Chowk reporter"),
+      ? "Update your application"
+      : "Reporter application"),
     element("p", "reporter-card-copy", resubmitting
       ? existing?.status === "rejected"
-        ? "Review and correct your details, then resubmit the application for admin review. Your account remains a subscriber."
-        : "Update the requested details and resubmit for admin review. Your subscriber account remains available while the application is reviewed."
-      : "Complete your reporter application below. An admin reviews the application—not your account—and your account remains a subscriber until reporter onboarding is complete.")
+        ? "Review the feedback, correct your details and resubmit for review. Your account remains available while the application is assessed."
+        : "Update the requested details and resubmit for review. Your account remains available while the application is assessed."
+      : "Share your details, preferred reporting area and required documents. Your application is reviewed separately; your account remains a subscriber until onboarding is complete.")
   );
 
   const form = element("form", "reporter-form-grid");
@@ -378,7 +534,10 @@ function renderApplicationForm(action, existing = null) {
       ? control
       : control.closest(".reporter-field") || control.closest("label") || control.parentElement;
     if (!field) return;
-    if ("required" in control && request.kind !== "other") control.required = true;
+    if ("required" in control && request.kind !== "other") {
+      control.required = true;
+      updateFieldHeading(control);
+    }
     field.classList.add("reporter-review-requested");
     const instruction = element(
       "small",
@@ -389,59 +548,63 @@ function renderApplicationForm(action, existing = null) {
   };
 
   {
-    const profileStep = addStep("Your profile", "We use your verified account name, email and phone. Add the details needed to contact you safely.");
+    const profileStep = addStep("Personal details", "Confirm your account details and provide the information needed to contact you safely.");
     const accountSummary = element("div", "reporter-account-summary reporter-field-full");
     accountSummary.append(
-      dataItem("Account name", identity.full_name || identity.name || "—"),
-      dataItem("Account email", identity.email || "—"),
-      dataItem("Account phone", identity.phone || "Update your account profile if this is missing.")
+      dataItem("Name", identity.full_name || identity.name || "—"),
+      dataItem("Email address", identity.email || "—"),
+      dataItem("Registered phone", identity.phone || "Update your account profile if this is missing.")
     );
     profileStep.append(accountSummary);
-    const mobileNumber = addField(profileStep, "Mobile number", "mobile_number", "tel", existing?.private_details?.mobile_number || identity.phone, { minLength: 7, maxLength: 16, autocomplete: "tel" });
-    mobileNumber.pattern = "\\+?[0-9]{7,15}";
+    profileStep.append(element("p", "reporter-required-hint reporter-field-full", "Fields marked * are required."));
+    const accountMobile = String(identity.phone || "").replace(/\D/g, "").slice(-10);
+    const savedMobile = String(existing?.private_details?.mobile_number || "").replace(/\D/g, "").slice(-10);
+    const mobileNumber = addField(profileStep, "Primary mobile number", "mobile_number", "tel", savedMobile || accountMobile, { minLength: 10, maxLength: 10, pattern: "[0-9]{10}", inputMode: "numeric", autocomplete: "tel" });
+    mobileNumber.closest(".reporter-field").append(element("small", "reporter-field-help", "Enter 10 digits without spaces or a country code."));
     highlightRequestedField("mobile_number", mobileNumber);
-    const dateOfBirth = addField(profileStep, "Date of birth", "date_of_birth", "date", existing?.private_details?.date_of_birth || "", { max: new Date().toISOString().slice(0, 10), autocomplete: "bday" });
+    const dateOfBirth = addField(profileStep, "Date of birth", "date_of_birth", "date", existing?.private_details?.date_of_birth || "", { max: reporterTodayValue(), autocomplete: "bday" });
+    dateOfBirth.closest(".reporter-field").append(element("small", "reporter-field-help", "Applicants must be at least 18 years old."));
     highlightRequestedField("date_of_birth", dateOfBirth);
     const emergencyName = addField(profileStep, "Emergency contact full name", "emergency_contact_name", "text", existing?.private_details?.emergency_contact_name, { minLength: 2, maxLength: 120, autocomplete: "name" });
     highlightRequestedField("emergency_contact_name", emergencyName);
     const emergencyRelationship = addField(profileStep, "Relationship to you", "emergency_contact_relationship", "text", existing?.private_details?.emergency_contact_relationship, { minLength: 2, maxLength: 80 });
     highlightRequestedField("emergency_contact_relationship", emergencyRelationship);
-    const emergencyPhone = addField(profileStep, "Emergency contact phone", "emergency_contact_phone", "tel", existing?.private_details?.emergency_contact_phone, { minLength: 7, maxLength: 30, autocomplete: "tel" });
-    emergencyPhone.pattern = "[+0-9]{7,15}";
+    const savedEmergencyPhone = String(existing?.private_details?.emergency_contact_phone || "").replace(/\D/g, "").slice(-10);
+    const emergencyPhone = addField(profileStep, "Emergency contact mobile number", "emergency_contact_phone", "tel", savedEmergencyPhone, { minLength: 10, maxLength: 10, pattern: "[0-9]{10}", inputMode: "numeric", autocomplete: "tel" });
+    emergencyPhone.closest(".reporter-field").append(element("small", "reporter-field-help", "Enter 10 digits without spaces or a country code."));
     highlightRequestedField("emergency_contact_phone", emergencyPhone);
     const fatherFirstName = addField(profileStep, "Father's first name", "father_first_name", "text", existing?.private_details?.father_first_name, { minLength: 1, maxLength: 80, autocomplete: "given-name" });
     highlightRequestedField("father_first_name", fatherFirstName);
     const fatherLastName = addField(profileStep, "Father's last name", "father_last_name", "text", existing?.private_details?.father_last_name, { minLength: 1, maxLength: 80, autocomplete: "family-name" });
     highlightRequestedField("father_last_name", fatherLastName);
-    const permanentAddressLine1 = addField(profileStep, "Permanent address · House / building and street", "permanent_address_line1", "text", existing?.private_details?.permanent_address_line1, { minLength: 2, maxLength: 160, autocomplete: "address-line1" });
+    profileStep.append(element("h3", "reporter-section-title reporter-field-full", "Permanent address"));
+    const permanentAddressLine1 = addField(profileStep, "Building and street", "permanent_address_line1", "text", existing?.private_details?.permanent_address_line1, { minLength: 2, maxLength: 160, autocomplete: "address-line1" });
     highlightRequestedField("permanent_address_line1", permanentAddressLine1);
-    const permanentAddressLine2 = addField(profileStep, "Permanent address · Area / locality (optional)", "permanent_address_line2", "text", existing?.private_details?.permanent_address_line2, { required: false, maxLength: 160, autocomplete: "address-line2" });
+    const permanentAddressLine2 = addField(profileStep, "Area or locality", "permanent_address_line2", "text", existing?.private_details?.permanent_address_line2, { minLength: 2, maxLength: 160, autocomplete: "address-line2" });
     highlightRequestedField("permanent_address_line2", permanentAddressLine2);
-    const permanentAddressCity = addField(profileStep, "Permanent address · City / town / village", "permanent_address_city", "text", existing?.private_details?.permanent_address_city, { minLength: 2, maxLength: 100, autocomplete: "address-level2" });
+    const permanentAddressCity = addField(profileStep, "City, town or village", "permanent_address_city", "text", existing?.private_details?.permanent_address_city, { minLength: 2, maxLength: 100, autocomplete: "address-level2" });
     highlightRequestedField("permanent_address_city", permanentAddressCity);
-    const permanentAddressDistrict = addField(profileStep, "Permanent address · District", "permanent_address_district", "text", existing?.private_details?.permanent_address_district, { minLength: 2, maxLength: 100 });
+    const permanentAddressDistrict = addField(profileStep, "District", "permanent_address_district", "text", existing?.private_details?.permanent_address_district, { minLength: 2, maxLength: 100 });
     highlightRequestedField("permanent_address_district", permanentAddressDistrict);
-    const permanentAddressState = addField(profileStep, "Permanent address · State", "permanent_address_state", "text", existing?.private_details?.permanent_address_state, { minLength: 2, maxLength: 100, autocomplete: "address-level1" });
+    const permanentAddressState = addField(profileStep, "State", "permanent_address_state", "text", existing?.private_details?.permanent_address_state, { minLength: 2, maxLength: 100, autocomplete: "address-level1" });
     highlightRequestedField("permanent_address_state", permanentAddressState);
-    const permanentAddressPostalCode = addField(profileStep, "Permanent address · PIN / ZIP code", "permanent_address_postal_code", "text", existing?.private_details?.permanent_address_postal_code, { minLength: 6, maxLength: 6, autocomplete: "postal-code" });
+    const permanentAddressPostalCode = addField(profileStep, "PIN code", "permanent_address_postal_code", "text", existing?.private_details?.permanent_address_postal_code, { minLength: 6, maxLength: 6, autocomplete: "postal-code" });
     permanentAddressPostalCode.inputMode = "numeric";
     permanentAddressPostalCode.pattern = "[0-9]{6}";
     highlightRequestedField("permanent_address_postal_code", permanentAddressPostalCode);
-    addSelectField(profileStep, "Blood group (optional to disclose)", "blood_group", [
+    addSelectField(profileStep, "Blood group", "blood_group", [
       ...["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((value) => ({ id: value, label: value })),
       { id: "Prefer not to say", label: "Prefer not to say" }
     ], existing?.private_details?.blood_group || "Prefer not to say", "Choose blood group");
     highlightRequestedField("blood_group", profileStep.querySelector('[name="blood_group"]'));
-    const preferredLanguage = addField(profileStep, "Preferred reporting language (optional)", "preferred_language", "text", existing?.private_details?.preferred_language, { required: false, maxLength: 80 });
+    const preferredLanguage = addField(profileStep, "Preferred language", "preferred_language", "text", existing?.private_details?.preferred_language, { required: false, maxLength: 80 });
     highlightRequestedField("preferred_language", preferredLanguage);
-    const experienceYears = addField(profileStep, "Reporting experience in years (optional)", "experience_years", "number", existing?.private_details?.experience_years, { required: false, min: 0, max: 80, step: 0.5 });
+    const experienceYears = addField(profileStep, "Relevant experience (years)", "experience_years", "number", existing?.private_details?.experience_years, { min: 0, max: 80, step: 0.5 });
     highlightRequestedField("experience_years", experienceYears);
-    addTextareaField(profileStep, "Journalism / community reporting experience (optional)", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
+    addTextareaField(profileStep, "Journalism or community reporting experience", "experience_summary", { maxLength: 2000, value: existing?.private_details?.experience_summary });
     highlightRequestedField("experience_summary", profileStep.querySelector('[name="experience_summary"]'));
-    const availability = addField(profileStep, "Availability (optional)", "availability", "text", existing?.private_details?.availability, { required: false, maxLength: 120 });
-    highlightRequestedField("availability", availability);
 
-    const areaStep = addStep("Reporting location", "Choose an active State and District. The District RTO code is used when your reporter ID is issued after approval.");
+    const areaStep = addStep("Reporting area", "Choose an active State, District and coverage area. Your selection is reviewed before any assignment is made.");
     const states = (options.states || []).map((state) => ({ id: state.id, label: `${state.state_name} (${state.state_code})` }));
     const stateSelect = addSelectField(areaStep, "State", "state_id", states, existing?.state?.id || "", "Choose a state");
     highlightRequestedField("state_id", stateSelect);
@@ -489,6 +652,7 @@ function renderApplicationForm(action, existing = null) {
       });
       row.append(input, remove);
       preferredLocationFields.append(row);
+      if (form.isConnected) attachReporterLiveValidation(row);
       validatePreferredLocations();
     };
     (existing?.private_details?.coverage_localities || "")
@@ -505,7 +669,7 @@ function renderApplicationForm(action, existing = null) {
     const preferredLocationHint = element(
       "p",
       "reporter-card-copy reporter-field-full",
-      "The selected Coverage Area is your requested administrative reporting location. Preferred locations are optional requests, not active assignments."
+      "The coverage area is your requested location. Preferred locations are optional preferences, not approved assignments."
     );
     areaStep.append(preferredLocationHint);
     const reporterTypes = (options.types || []).map((type) => ({
@@ -514,17 +678,17 @@ function renderApplicationForm(action, existing = null) {
     }));
     const reporterTypeSelect = addSelectField(
       areaStep,
-      "Reporter category",
+      "Reporting category",
       "reporter_type_id",
       reporterTypes,
       existing?.reporter_type?.id || (reporterTypes.length === 1 ? reporterTypes[0].id : ""),
-      "Choose a reporter category"
+      "Choose a reporting category"
     );
     highlightRequestedField("reporter_type_id", reporterTypeSelect);
     areaStep.append(element(
       "small",
       "reporter-field-help reporter-field-full",
-      "This category is used for reporter ID classification. An admin assigns your position/designation during application review."
+      "This classification appears on your ID. The review team assigns your newsroom role and designation."
     ));
     const refreshCoverageAreas = (rtoOfficeId = "", selectedCoverageAreaId = "") => {
       const selectedDistrict = (options.rtos || []).find((district) =>
@@ -574,15 +738,16 @@ function renderApplicationForm(action, existing = null) {
     stateSelect.addEventListener("change", () => refreshDistricts());
     if (stateSelect.value) refreshDistricts(existingRto?.id || "");
 
-    const documentsStep = addStep("Identity & bank documents", "Upload clear, readable documents. These are stored privately and are visible only to authorized admins reviewing your application.");
+    const documentsStep = addStep("Documents & bank details", "Upload clear, readable documents. They are stored privately and are visible only to authorized reviewers.");
     const privacyNote = element("p", "reporter-sensitive-data-note reporter-field-full",
       "Aadhaar: upload both sides of a MASKED Aadhaar only. Hide the first 8 digits so only the last 4 are visible on both sides. Never upload an unmasked Aadhaar copy. Avoid uploading unrelated personal documents.");
     documentsStep.append(privacyNote);
     const photoGroup = element("div", "reporter-field-full");
     cropper = createReporterPhotoCropper(photoGroup);
-    cropper.    input.required = resubmitting
+    cropper.input.required = resubmitting
       ? requestedFields.get("profile_photo")?.kind === "reupload"
       : !applicationFiles.has("profile_photo");
+    updateFieldHeading(cropper.input, "Profile photo (JPG or PNG)");
     if (applicationFiles.has("profile_photo")
         && requestedFields.get("profile_photo")?.kind !== "reupload") {
       photoGroup.append(element("small", "reporter-field-help", "Your current profile photo is already on file; no new upload is needed."));
@@ -591,13 +756,13 @@ function renderApplicationForm(action, existing = null) {
     documentsStep.append(photoGroup);
     const addDocumentInput = (type, labelText, helpText) => {
       const label = element("label", "reporter-field reporter-field-full");
-      label.append(element("span", "", labelText));
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf";
       input.required = resubmitting
         ? requestedFields.get(type)?.kind === "reupload"
         : !applicationFiles.has(type);
+      label.append(fieldHeading(labelText, input.required));
       input.addEventListener("change", () => {
         const file = input.files?.[0];
         if (!file) return;
@@ -627,7 +792,7 @@ function renderApplicationForm(action, existing = null) {
     maskedAadhaarConfirmed.name = "masked_aadhaar_confirmed";
     maskedAadhaarConfirmed.required = true;
     maskedAadhaarConfirmed.checked = existing?.private_details?.masked_aadhaar_confirmed === true;
-    maskedAadhaarCheck.append(maskedAadhaarConfirmed, element("span", "", "I confirm both Aadhaar sides are masked, with only the last four digits visible."));
+    maskedAadhaarCheck.append(maskedAadhaarConfirmed, fieldHeading("I confirm both Aadhaar sides are masked, with only the last four digits visible.", true));
     documentsStep.append(maskedAadhaarCheck);
     const privacyConsent = document.createElement("label");
     privacyConsent.className = "reporter-check reporter-field-full";
@@ -638,7 +803,7 @@ function renderApplicationForm(action, existing = null) {
     privacyConsentInput.checked = existing?.private_details?.document_processing_consent === true;
     privacyConsent.append(
       privacyConsentInput,
-      element("span", "", "I consent to Chowk securely storing and using these documents only for application review, identity verification and reporter onboarding. I understand that authorized admins can review them.")
+      fieldHeading("I consent to Chowk securely storing and using these documents only for application review, identity verification and newsroom onboarding. Authorized reviewers may access them.", true)
     );
     documentsStep.append(privacyConsent);
     addDocumentInput("pan_card", "PAN card", "JPG, PNG or PDF · maximum 5 MB");
@@ -673,7 +838,7 @@ function renderApplicationForm(action, existing = null) {
     confirmed.type = "checkbox";
     confirmed.name = "details_confirmed";
     confirmed.required = true;
-    declaration.append(confirmed, element("span", "", "I confirm that my application details and submitted documents are accurate and belong to me."));
+    declaration.append(confirmed, fieldHeading("I confirm that my application details and submitted documents are accurate and belong to me.", true));
     reviewStep.append(declaration);
 
     if (resubmitting && existing?.review_note) {
@@ -770,6 +935,7 @@ function renderApplicationForm(action, existing = null) {
   form.append(summary);
   form.append(navigation);
   applicationPanel.append(form);
+  attachReporterLiveValidation(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -808,7 +974,7 @@ function renderApplicationForm(action, existing = null) {
             element("span", "", `State: ${selectedState?.state_name || "—"}`),
             element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
             element("span", "", `Coverage Area: ${selectedCoverageArea?.name || "—"}`),
-            element("span", "", `Reporter category: ${selectedReporterType?.name || "—"}`),
+            element("span", "", `Reporting category: ${selectedReporterType?.name || "—"}`),
             element("span", "", `Preferred locations: ${preferredLocationValues.join(", ") || "None provided"}`),
             element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
             element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
@@ -888,7 +1054,6 @@ function renderApplicationForm(action, existing = null) {
             .join("\n"),
           experience_years: String(values.get("experience_years") || ""),
           experience_summary: String(values.get("experience_summary") || "").trim(),
-          availability: String(values.get("availability") || "").trim(),
           bank_account_holder: String(values.get("bank_account_holder") || "").trim(),
           bank_name: String(values.get("bank_name") || "").trim(),
           bank_account_number: String(values.get("bank_account_number") || "").replace(/\s/g, ""),
@@ -993,24 +1158,24 @@ function renderTargetedReporterResubmission(application) {
   const fieldLabels = {
     state_id: "State",
     rto_office_id: "District",
-    mobile_number: "Mobile number",
+    mobile_number: "Primary mobile number",
     date_of_birth: "Date of birth",
-    emergency_contact_name: "Emergency contact name",
-    emergency_contact_relationship: "Emergency relationship",
-    emergency_contact_phone: "Emergency contact phone",
+    emergency_contact_name: "Emergency contact full name",
+    emergency_contact_relationship: "Relationship to you",
+    emergency_contact_phone: "Emergency contact mobile number",
     father_first_name: "Father's first name",
     father_last_name: "Father's last name",
-    permanent_address_line1: "Permanent address · House / building and street",
-    permanent_address_line2: "Permanent address · Area / locality",
-    permanent_address_city: "Permanent address · City / town / village",
-    permanent_address_district: "Permanent address · District",
-    permanent_address_state: "Permanent address · State",
-    permanent_address_postal_code: "Permanent address · PIN / ZIP code",
+    permanent_address_line1: "Building and street",
+    permanent_address_line2: "Area or locality",
+    permanent_address_city: "City, town or village",
+    permanent_address_district: "District",
+    permanent_address_state: "State",
+    permanent_address_postal_code: "PIN code",
     blood_group: "Blood group",
     preferred_language: "Preferred language",
     coverage_area_id: "Coverage Area",
     coverage_localities: "Preferred locations",
-    experience_years: "Reporting experience",
+    experience_years: "Relevant experience (years)",
     experience_summary: "Experience summary",
     availability: "Availability",
     bank_account_holder: "Bank account holder",
@@ -1024,11 +1189,16 @@ function renderTargetedReporterResubmission(application) {
     bank_proof: "Bank proof"
   };
   const controls = new Map();
+  const optionalFields = new Set([
+    "preferred_language", "experience_summary",
+    "availability", "coverage_localities"
+  ]);
   const addControl = (field, control, label) => {
     control.name = field;
-    control.required = true;
-    label.append(control);
     const request = requestedFields.get(field);
+    control.required = request ? request.kind !== "other" : !optionalFields.has(field);
+    label.replaceChildren(fieldHeading(fieldLabels[field] || field.replaceAll("_", " "), control.required));
+    label.append(control);
     if (request?.instruction) {
       label.append(element("small", "reporter-review-request-inline", request.instruction));
     }
@@ -1040,16 +1210,15 @@ function renderTargetedReporterResubmission(application) {
   let districtSelect = null;
   let coverageAreaSelect = null;
   if (isLocationUpdate) {
-    const locationField = (field, labelText) => {
+    const locationField = (field) => {
       const label = element("label", "reporter-field");
-      label.append(element("span", "", labelText));
       const select = document.createElement("select");
       addControl(field, select, label);
       return select;
     };
-    stateSelect = locationField("state_id", "State");
-    districtSelect = locationField("rto_office_id", "District");
-    coverageAreaSelect = locationField("coverage_area_id", "Coverage Area");
+    stateSelect = locationField("state_id");
+    districtSelect = locationField("rto_office_id");
+    coverageAreaSelect = locationField("coverage_area_id");
     const statePlaceholder = element("option", "", "Choose a State");
     statePlaceholder.value = "";
     statePlaceholder.disabled = true;
@@ -1140,10 +1309,10 @@ function renderTargetedReporterResubmission(application) {
   fieldNames.forEach((field) => {
     if (["state_id", "rto_office_id", "coverage_area_id"].includes(field) && isLocationUpdate) return;
     const label = element("div", "reporter-field reporter-field-full");
-    label.append(element("span", "", fieldLabels[field] || field.replaceAll("_", " ")));
     if (["profile_photo", "aadhaar_front", "aadhaar_back", "pan_card", "bank_proof"].includes(field)) {
       const reviewRequest = requestedFields.get(field);
       if (reviewRequest?.kind !== "reupload") {
+        label.append(fieldHeading(fieldLabels[field] || field.replaceAll("_", " "), false));
         label.append(element("small", "reporter-review-request-inline", reviewRequest?.instruction || "Follow the admin's instruction; no replacement upload was requested."));
         form.append(label);
         return;
@@ -1165,6 +1334,7 @@ function renderTargetedReporterResubmission(application) {
       label.append(fileContainer);
       const request = requestedFields.get(field);
       if (request?.instruction) label.append(element("small", "reporter-review-request-inline", request.instruction));
+      label.prepend(fieldHeading(fieldLabels[field] || field.replaceAll("_", " "), true));
       form.append(label);
       return;
     }
@@ -1178,17 +1348,25 @@ function renderTargetedReporterResubmission(application) {
     const control = type === "textarea" ? document.createElement("textarea") : document.createElement("input");
     if (type !== "textarea") control.type = type;
     control.value = privateDetails[field] == null ? "" : String(privateDetails[field]);
-    if (field === "date_of_birth") control.max = new Date().toISOString().slice(0, 10);
+    if (field === "date_of_birth") {
+      control.max = reporterTodayValue();
+    }
     if (field === "experience_years") {
       control.min = "0";
       control.max = "80";
       control.step = "0.5";
     }
     if ([
-      "preferred_language", "coverage_localities", "experience_years",
-      "experience_summary", "availability", "permanent_address_line2"
+      "preferred_language", "coverage_localities",
+      "experience_summary", "availability"
     ].includes(field)) {
       control.required = false;
+    }
+    if (["mobile_number", "emergency_contact_phone"].includes(field)) {
+      control.minLength = 10;
+      control.maxLength = 10;
+      control.inputMode = "numeric";
+      control.pattern = "[0-9]{10}";
     }
     if (field === "permanent_address_postal_code") {
       control.minLength = 6;
@@ -1202,7 +1380,7 @@ function renderTargetedReporterResubmission(application) {
     }
     if (["permanent_address_line1", "permanent_address_line2"].includes(field)) {
       control.maxLength = 160;
-      if (field === "permanent_address_line1") control.minLength = 2;
+      control.minLength = 2;
     }
     if (["permanent_address_city", "permanent_address_district", "permanent_address_state"].includes(field)) {
       control.minLength = 2;
@@ -1212,7 +1390,6 @@ function renderTargetedReporterResubmission(application) {
     if (field === "coverage_localities") control.maxLength = 1000;
     if (field === "experience_summary") control.maxLength = 2000;
     if (field === "availability") control.maxLength = 120;
-    if (field === "mobile_number") control.pattern = "\\+?[0-9]{7,15}";
     if (field === "emergency_contact_name") {
       control.minLength = 2;
       control.maxLength = 120;
@@ -1220,10 +1397,6 @@ function renderTargetedReporterResubmission(application) {
     if (field === "emergency_contact_relationship") {
       control.minLength = 2;
       control.maxLength = 80;
-    }
-    if (field === "emergency_contact_phone") {
-      control.pattern = "[+0-9() .-]{7,30}";
-      control.maxLength = 30;
     }
     if (field === "bank_account_holder") {
       control.minLength = 2;
@@ -1248,7 +1421,6 @@ function renderTargetedReporterResubmission(application) {
 
   if (requestedNames.has("blood_group")) {
     const label = element("label", "reporter-field");
-    label.append(element("span", "", fieldLabels.blood_group));
     const select = document.createElement("select");
     ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Prefer not to say"].forEach((value) => {
       const option = element("option", "", value);
@@ -1263,6 +1435,7 @@ function renderTargetedReporterResubmission(application) {
   submit.type = "submit";
   form.append(submit);
   applicationPanel.append(form);
+  attachReporterLiveValidation(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1467,24 +1640,24 @@ function renderStatus() {
       const fieldLabels = {
         state_id: "State",
         rto_office_id: "District",
-        mobile_number: "Mobile number",
+        mobile_number: "Primary mobile number",
         date_of_birth: "Date of birth",
         father_first_name: "Father's first name",
         father_last_name: "Father's last name",
-        permanent_address_line1: "Permanent address · House / building and street",
-        permanent_address_line2: "Permanent address · Area / locality",
-        permanent_address_city: "Permanent address · City / town / village",
-        permanent_address_district: "Permanent address · District",
-        permanent_address_state: "Permanent address · State",
-        permanent_address_postal_code: "Permanent address · PIN / ZIP code",
+        permanent_address_line1: "Building and street",
+        permanent_address_line2: "Area or locality",
+        permanent_address_city: "City, town or village",
+        permanent_address_district: "District",
+        permanent_address_state: "State",
+        permanent_address_postal_code: "PIN code",
         emergency_contact_name: "Emergency contact",
-        emergency_contact_relationship: "Emergency relationship",
-        emergency_contact_phone: "Emergency phone",
+        emergency_contact_relationship: "Relationship to you",
+        emergency_contact_phone: "Emergency contact mobile number",
         blood_group: "Blood group",
         coverage_area_id: "Coverage Area",
         coverage_localities: "Preferred locations",
         preferred_language: "Preferred language",
-        experience_years: "Reporting experience",
+        experience_years: "Relevant experience (years)",
         experience_summary: "Experience summary",
         availability: "Availability",
         bank_account_holder: "Bank account holder",

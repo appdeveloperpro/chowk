@@ -1,0 +1,155 @@
+name: Supabase migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/**"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Preview pending migrations, reconcile an existing schema, or apply pending migrations
+        required: true
+        type: choice
+        options:
+          - preview
+          - baseline
+          - apply
+        default: preview
+      baseline_through:
+        description: "For baseline only: latest migration already applied to the database (for example 0086)"
+        required: false
+        type: string
+      confirmation:
+        description: "Type APPLY or BASELINE followed by the version to confirm the selected operation"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-production-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Preview or apply database migrations
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_MIGRATION_HISTORY_READY: ${{ vars.SUPABASE_MIGRATION_HISTORY_READY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Check required configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Configure $name in the production GitHub environment."
+              exit 1
+            fi
+          done
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Show migration history
+        if: github.event_name == 'push' || inputs.operation != 'baseline'
+        run: supabase migration list --linked
+
+      - name: Preview pending migrations
+        if: github.event_name == 'push' || inputs.operation == 'preview' || inputs.operation == 'apply'
+        run: supabase db push --linked --dry-run
+
+      - name: Reconcile verified existing migration history
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'baseline'
+        shell: bash
+        env:
+          BASELINE_THROUGH: ${{ inputs.baseline_through }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$SUPABASE_MIGRATION_HISTORY_READY" == "true" ]]; then
+            echo "::error::Migration history is already marked ready. Do not baseline it again."
+            exit 1
+          fi
+
+          if [[ ! "$BASELINE_THROUGH" =~ ^[0-9]{4}$ ]]; then
+            echo "::error::baseline_through must be a four-digit migration version, such as 0086."
+            exit 1
+          fi
+
+          if [[ "$CONFIRMATION" != "BASELINE $BASELINE_THROUGH" ]]; then
+            echo "::error::Type 'BASELINE $BASELINE_THROUGH' in confirmation to proceed."
+            exit 1
+          fi
+
+          baseline_number=$((10#$BASELINE_THROUGH))
+          expected_number=1
+          versions=()
+
+          while IFS= read -r version; do
+            [[ "$version" =~ ^[0-9]{4}$ ]] || continue
+            version_number=$((10#$version))
+            (( version_number <= baseline_number )) || break
+
+            if (( version_number != expected_number )); then
+              echo "::error::Migration files are not contiguous before $BASELINE_THROUGH; refusing to baseline."
+              exit 1
+            fi
+
+            versions+=("$version")
+            expected_number=$((expected_number + 1))
+          done < <(
+            for file in supabase/migrations/*.sql; do
+              filename=${file##*/}
+              printf '%s\n' "${filename%%_*}"
+            done | sort
+          )
+
+          if (( expected_number != baseline_number + 1 )); then
+            echo "::error::Could not find every migration from 0001 through $BASELINE_THROUGH."
+            exit 1
+          fi
+
+          echo "Recording already-applied migrations through $BASELINE_THROUGH; no migration SQL will be executed."
+          supabase migration repair --linked --status applied --yes "${versions[@]}"
+          supabase migration list --linked
+
+      - name: Verify migration history before applying
+        if: github.event_name == 'push' || inputs.operation == 'apply'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$SUPABASE_MIGRATION_HISTORY_READY" != "true" ]]; then
+            echo "::error::Set SUPABASE_MIGRATION_HISTORY_READY=true in the production environment only after verifying or baselining remote migration history."
+            exit 1
+          fi
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$CONFIRMATION" != "APPLY" ]]; then
+            echo "::error::Type APPLY in confirmation to apply migrations."
+            exit 1
+          fi
+
+      - name: Apply pending migrations
+        if: github.event_name == 'push' || inputs.operation == 'apply'
+        run: supabase db push --linked --yes

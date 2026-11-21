@@ -40,8 +40,7 @@ jobs:
     environment: production
     timeout-minutes: 20
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
       SUPABASE_MIGRATION_HISTORY_READY: ${{ vars.SUPABASE_MIGRATION_HISTORY_READY }}
     steps:
@@ -57,23 +56,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF; do
+          for name in SUPABASE_DB_URL SUPABASE_PROJECT_REF; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Configure $name in the production GitHub environment."
               exit 1
             fi
           done
-
-      - name: Link Supabase project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          if [[ "$SUPABASE_DB_URL" != *"$SUPABASE_PROJECT_REF"* ]]; then
+            echo "::error::The database connection URL does not appear to target SUPABASE_PROJECT_REF."
+            exit 1
+          fi
+          if [[ "$SUPABASE_DB_URL" != *".pooler.supabase.com:5432/"* ]]; then
+            echo "::error::Use the shared Session pooler connection string on port 5432 for GitHub Actions."
+            exit 1
+          fi
 
       - name: Show migration history
         if: github.event_name == 'push' || inputs.operation != 'baseline'
-        run: supabase migration list --linked
+        run: supabase migration list --db-url "$SUPABASE_DB_URL"
 
       - name: Preview pending migrations
         if: github.event_name == 'push' || inputs.operation == 'preview' || inputs.operation == 'apply'
-        run: supabase db push --linked --dry-run
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
 
       - name: Reconcile verified existing migration history
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'baseline'
@@ -128,8 +132,8 @@ jobs:
           fi
 
           echo "Recording already-applied migrations through $BASELINE_THROUGH; no migration SQL will be executed."
-          supabase migration repair --linked --status applied --yes "${versions[@]}"
-          supabase migration list --linked
+          supabase migration repair --db-url "$SUPABASE_DB_URL" --status applied --yes "${versions[@]}"
+          supabase migration list --db-url "$SUPABASE_DB_URL"
 
       - name: Verify migration history before applying
         if: github.event_name == 'push' || inputs.operation == 'apply'
@@ -152,4 +156,4 @@ jobs:
 
       - name: Apply pending migrations
         if: github.event_name == 'push' || inputs.operation == 'apply'
-        run: supabase db push --linked --yes
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --yes

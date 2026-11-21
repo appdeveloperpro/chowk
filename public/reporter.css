@@ -415,6 +415,13 @@
   gap: 3px;
 }
 
+.reporter-category-note {
+  padding: 10px 12px;
+  border: 1px solid #e6e9ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
 .reporter-required-marker {
   color: #c4423b;
   font-size: 13px;

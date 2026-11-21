@@ -2160,13 +2160,31 @@ async function adminRoute(request, response, requestUrl, session) {
     }
 
     if (pathname === "/api/admin/reporter-review-options" && request.method === "GET") {
-      const designations = await supabaseRequest(
-        "/rest/v1/reporter_designations?select=id,name,designation_code,description,is_active&is_active=eq.true&order=name.asc&limit=500",
-        { token }
-      );
-      sendJson(response, designations.response.status, designations.response.ok
-        ? { success: true, data: { reporter_designations: designations.payload || [] } }
-        : { error: apiErrorMessage(designations.payload, "Reporter review options could not be loaded.") });
+      const [reporterTypes, designations] = await Promise.all([
+        supabaseRequest(
+          "/rest/v1/reporter_types?select=id,name,type_code,description,is_active&is_active=eq.true&order=name.asc&limit=500",
+          { token }
+        ),
+        supabaseRequest(
+          "/rest/v1/reporter_designations?select=id,name,designation_code,description,is_active&is_active=eq.true&order=name.asc&limit=500",
+          { token }
+        )
+      ]);
+      for (const result of [reporterTypes, designations]) {
+        if (!result.response.ok) {
+          sendJson(response, result.response.status, {
+            error: apiErrorMessage(result.payload, "Reporter review options could not be loaded.")
+          });
+          return;
+        }
+      }
+      sendJson(response, 200, {
+        success: true,
+        data: {
+          reporter_types: reporterTypes.payload || [],
+          reporter_designations: designations.payload || []
+        }
+      });
       return;
     }
 
@@ -4160,7 +4178,7 @@ async function adminRoute(request, response, requestUrl, session) {
       },
       "reporter-applications": {
         table: "reporter_applications",
-        select: "id,user_id,location_id,state_id,rto_office_id,reporter_designation_id,service_agreement_issue_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_designation:reporter_designations(id,name,designation_code)",
+        select: "id,user_id,location_id,state_id,rto_office_id,reporter_type_id,reporter_designation_id,service_agreement_issue_id,applicant_details_confirmed,status,review_note,review_requests,reviewed_by,reviewed_at,company_signer_name,company_signer_designation,company_signature_accepted,company_signed_at,company_signature_statement,created_at,user:profiles!reporter_applications_user_id_fkey(id,email,full_name,phone),state:states(state_name,state_code),rto:rto_offices(rto_code,city_name),reporter_type:reporter_types(id,name,type_code),reporter_designation:reporter_designations(id,name,designation_code)",
         order: "created_at.desc"
       },
       "live-streams": {
@@ -4712,9 +4730,15 @@ async function adminRoute(request, response, requestUrl, session) {
         return;
       }
       const designationId = decision === "approved" ? Number(body.designation_id) : null;
+      const reporterTypeId = decision === "approved" ? Number(body.reporter_type_id) : null;
       if (decision === "approved"
           && (!Number.isSafeInteger(designationId) || designationId < 1)) {
         sendJson(response, 400, { error: "Choose a reporter designation before approving the application." });
+        return;
+      }
+      if (decision === "approved"
+          && (!Number.isSafeInteger(reporterTypeId) || reporterTypeId < 1)) {
+        sendJson(response, 400, { error: "Assign a reporting category before approving the application." });
         return;
       }
       const result = await supabaseRequest("/rest/v1/rpc/chowk_admin_review_reporter_application_scoped", {
@@ -4728,7 +4752,8 @@ async function adminRoute(request, response, requestUrl, session) {
           signer_designation: reviewerDesignation,
           signature_accepted: body.signature_accepted === true,
           requested_fields: reviewRequests,
-          target_designation: designationId
+          target_designation: designationId,
+          target_type: reporterTypeId
         }
       });
       sendJson(response, result.response.status, result.response.ok
@@ -6573,9 +6598,7 @@ const server = http.createServer((request, response) => {
             }
 
             let applicationDocuments = body.application_documents;
-            let reporterTypeId = Number(body.reporter_type_id);
             if (rejectedReapplication) {
-              reporterTypeId = Number(currentApplication.reporter_type?.id || body.reporter_type_id);
               const existingDocuments = await supabaseRequest(
                 `/rest/v1/reporter_application_documents?select=document_type,storage_path,mime_type,sha256&application_id=eq.${encodeURIComponent(requestedApplicationId)}&user_id=eq.${encodeURIComponent(session.identity.id)}&order=document_type.asc`,
                 { token: session.token }
@@ -6596,8 +6619,8 @@ const server = http.createServer((request, response) => {
               applicationDocuments = [...documentsByType.values()];
             }
 
-            if (![stateId, rtoId, reporterTypeId].every((id) => Number.isSafeInteger(id) && id > 0)) {
-              sendJson(response, 400, { error: "Choose a valid State, District, and reporter category." });
+            if (![stateId, rtoId].every((id) => Number.isSafeInteger(id) && id > 0)) {
+              sendJson(response, 400, { error: "Choose a valid State and District." });
               return;
             }
             const submission = await supabaseRequest(
@@ -6608,7 +6631,7 @@ const server = http.createServer((request, response) => {
                 body: {
                   target_state: stateId,
                   target_rto: rtoId,
-                  target_type: reporterTypeId,
+                  target_type: null,
                   accepted_version: "",
                   accepted_sha256: "",
                   signer_name: "",

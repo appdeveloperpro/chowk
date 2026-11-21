@@ -672,23 +672,10 @@ function renderApplicationForm(action, existing = null) {
       "The coverage area is your requested location. Preferred locations are optional preferences, not approved assignments."
     );
     areaStep.append(preferredLocationHint);
-    const reporterTypes = (options.types || []).map((type) => ({
-      id: type.id,
-      label: type.description ? `${type.name} · ${type.description}` : type.name
-    }));
-    const reporterTypeSelect = addSelectField(
-      areaStep,
-      "Reporting category",
-      "reporter_type_id",
-      reporterTypes,
-      existing?.reporter_type?.id || (reporterTypes.length === 1 ? reporterTypes[0].id : ""),
-      "Choose a reporting category"
-    );
-    highlightRequestedField("reporter_type_id", reporterTypeSelect);
     areaStep.append(element(
-      "small",
-      "reporter-field-help reporter-field-full",
-      "This classification appears on your ID. The review team assigns your newsroom role and designation."
+      "p",
+      "reporter-card-copy reporter-category-note reporter-field-full",
+      "Reporting category is assigned by the review team after your application is reviewed."
     ));
     const refreshCoverageAreas = (rtoOfficeId = "", selectedCoverageAreaId = "") => {
       const selectedDistrict = (options.rtos || []).find((district) =>
@@ -947,9 +934,6 @@ function renderApplicationForm(action, existing = null) {
       const selectedCoverageArea = (options.coverage_areas || []).find((coverageArea) =>
         String(coverageArea.id) === String(values.get("coverage_area_id"))
       );
-      const selectedReporterType = (options.types || []).find((type) =>
-        String(type.id) === String(values.get("reporter_type_id"))
-      );
       const preferredLocationValues = values.getAll("preferred_location")
         .map((location) => String(location).trim())
         .filter(Boolean);
@@ -974,7 +958,7 @@ function renderApplicationForm(action, existing = null) {
             element("span", "", `State: ${selectedState?.state_name || "—"}`),
             element("span", "", `District and RTO code: ${selectedRto ? `${reporterDistrictLabel(selectedRto)} · RTO ${selectedRto.rto_code}` : "—"}`),
             element("span", "", `Coverage Area: ${selectedCoverageArea?.name || "—"}`),
-            element("span", "", `Reporting category: ${selectedReporterType?.name || "—"}`),
+            element("span", "", "Reporting category: Assigned by the review team."),
             element("span", "", `Preferred locations: ${preferredLocationValues.join(", ") || "None provided"}`),
             element("span", "", `Emergency contact: ${String(values.get("emergency_contact_name") || "")} · ${String(values.get("emergency_contact_phone") || "")}`),
             element("span", "", `Documents attached: ${new Set([...applicationFiles.keys(), ...(cropper.input.files?.length ? ["profile_photo"] : [])]).size} of 5`),
@@ -1027,7 +1011,6 @@ function renderApplicationForm(action, existing = null) {
         details_confirmed: values.get("details_confirmed") === "on",
         state_id: values.get("state_id"),
         rto_office_id: values.get("rto_office_id"),
-        reporter_type_id: values.get("reporter_type_id"),
         application_id: existing?.id || null,
         private_details: {
           emergency_contact_name: String(values.get("emergency_contact_name") || "").trim(),

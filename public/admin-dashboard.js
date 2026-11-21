@@ -1231,6 +1231,7 @@ function renderReporterAdminSection(section, root, data) {
         ? `${application.rto.city_name} (${application.rto.rto_code})`
         : application.rto?.city_name || application.rto?.rto_code || "—",
       area_coverage: application.coverage_area_name || "—",
+      reporting_category: application.reporter_type?.name || "Pending admin assignment",
       details_confirmed: application.applicant_details_confirmed ? "Confirmed" : "Not recorded"
     }));
     reporterPanel(root, "Reporter applications", rows, section);
@@ -5208,7 +5209,7 @@ function buildTable(rows, section) {
     : section === "users" || section === "accounts"
     ? ["full_name", "email", "phone", "role", "requested_role", "staff_status", "created_at"]
     : section === "reporter-applications"
-      ? ["applicant_name", "email", "state_name", "city", "area_coverage", "status", "details_confirmed"]
+      ? ["applicant_name", "email", "state_name", "city", "area_coverage", "reporting_category", "status"]
       : section === "reporter-credentials"
         ? ["name", "role", "type", "reference", "status", "scope", "valid_until"]
         : section === "reporter-directory"
@@ -5906,13 +5907,14 @@ async function openReporterReviewDialog(application, refresh) {
     ]);
     const privateData = result.data || {};
     const options = unwrapData(optionsResult) || {};
+    const reporterTypes = (options.reporter_types || []).filter((item) => item.is_active);
     const designations = (options.reporter_designations || []).filter((item) => item.is_active);
     const details = privateData.details || {};
     const documents = Array.isArray(privateData.documents) ? privateData.documents : [];
     const requestControls = [];
     openFormDialog(
       "Review reporter application",
-      "Review the applicant's details and documents together. If no changes are needed, choose Approve, select a reporter designation, and confirm your authority. Choose Request more information only when you select at least one field and explain the required update.",
+      "Review the applicant's details and documents together. If no changes are needed, assign a reporting category and designation when approving. Choose Request more information only when you select at least one field and explain the required update.",
       (form) => {
         const decisionLabel = makeElement("label", "admin-form-field");
         decisionLabel.append(makeElement("span", "", "Decision"));
@@ -5922,11 +5924,25 @@ async function openReporterReviewDialog(application, refresh) {
         decision.append(new Option("Choose a decision", ""));
         decision.append(new Option("Request more information (select fields below)", "needs_information"));
         const approveOption = new Option("Approve", "approve");
-        approveOption.disabled = designations.length === 0;
+        approveOption.disabled = reporterTypes.length === 0 || designations.length === 0;
         decision.append(approveOption, new Option("Reject", "reject"));
         decisionLabel.append(decision);
         form.append(decisionLabel);
         addField(form, "Review note", "note", "text", "", { required: false, maxLength: 1000 });
+        const categoryField = makeElement("div", "admin-application-designation-field");
+        const categorySelect = appendReporterSelect(
+          categoryField,
+          "reporter_type_id",
+          "Reporting category",
+          reporterTypes,
+          (item) => `${item.name} · Code ${item.type_code}${item.description ? ` · ${item.description}` : ""}`
+        );
+        const currentCategoryId = String(
+          application.reporter_type_id || application.reporter_type?.id || ""
+        );
+        if (reporterTypes.some((item) => String(item.id) === currentCategoryId)) {
+          categorySelect.value = currentCategoryId;
+        }
         const designationField = makeElement("div", "admin-application-designation-field");
         const designationSelect = appendReporterSelect(
           designationField,
@@ -5941,14 +5957,15 @@ async function openReporterReviewDialog(application, refresh) {
         if (designations.some((item) => String(item.id) === currentDesignationId)) {
           designationSelect.value = currentDesignationId;
         }
+        categoryField.hidden = true;
         designationField.hidden = true;
-        form.append(designationField);
+        form.append(categoryField, designationField);
         form.append(makeElement(
           "p",
           "admin-dialog-help",
-          designations.length
-            ? "Required when approving. This is the reporter's position, not an account permission. Its two-digit code is used in the new reporter ID (state-RTO-code-number) and the designation appears in the service agreement."
-            : "No active reporter designations are configured. Add one before approving an application."
+          reporterTypes.length && designations.length
+            ? "Both are required for approval. The reporting category controls the reporter ID category; the designation is the reporter's position shown in the service agreement."
+            : "Add at least one active reporting category and one active reporter designation before approving an application."
         ));
 
         const reviewerName = sessionIdentity?.full_name || sessionIdentity?.name || "Reviewer profile name missing";
@@ -5967,6 +5984,7 @@ async function openReporterReviewDialog(application, refresh) {
           ["Application", `#${application.id} · ${application.status}`],
           ["Applicant", user.full_name || "—"],
           ["Email / account phone", [user.email, user.phone].filter(Boolean).join(" · ") || "—"],
+          ["Current reporting category", application.reporter_type?.name || "Not assigned"],
           ["Applicant confirms details", application.applicant_details_confirmed ? "Yes" : "Not recorded"]
         ].forEach(([label, value]) => {
           reviewDetails.append(makeElement("strong", "", label), makeElement("span", "", value));
